@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": [
+      "ES2020"
+    ],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "resolveJsonModule": true,
+    "jsx": "react-native",
+    "types": [
+      "jest",
+      "node"
+    ]
+  },
+  "include": [
+    "engine",
+    "skins",
+    "components",
+    "App.tsx",
+    "appPersistence.ts",
+    "appPersistence.test.ts"
+  ],
+  "extends": "expo/tsconfig.base"
+}

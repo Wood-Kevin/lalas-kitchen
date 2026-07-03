@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Lala's Kitchen",
+    "slug": "lalas-kitchen",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.kevinw2284.lalaskitchen"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "skinId": "cooking-lalas-kitchen",
+  "pieceTypes": [
+    { "id": "tomato", "sprite": "tomato.webp" },
+    { "id": "lemon", "sprite": "lemon.webp" },
+    { "id": "herb", "sprite": "herb.webp" },
+    { "id": "garlic", "sprite": "garlic.webp" },
+    { "id": "chili", "sprite": "chili.webp" },
+    { "id": "spoon", "sprite": "spoon.webp" }
+  ],
+  "blockers": [
+    { "id": "cling", "sprite": "cling.webp", "hitsToClear": 1 }
+  ],
+  "lives": { "max": 5, "regenMinutes": 30, "icon": "flame.webp" },
+  "animationProfile": {
+    "matchStyle": "popAndShrink",
+    "matchDurationMs": 220,
+    "cascadeFallSpeed": "medium",
+    "swapDurationMs": 140
+  },
+  "palette": {
+    "background": ["#F6D9A8", "#EFC087"],
+    "panel": "#FBF3E1",
+    "accent": "#A83A2E"
+  }
+}
