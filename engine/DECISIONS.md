@@ -1225,3 +1225,92 @@ plain label. The direction is still tracked and enforced in the engine; if
 surfacing it to the player matters, it needs either per-direction art
 (`striped_tomato_row` / `_col`) or a reintroduced subtle indicator. Flagged,
 not decided.
+
+## Color bombs: the second special piece (spawn on 5, detonate on swap)
+
+The second special piece tier. A run of **exactly 5** (row or column) converts
+one of its cells into a `type: 'color_bomb'` piece. Unlike the striped piece,
+which is triggered by *being included in a later match*, a color bomb is
+triggered by **being swapped with any other piece** — and that swap detonates
+every piece on the board sharing the *other* piece's `matchType`. Scoped
+deliberately to straight 5-in-a-line only this session; L/T-shape triggers
+(intersecting runs at a shared point) are real genre content but add real
+complexity and are deferred (see `DEFERRED_COMPLEXITY.md`).
+
+**Why the activation path is genuinely different from striped, not an extension
+of it.** A striped piece resolves entirely inside `resolveCascades` /
+`resolveMatchEffects` — its trigger *is* an ordinary match. A color bomb can't
+work that way: it's colorless (carries no `matchType`, so `matrix.ts`'s
+`piecesMatch` excludes it exactly like a blocker) and it fires on a swap that
+**forms no ordinary match at all**. So the whole feature splits across two
+places: `resolveMatchEffects` only *spawns* the bomb (a `cells.length === 5`
+branch, mirroring the `=== 4` striped branch, both feeding the same in-place
+anchor conversion in `resolveCascades`), while *activation* lives in `applyMove`
+as a distinct branch that runs **before** the no-match snap-back check. That
+ordering is the crux: `applyMove` currently validates a normal swap by calling
+`swapPieces` + `checkMatches` and snapping back (no move spent) if there's no
+resulting match — a color bomb swap has to bypass exactly that, because it's
+always a legal, committed move precisely for *not* relying on a run. Blockers
+are still rejected first, above the bomb branch, so a bomb-with-blocker swap
+snaps back (a blocker is never a valid detonation partner), matching the same
+exclusion `hasLegalMoves` makes.
+
+**`hasLegalMoves` had to learn the bomb is always a move.** Because a bomb swap
+never forms a run, the old "swap then checkMatches" probe would report a board
+whose only move is a bomb swap as *stuck* and shuffle it out from under the
+player. `hasLegalMoves` now short-circuits any candidate pair where either cell
+is a color bomb to `true` (still excluding blocker partners). This matters for
+the same mid-play stuck-board rescue path the striped/blocker work already fed.
+
+**Swapped with another color bomb → clear the whole board.** The design rule
+("clear every piece matching the *other* piece's matchType") is undefined when
+the other piece is itself a colorless bomb. Confirmed with the architect: two
+bombs clear **every non-blocker piece on the board** — the genre-standard, and
+the rarest, most set-up-intensive payoff (a player must build and hold two
+separate 5-matches), which fits this project's skill-earned-reward design
+principle. `resolveColorBomb` keys this off `other.type === 'color_bomb'`.
+
+**One clearing rule for blockers, everywhere — including a full-board
+detonation.** Explicitly confirmed as a consistency requirement: a color bomb
+(single-type *or* whole-board) never force-clears a blocker. The clear set is
+built from non-blocker pieces only; blockers then take normal **adjacent
+damage** through the same `applyAdjacentDamage` call every other mechanism uses,
+which caps at one hit per call. So a two-hit pot lid caught in a detonation
+loses exactly one hit and survives with one remaining — identical to being
+caught in a striped sweep or beside a 3-match. `gameState.test.ts`'s
+whole-board-detonation blocker test proves this end to end.
+
+**Mechanics, mirroring the striped entry above:**
+- **Spawn:** anchor is `positions[0]` of the 5-run, converted **in place**
+  (keeps its `id` so the presentation diff sees a piece that stayed put, not a
+  spawn), but **drops** `matchType`/`direction` — a bomb is colorless. A 5-run
+  therefore credits **4** toward objectives (the anchor became the bomb, it
+  wasn't cleared), and the detonation pays out later.
+- **Activation (`resolveColorBomb`):** neither cell is physically swapped first
+  — both the bomb and its partner clear regardless, so the swap is cosmetically
+  irrelevant. It clears the bomb + all matching (or all non-blocker, for
+  two-bomb) cells, applies adjacent damage, counts every cleared cell by
+  `matchType` (the bomb itself counts as `'unknown'`), refills, then hands the
+  refilled board to the ordinary `resolveCascades` so any chain matches the
+  refill creates still cascade normally. Returns the exact same
+  `{ board, cascadeCount, clearedByMatchType, steps }` shape `resolveCascades`
+  does, so `applyMove` treats both move kinds identically from there on.
+- **A bomb caught in *another* effect just clears, it doesn't fire.** A striped
+  sweep or another detonation that happens to clear a bomb's cell removes it
+  without recursively detonating — same "chaining is deferred" scope decision
+  the striped sweep already made.
+
+**Rendering: fixed placeholder filename with the standard fallback.**
+`components/spriteMap.ts`'s `getSpriteForPiece` special-cases
+`type === 'color_bomb'` to a single fixed `'color_bomb'` sprite key (an engine
+piece-type name, not a skin flavor — the leak test holds exactly as it does for
+the `striped_` branch). With no registry entry yet it falls through to the same
+`spriteLabel` text-label placeholder every un-arted piece uses ("CO"); real art
+is one `spriteRegistry.ts` line, zero code changes. Verified live — see
+`docs/verification/color-bomb/`.
+
+**Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** only exactly-5
+straight runs spawn a bomb (6+ still clears normally); L/T-shape triggers,
+bomb+striped combos (converting a color to striped and detonating), and sweep
+chaining are all still deferred — keeping the second special piece bounded and
+correct rather than half-building the genre's whole combo tree.

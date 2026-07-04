@@ -32,6 +32,14 @@ export function getSpriteForPiece(
   piece: { type: string; matchType?: string },
   config: SkinConfig
 ): string | undefined {
+  // A color bomb is colorless (no matchType), so it can't derive a sprite from
+  // one like every other piece. It resolves to a single fixed 'color_bomb'
+  // filename instead — an engine piece-type, not a skin flavor name, so the
+  // leak test holds exactly as it does for the 'striped' branch below. With no
+  // registry entry yet it falls through to resolveSpriteAsset's text-label
+  // placeholder ("CO"), same graceful fallback every un-arted piece gets;
+  // dropping in real art is one spriteRegistry.ts line, zero code changes.
+  if (piece.type === 'color_bomb') return 'color_bomb';
   const base = getSpriteForMatchType(piece.matchType, config);
   if (piece.type === 'striped' && base !== undefined) return `striped_${base}`;
   return base;

@@ -196,30 +196,43 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
   return next;
 }
 
+// The special piece an anchor cell is converted into this pass. A striped
+// piece carries its sweep direction; a color bomb carries nothing (it's
+// colorless — see matrix.ts's Piece comment). Kept as a discriminated union
+// so resolveCascades builds each target piece correctly without a second
+// lookup, and so adding a future special type is one more variant here.
+type AnchorSpec =
+  | { kind: 'striped'; direction: StripeDirection }
+  | { kind: 'color_bomb' };
+
 // Decides what each of this pass's matches actually does — the one place the
-// striped-piece rules live:
+// special-piece spawn rules live:
 //  - a match that CONTAINS a striped piece triggers it, sweeping that piece's
 //    whole row or column (per its `direction`) into the clear set, plus the
 //    ordinary match cells;
 //  - a fresh 4-long run of ordinary pieces CONVERTS one cell into a striped
 //    piece carrying the run's orientation as its clear direction, and clears
 //    the other three;
-//  - anything else (a plain 3-match, or a 5+ run — longer specials aren't in
-//    scope this session, see DEFERRED_COMPLEXITY.md) clears every cell.
+//  - a fresh 5-long run CONVERTS one cell into a color bomb and clears the
+//    other four. (A color bomb doesn't act here — it only fires when the
+//    player swaps it, handled in applyMove. This branch just spawns it.);
+//  - anything else (a plain 3-match, or a 6+ run — L/T-shape triggers and
+//    longer specials aren't in scope this session, see DEFERRED_COMPLEXITY.md)
+//    clears every cell.
 // Blockers are never added to the clear set here: they only ever fall to
 // adjacent damage (applyAdjacentDamage), so a striped sweep across a blocker
 // still respects its hitsRemaining rather than force-clearing it. Pure —
 // reads `board`, mutates nothing, returns the cells to gap and the anchor
-// cells to turn striped.
+// cells to convert into special pieces.
 function resolveMatchEffects(
   board: Board,
   matches: Match[]
-): { clearedPositions: Position[]; anchors: Array<{ pos: Position; direction: StripeDirection }> } {
+): { clearedPositions: Position[]; anchors: Array<{ pos: Position } & AnchorSpec> } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keyOf = (r: number, c: number): string => `${r},${c}`;
   const clearedKeys = new Set<string>();
-  const anchorByKey = new Map<string, StripeDirection>();
+  const anchorByKey = new Map<string, AnchorSpec>();
 
   const addClear = (r: number, c: number): void => {
     if (board[r][c].type !== 'blocker') clearedKeys.add(keyOf(r, c));
@@ -244,17 +257,21 @@ function resolveMatchEffects(
         }
       }
       for (const p of cells) addClear(p.row, p.col);
+    } else if (cells.length === 5) {
+      const anchor = cells[0];
+      anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'color_bomb' });
+      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
     } else if (cells.length === 4) {
       const anchor = cells[0];
-      anchorByKey.set(keyOf(anchor.row, anchor.col), match.orientation);
+      anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'striped', direction: match.orientation });
       for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
     } else {
       for (const p of cells) addClear(p.row, p.col);
     }
   }
 
-  // A cell chosen to become a striped piece is never also gapped, even if an
-  // overlapping match added it to the clear set — the striped piece wins.
+  // A cell chosen to become a special piece is never also gapped, even if an
+  // overlapping match added it to the clear set — the special piece wins.
   for (const k of anchorByKey.keys()) clearedKeys.delete(k);
 
   const parseKey = (k: string): Position => {
@@ -263,7 +280,7 @@ function resolveMatchEffects(
   };
   return {
     clearedPositions: [...clearedKeys].map(parseKey),
-    anchors: [...anchorByKey.entries()].map(([k, direction]) => ({ pos: parseKey(k), direction })),
+    anchors: [...anchorByKey.entries()].map(([k, spec]) => ({ pos: parseKey(k), ...spec })),
   };
 }
 
@@ -310,20 +327,103 @@ function resolveCascades(
     }
 
     const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
-    // Convert each anchor cell in place: the ordinary piece there keeps its
-    // id and matchType (so it still matches its own type and the presentation
-    // diff sees a piece that stayed put, not a new spawn) and gains the
-    // striped type plus its clear direction. It survives this pass's gravity
-    // and falls like any other piece.
-    for (const { pos, direction } of anchors) {
-      const base = currentBoard[pos.row][pos.col];
-      withGaps[pos.row][pos.col] = { ...base, type: 'striped', direction };
+    // Convert each anchor cell in place. It keeps its id (so the presentation
+    // diff sees a piece that stayed put, not a new spawn) and survives this
+    // pass's gravity like any other piece.
+    //  - striped: keeps its matchType too (it's still a matchable piece of its
+    //    own type until swept) and gains the type + clear direction.
+    //  - color_bomb: drops matchType/direction entirely — it's colorless and
+    //    can never form an ordinary run (see matrix.ts's piecesMatch), it only
+    //    fires when swapped (applyMove).
+    for (const anchor of anchors) {
+      const base = currentBoard[anchor.pos.row][anchor.pos.col];
+      withGaps[anchor.pos.row][anchor.pos.col] =
+        anchor.kind === 'striped'
+          ? { ...base, type: 'striped', direction: anchor.direction }
+          : { id: base.id, type: 'color_bomb' };
     }
     currentBoard = calculateCascades(withGaps, spawnPiece);
     steps.push(currentBoard);
   }
 
   return { board: currentBoard, cascadeCount, clearedByMatchType, steps };
+}
+
+// Activates a color bomb swap — a genuinely different mechanism from a normal
+// match (which resolveCascades drives). A color bomb doesn't clear by forming
+// a run; it detonates the instant it's swapped:
+//  - swapped with an ordinary/striped piece: clear every non-blocker piece
+//    sharing that piece's matchType (including the swapped piece itself and
+//    the bomb), regardless of whether a run would have formed;
+//  - swapped with ANOTHER color bomb (the rarest, most set-up-intensive play,
+//    confirmed with the architect): clear every non-blocker piece on the whole
+//    board.
+// Either way blockers are NOT force-cleared — they only ever take normal
+// adjacent damage from the cells that clear around them (applyAdjacentDamage),
+// exactly as they do for an ordinary match or a striped sweep, so a two-hit
+// blocker genuinely still needs two hits no matter what triggers the clear.
+// After the detonation clears + refills, any chain matches the refill creates
+// resolve through the ordinary resolveCascades path, so bomb combos still
+// cascade normally. Returns the same shape resolveCascades does, so applyMove
+// treats both move kinds identically from here on. `bombPos` is where the
+// swapped bomb sits; `otherPos` is the piece it was swapped with. Neither is
+// physically swapped first — both cells clear regardless, so the swap itself
+// is cosmetically irrelevant.
+function resolveColorBomb(
+  board: Board,
+  bombPos: Position,
+  otherPos: Position,
+  spawnPiece: () => Piece
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const other = board[otherPos.row][otherPos.col];
+  const detonateWholeBoard = other.type === 'color_bomb';
+  const targetMatchType = other.matchType;
+
+  const clearedPositions: Position[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const piece = board[r][c];
+      // Blockers only ever fall to adjacent damage, never a direct clear.
+      if (piece.type === 'blocker') continue;
+      const isBomb = r === bombPos.row && c === bombPos.col;
+      const matchesTarget =
+        piece.type !== 'color_bomb' && targetMatchType !== undefined && piece.matchType === targetMatchType;
+      if (detonateWholeBoard || isBomb || matchesTarget) {
+        clearedPositions.push({ row: r, col: c });
+      }
+    }
+  }
+
+  const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, clearedPositions);
+
+  const clearedByMatchType: Record<string, number> = {};
+  for (const pos of clearedPositions) {
+    const key = board[pos.row][pos.col].matchType ?? 'unknown';
+    clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
+  }
+  for (const pos of newlyClearedBlockers) {
+    const key = damagedBoard[pos.row][pos.col].matchType ?? 'unknown';
+    clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
+  }
+
+  const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
+  const firstBoard = calculateCascades(withGaps, spawnPiece);
+
+  // The detonation itself is the first beat; any matches its refill creates
+  // chain through the ordinary cascade loop, so combos still resolve normally.
+  const chained = resolveCascades(firstBoard, spawnPiece);
+  for (const [matchType, count] of Object.entries(chained.clearedByMatchType)) {
+    clearedByMatchType[matchType] = (clearedByMatchType[matchType] ?? 0) + count;
+  }
+
+  return {
+    board: chained.board,
+    cascadeCount: 1 + chained.cascadeCount,
+    clearedByMatchType,
+    steps: [firstBoard, ...chained.steps],
+  };
 }
 
 // Fires when a single move triggers this many chained cascades or more.
@@ -336,23 +436,38 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
 
   // Blockers aren't swappable at all — moving one out of its cell would
   // dodge the adjacent-damage mechanic entirely, so this is rejected the
-  // same way a no-match swap is: snap back, no move spent, no events.
+  // same way a no-match swap is: snap back, no move spent, no events. Checked
+  // before the color-bomb branch below so a bomb-with-blocker swap is rejected
+  // too (a blocker is never a valid detonation partner), matching the same
+  // exclusion hasLegalMoves makes.
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
     return { state, events: [], steps: [] };
   }
 
-  const swapped = swapPieces(state.board, posA, posB);
-  if (checkMatches(swapped).length === 0) {
-    // Illegal move: no match, snap back. No move spent, no state change.
-    return { state, events: [], steps: [] };
+  // A color bomb activates on the swap itself, NOT by forming a match — so it
+  // bypasses the no-match snap-back check below entirely (a bomb swap is always
+  // a legal, committed move). This is the one genuinely different activation
+  // path from every other piece, which resolves via a resulting match.
+  const bombInvolved = pieceA.type === 'color_bomb' || pieceB.type === 'color_bomb';
+  let resolved: { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] };
+  if (bombInvolved) {
+    // Identify which cell is the bomb being swapped; if both are bombs either
+    // assignment works (resolveColorBomb detonates the whole board regardless).
+    const bombPos = pieceA.type === 'color_bomb' ? posA : posB;
+    const otherPos = pieceA.type === 'color_bomb' ? posB : posA;
+    resolved = resolveColorBomb(state.board, bombPos, otherPos, state.spawnPiece);
+  } else {
+    const swapped = swapPieces(state.board, posA, posB);
+    if (checkMatches(swapped).length === 0) {
+      // Illegal move: no match, snap back. No move spent, no state change.
+      return { state, events: [], steps: [] };
+    }
+    resolved = resolveCascades(swapped, state.spawnPiece);
   }
 
-  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps } = resolveCascades(
-    swapped,
-    state.spawnPiece
-  );
+  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps } = resolved;
 
   // A settled cascade can leave a board with zero legal moves — confirmed
   // during real mobile playtesting as a genuine mid-play stuck state, not

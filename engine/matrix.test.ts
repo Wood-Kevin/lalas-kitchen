@@ -17,6 +17,10 @@ function blockerPiece(matchType: string, id: string, hitsRemaining: number): Pie
   return { id, type: 'blocker', matchType, hitsRemaining };
 }
 
+function colorBombPiece(id: string): Piece {
+  return { id, type: 'color_bomb' };
+}
+
 function buildBoard(letters: string[][]): Board {
   return letters.map((row, r) => row.map((matchType, c) => piece(matchType, `${r}-${c}`)));
 }
@@ -287,6 +291,36 @@ describe('blockers — hasLegalMoves excludes them as swap candidates', () => {
       [blockerPiece('Z', 'blk', 1), piece('D', 'd0'), piece('E', 'e0')],
     ];
 
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+});
+
+describe('color bombs — excluded from runs, always a legal move', () => {
+  test('a color bomb sitting between two equal-matchType runs breaks the run instead of joining it', () => {
+    // Same exclusion a blocker gets: without it this would read as a 4-run of
+    // 'A'. A color bomb is colorless and never participates in an ordinary run.
+    const board: Board = [
+      [piece('A', 'a0'), piece('A', 'a1'), colorBombPiece('cb'), piece('A', 'a2')],
+    ];
+
+    expect(checkMatches(board)).toEqual([]);
+  });
+
+  test('a color bomb makes an otherwise-stuck board report a legal move', () => {
+    // This 3x3 Latin square has no ordinary matching swap anywhere (it's the
+    // exact stuck board the shuffle test uses).
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['C', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(false);
+
+    // Swapping the center for a color bomb changes only one thing: a bomb swap
+    // is always legal (it activates on the swap, not by forming a run), so the
+    // board is no longer stuck — proving the color bomb, not some incidental
+    // new run, is what makes the move legal.
+    board[1][1] = colorBombPiece('cb');
     expect(hasLegalMoves(board)).toBe(true);
   });
 });

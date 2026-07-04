@@ -1,4 +1,4 @@
-export type PieceType = 'normal' | 'striped' | 'blocker';
+export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb';
 
 // Which line a striped piece clears when it's matched (see gameState.ts's
 // resolveCascades). A separate 'row'/'col' field rather than two piece types
@@ -19,6 +19,11 @@ export interface Piece {
   // the next time it's matched. Same optional-field-by-type pattern as
   // hitsRemaining above.
   direction?: StripeDirection;
+  // A 'color_bomb' piece (spawned by a 5-in-a-row/column, see gameState.ts's
+  // resolveMatchEffects) carries NO matchType, direction, or hitsRemaining —
+  // it's colorless by design, so it can never form an ordinary run
+  // (piecesMatch excludes it, like a blocker). It activates only by being
+  // swapped, handled entirely in gameState.ts's applyMove, not here.
 }
 
 export type Board = Piece[][];
@@ -43,9 +48,14 @@ export interface Match {
 // with no matchType can never form a run. Blockers are excluded outright
 // regardless of matchType — a blocker carries a matchType purely so its
 // clears can be counted toward an objective (see gameState.ts's
-// resolveCascades), not so it can participate in a run.
+// resolveCascades), not so it can participate in a run. A color bomb is
+// excluded the same way: it's colorless (no matchType) and only ever acts by
+// being swapped (see gameState.ts's applyMove), never by joining a run — this
+// guard makes that true even if a bomb ever ends up adjacent to same-typed
+// pieces around it.
 function piecesMatch(a: Piece, b: Piece): boolean {
   if (a.type === 'blocker' || b.type === 'blocker') return false;
+  if (a.type === 'color_bomb' || b.type === 'color_bomb') return false;
   return a.matchType !== undefined && a.matchType === b.matchType;
 }
 
@@ -230,20 +240,32 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // would itself be an illegal move (see gameState.ts's applyMove), so a
 // pair involving one must never be reported as "legal" here even if the
 // resulting board would otherwise contain a run.
+//
+// A color bomb is the opposite: a swap involving one is ALWAYS legal, because
+// it activates on the swap itself regardless of whether a run forms (see
+// gameState.ts's applyMove). So a bomb next to any non-blocker neighbour is a
+// legal move even when swapPieces + checkMatches would find nothing — without
+// this, a board whose only move is a bomb swap would be wrongly judged stuck
+// and shuffled out from under the player.
 export function hasLegalMoves(board: Board): boolean {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
+
+  const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
+    if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
+    return checkMatches(swapped).length > 0;
+  };
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (board[r][c].type === 'blocker') continue;
       if (c + 1 < cols && board[r][c + 1].type !== 'blocker') {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r, col: c + 1 });
-        if (checkMatches(swapped).length > 0) return true;
+        if (legalPair(board[r][c], board[r][c + 1], swapped)) return true;
       }
       if (r + 1 < rows && board[r + 1][c].type !== 'blocker') {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r + 1, col: c });
-        if (checkMatches(swapped).length > 0) return true;
+        if (legalPair(board[r][c], board[r + 1][c], swapped)) return true;
       }
     }
   }

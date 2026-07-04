@@ -85,4 +85,22 @@ describe('getSpriteForPiece', () => {
     expect(herbSprite).toBe('striped_herb.webp');
     expect(resolveSpriteAsset(herbSprite, assets)).toEqual({ kind: 'label', label: 'ST' });
   });
+
+  test('a color bomb resolves to the fixed color_bomb sprite regardless of matchType', () => {
+    // Colorless: it has no matchType to derive a sprite from, so it maps to a
+    // single fixed engine-type filename, not a per-flavor one (the leak test
+    // holds — no skin piece name appears). An undefined matchType (its real
+    // shape) resolves the same as any stray value would.
+    expect(getSpriteForPiece({ type: 'color_bomb' }, sampleConfig)).toBe('color_bomb');
+    expect(getSpriteForPiece({ type: 'color_bomb', matchType: 'tomato' }, sampleConfig)).toBe('color_bomb');
+  });
+
+  test('a color bomb with no registered art falls back to the text-label placeholder', () => {
+    // The same graceful fallback every un-arted piece gets — never a crash or
+    // blank tile. Real art is one spriteRegistry.ts line ('color_bomb.webp'),
+    // zero code changes.
+    const emptyAssets = {} as unknown as Parameters<typeof resolveSpriteAsset>[1];
+    const bombSprite = getSpriteForPiece({ type: 'color_bomb' }, sampleConfig);
+    expect(resolveSpriteAsset(bombSprite, emptyAssets)).toEqual({ kind: 'label', label: 'CO' });
+  });
 });

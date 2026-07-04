@@ -519,6 +519,193 @@ describe('applyMove — striped pieces', () => {
   });
 });
 
+describe('applyMove — color bombs', () => {
+  const countColorBomb = (board: Board): number =>
+    board.flat().filter((p) => p.type === 'color_bomb').length;
+  const findById = (board: Board, id: string): Piece | undefined =>
+    board.flat().find((p) => p.id === id);
+  const countMatchType = (board: Board, matchType: string): number =>
+    board.flat().filter((p) => p.matchType === matchType).length;
+
+  test('a 5-in-a-row spawns exactly one color bomb (not ordinary or striped) and clears the other four', () => {
+    // Swapping (0,2) and (1,2) lines up row 0 into A,A,A,A,A — a run of exactly
+    // five, which converts its anchor into a color bomb rather than a striped
+    // piece (a 4-run) or a plain full clear (a 3-run).
+    const board = buildBoard([
+      ['A', 'A', 'W', 'A', 'A', 'X'],
+      ['P', 'Q', 'A', 'R', 'S', 'T'],
+      ['B', 'C', 'D', 'E', 'F', 'G'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // Exactly one color bomb, at the run's anchor cell — and it is NOT a
+    // striped piece (the 4-run outcome) sitting alongside it.
+    expect(countColorBomb(result.state.board)).toBe(1);
+    const bomb = result.state.board[0][0];
+    expect(bomb.type).toBe('color_bomb');
+    expect(bomb.id).toBe('0-0'); // kept the id of the cell it was converted from
+    // Colorless by design: no matchType (so it can't form an ordinary run) and
+    // no striped `direction`.
+    expect(bomb.matchType).toBeUndefined();
+    expect(bomb.direction).toBeUndefined();
+    expect(result.state.board.flat().filter((p) => p.type === 'striped')).toHaveLength(0);
+
+    // Only the other four cells of the run cleared (the anchor became the bomb,
+    // it wasn't cleared), so the objective credits 4, not 5.
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(checkMatches(result.state.board)).toEqual([]);
+  });
+
+  test('swapping a color bomb with a piece clears every piece of that type across the whole board', () => {
+    // A color bomb at (1,1) and seven 'A's scattered everywhere on the board.
+    // Swapping the bomb with the adjacent 'A' at (1,2) must clear ALL seven,
+    // not just ones near the bomb — the defining color-bomb behavior.
+    const board = buildBoard([
+      ['A', 'B', 'C', 'A', 'D'],
+      ['E', 'Z', 'A', 'F', 'A'],
+      ['A', 'G', 'H', 'I', 'A'],
+      ['J', 'K', 'A', 'L', 'M'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // Eight cells clear (seven A's + the bomb); a generous unique queue so no
+      // incidental cascade forms and spawns never exhaust.
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // Every 'A' anywhere on the board is gone, and the bomb consumed itself.
+    expect(countMatchType(result.state.board, 'A')).toBe(0);
+    expect(countColorBomb(result.state.board)).toBe(0);
+    // All seven A's counted toward the objective (the bomb itself is colorless,
+    // so it credits nothing).
+    expect(result.state.objectives[0].currentCount).toBe(7);
+    // A real, committed move: a move was spent and state advanced.
+    expect(result.state).not.toBe(state);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a color bomb swap is legal even when it forms no ordinary match — it bypasses the snap-back', () => {
+    // The architectural crux: an ordinary swap forming no run snaps back with
+    // no move spent. This swap forms no run of ANY type (every piece around the
+    // bomb is unique, only one 'A' exists), yet the bomb still detonates and
+    // the move commits — proving the color bomb bypasses the match validation.
+    const board = buildBoard([
+      ['B', 'C', 'D'],
+      ['E', 'Z', 'A'],
+      ['F', 'G', 'H'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // Not a snap-back: a distinct state, a move spent, the lone 'A' cleared.
+    expect(result.state).not.toBe(state);
+    expect(result.state.movesRemaining).toBe(9);
+    expect(countMatchType(result.state.board, 'A')).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.steps.length).toBeGreaterThan(0);
+  });
+
+  test('swapping a color bomb with another color bomb clears the entire board', () => {
+    // Two adjacent color bombs — the rarest, most set-up-intensive play.
+    // Swapping them detonates every non-blocker piece on the board.
+    const board = buildBoard([
+      ['B', 'C', 'D'],
+      ['E', 'M', 'N'],
+      ['F', 'G', 'H'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    board[1][2] = { id: board[1][2].id, type: 'color_bomb' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'B', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // All nine cells clear; unique spawns so the refilled board forms no
+      // incidental match.
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // Every original piece is gone (whole-board clear), both bombs consumed.
+    const originalIds = board.flat().map((p) => p.id);
+    for (const id of originalIds) {
+      expect(findById(result.state.board, id)).toBeUndefined();
+    }
+    expect(countColorBomb(result.state.board)).toBe(0);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a two-hit blocker caught in a whole-board detonation takes one hit, not a force-clear', () => {
+    // Consistency rule (confirmed with the architect): a blocker is never
+    // force-cleared by ANY mechanism — it only takes normal adjacent damage.
+    // A two-hit blocker sitting in a full detonation survives with one hit
+    // left, exactly as it would beside an ordinary 3-match or a striped sweep.
+    const board = buildBoard([
+      ['B', 'C', 'D'],
+      ['E', 'M', 'N'],
+      ['F', 'G', 'H'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    board[1][2] = { id: board[1][2].id, type: 'color_bomb' };
+    // A two-hit pot-lid-style blocker at (2,1), adjacent to cells that clear.
+    board[2][1] = { id: board[2][1].id, type: 'blocker', matchType: 'lid', hitsRemaining: 2 };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'lid', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // The blocker survives, decremented by exactly one — not cleared.
+    const lid = findById(result.state.board, '2-1');
+    expect(lid?.type).toBe('blocker');
+    expect(lid?.hitsRemaining).toBe(1);
+    // It didn't clear, so it credited nothing toward its own objective.
+    expect(result.state.objectives[0].currentCount).toBe(0);
+  });
+});
+
 describe('applyMove — mid-play stuck board recovery', () => {
   // Reproduces a genuine mid-play stuck board (confirmed via real mobile
   // playtesting, not a visual miscount): a cascade can settle into a board
