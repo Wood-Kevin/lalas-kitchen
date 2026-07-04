@@ -6,7 +6,7 @@ import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
 
 export interface HudProps {
-  objective: Objective;
+  objectives: Objective[];
   movesRemaining: number;
   lives: number;
   config: SkinConfig;
@@ -16,11 +16,7 @@ export interface HudProps {
 // Flat panels, no decorative frame — per CLAUDE.md's design constraints,
 // every pixel spent on chrome here is a pixel not spent on tile size (and
 // tap accuracy) for the actual board.
-export function Hud({ objective, movesRemaining, lives, config, spriteAssets }: HudProps) {
-  const targetSprite = resolveSpriteAsset(
-    getSpriteForMatchType(objective.targetMatchType, config),
-    spriteAssets
-  );
+export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }: HudProps) {
   // config.lives.icon is a sprite reference with the same shape as a
   // pieceTypes entry (see lalas-kitchen-build-spec.md), so it goes through
   // the exact same resolveSpriteAsset() pipeline as any board piece —
@@ -30,12 +26,27 @@ export function Hud({ objective, movesRemaining, lives, config, spriteAssets }: 
   return (
     <View style={styles.row}>
       <Panel config={config} label="Target">
-        <View style={styles.glyphRow}>
-          <Glyph sprite={targetSprite} color={config.palette.accent} />
-          <Text style={styles.value}>
-            {objective.currentCount}/{objective.targetCount}
-          </Text>
-        </View>
+        {/* One icon+count pair per objective, stacked — a single-objective
+            level (still every hand-built level today) renders exactly the
+            one row this panel always has, so this isn't a visual change
+            unless a level actually has more than one. */}
+        {objectives.map((objective, index) => {
+          const targetSprite = resolveSpriteAsset(
+            getSpriteForMatchType(objective.targetMatchType, config),
+            spriteAssets
+          );
+          return (
+            <View
+              key={objective.targetMatchType}
+              style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
+            >
+              <Glyph sprite={targetSprite} color={config.palette.accent} />
+              <Text style={styles.value}>
+                {objective.currentCount}/{objective.targetCount}
+              </Text>
+            </View>
+          );
+        })}
       </Panel>
       <Panel config={config} label="Moves">
         <Text style={styles.value}>{movesRemaining}</Text>
@@ -101,6 +112,9 @@ const styles = StyleSheet.create({
   glyphRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  glyphRowSpacing: {
+    marginTop: 4,
   },
   glyphImage: {
     width: 18,

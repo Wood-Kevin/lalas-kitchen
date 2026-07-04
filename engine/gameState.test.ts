@@ -42,7 +42,7 @@ describe('applyMove — full playthrough', () => {
       board,
       movesRemaining: 10,
       lives: 5,
-      objective: { type: 'collect', targetMatchType: 'A', targetCount: 6, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 6, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -57,7 +57,7 @@ describe('applyMove — full playthrough', () => {
     // Move 2: swap (0,2) and (1,2) completes a 3-run of 'A' in row 0.
     const move2 = applyMove(illegalResult.state, { row: 0, col: 2 }, { row: 1, col: 2 });
     expect(move2.state.movesRemaining).toBe(9);
-    expect(move2.state.objective.currentCount).toBe(3);
+    expect(move2.state.objectives[0].currentCount).toBe(3);
     expect(move2.state.status).toBe('in_progress');
     expect(move2.events).toEqual([]);
     expect(move2.state.board.map((row) => row.map((p) => p.matchType))).toEqual([
@@ -72,7 +72,7 @@ describe('applyMove — full playthrough', () => {
     // reaching the objective target of 6 and winning the level.
     const move3 = applyMove(move2.state, { row: 3, col: 2 }, { row: 4, col: 2 });
     expect(move3.state.movesRemaining).toBe(8);
-    expect(move3.state.objective.currentCount).toBe(6);
+    expect(move3.state.objectives[0].currentCount).toBe(6);
     expect(move3.state.status).toBe('won');
     expect(move3.events).toEqual([
       { type: 'level_summary', outcome: 'won', reason: null, clearedByMatchType: { A: 6 } },
@@ -93,7 +93,7 @@ describe('applyMove — moves exhausted', () => {
       board,
       movesRemaining: 1,
       lives: 5,
-      objective: { type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -133,7 +133,7 @@ describe('applyMove — moves exhausted', () => {
       board,
       movesRemaining: 5,
       lives: 5,
-      objective: { type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -161,7 +161,7 @@ describe('applyMove — moves exhausted', () => {
       board,
       movesRemaining: 1,
       lives: 0,
-      objective: { type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -189,7 +189,7 @@ describe('applyMove — combo streak', () => {
       lives: 5,
       // Objective set to something this move never touches, so it doesn't
       // also trigger a win/paused event and muddy the combo assertion.
-      objective: { type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -260,7 +260,7 @@ describe('applyMove — mid-play stuck board recovery', () => {
       lives: 5,
       // Never touched by this move, so it can't also trigger a win/pause
       // and muddy the stuck-board assertion.
-      objective: { type: 'collect', targetMatchType: 'Z', targetCount: 100, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'Z', targetCount: 100, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -304,7 +304,7 @@ describe('applyMove — blockers', () => {
       board,
       movesRemaining: 10,
       lives: 5,
-      objective: { type: 'collect', targetMatchType: 'K', targetCount: 1, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'K', targetCount: 1, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -319,9 +319,9 @@ describe('applyMove — blockers', () => {
     expect(checkMatches(result.state.board)).toEqual([]);
 
     // The clear counted toward the objective via clearedByMatchType, using
-    // the exact same single-Objective machinery every other match already
+    // the exact same Objective machinery every other match already
     // uses — no new objective architecture needed for this to work.
-    expect(result.state.objective.currentCount).toBe(1);
+    expect(result.state.objectives[0].currentCount).toBe(1);
     expect(result.state.status).toBe('won');
     expect(result.events).toEqual([
       {
@@ -350,7 +350,7 @@ describe('applyMove — blockers', () => {
       lives: 5,
       // Not 'K' and not reachable this session — keeps this test's
       // assertions purely about the hit counter, not objective/win state.
-      objective: { type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -389,7 +389,7 @@ describe('applyMove — blockers', () => {
       board,
       movesRemaining: 10,
       lives: 5,
-      objective: { type: 'collect', targetMatchType: 'K', targetCount: 5, currentCount: 0 },
+      objectives: [{ type: 'collect', targetMatchType: 'K', targetCount: 5, currentCount: 0 }],
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
@@ -402,6 +402,86 @@ describe('applyMove — blockers', () => {
   });
 });
 
+describe('applyMove — multiple objectives', () => {
+  test('meeting only one of two objectives does not win the level', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B'],
+      ['B', 'C', 'A'],
+      ['C', 'B', 'C'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [
+        { type: 'collect', targetMatchType: 'A', targetCount: 3, currentCount: 0 },
+        { type: 'collect', targetMatchType: 'B', targetCount: 3, currentCount: 0 },
+      ],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['X1', 'X2', 'X3']),
+    };
+
+    // Swapping (0,2) and (1,2) completes a 3-run of 'A' in row 0 — the
+    // swapped-away 'B' at (0,2) never clears, so the second objective stays
+    // untouched at 0.
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.objectives[1].currentCount).toBe(0);
+    // The 'A' objective alone reaching its target must not be enough — the
+    // level stays in progress until every objective is met.
+    expect(result.state.status).toBe('in_progress');
+    expect(result.events).toEqual([]);
+  });
+
+  test('meeting every objective in a single move wins the level', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['Y', 'Z', 'A'],
+      ['B', 'B', 'B'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [
+        { type: 'collect', targetMatchType: 'A', targetCount: 3, currentCount: 0 },
+        { type: 'collect', targetMatchType: 'B', targetCount: 3, currentCount: 0 },
+      ],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // 6 fresh, mutually-distinct fillers for the 6 cells row 0 and row 2
+      // vacate (Y/Z/X — row 1's survivors — simply fall to row 2, needing no
+      // spawn of their own) — distinct from Y/Z/X and each other so no
+      // accidental second-generation match can form regardless of fill order.
+      spawnPiece: queueSpawnPiece(['P1', 'P2', 'P3', 'P4', 'P5', 'P6']),
+    };
+
+    // Swapping (0,2) and (1,2) completes a 3-run of 'A' in row 0. Row 2 is
+    // already a pre-formed 3-run of 'B', entirely untouched by the swap —
+    // checkMatches scans the whole board, not just around the swapped
+    // cells, so both matches clear in the very same move.
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.objectives[1].currentCount).toBe(3);
+    expect(result.state.status).toBe('won');
+    expect(result.events).toEqual([
+      {
+        type: 'level_summary',
+        outcome: 'won',
+        reason: null,
+        clearedByMatchType: { A: 3, B: 3 },
+      },
+    ]);
+  });
+});
+
 describe('createGameState', () => {
   test('wires generateLevel into a fresh GameState with zero accidental matches', () => {
     const state = createGameState({
@@ -411,19 +491,41 @@ describe('createGameState', () => {
       pieceTypeIds: ['A', 'B', 'C', 'D'],
       movesLimit: 20,
       lives: 5,
-      objective: { targetMatchType: 'A', targetCount: 12 },
+      objectives: [{ targetMatchType: 'A', targetCount: 12 }],
     });
 
     expect(state.status).toBe('in_progress');
-    expect(state.objective).toEqual({
-      type: 'collect',
-      targetMatchType: 'A',
-      targetCount: 12,
-      currentCount: 0,
-    });
+    expect(state.objectives).toEqual([
+      {
+        type: 'collect',
+        targetMatchType: 'A',
+        targetCount: 12,
+        currentCount: 0,
+      },
+    ]);
     expect(state.board).toHaveLength(6);
     expect(state.board[0]).toHaveLength(6);
     expect(checkMatches(state.board)).toEqual([]);
+  });
+
+  test('wires multiple objectives into a fresh GameState, each starting at currentCount 0', () => {
+    const state = createGameState({
+      seed: 7,
+      rows: 6,
+      cols: 6,
+      pieceTypeIds: ['A', 'B', 'C', 'D'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [
+        { targetMatchType: 'A', targetCount: 12 },
+        { targetMatchType: 'B', targetCount: 8 },
+      ],
+    });
+
+    expect(state.objectives).toEqual([
+      { type: 'collect', targetMatchType: 'A', targetCount: 12, currentCount: 0 },
+      { type: 'collect', targetMatchType: 'B', targetCount: 8, currentCount: 0 },
+    ]);
   });
 });
 
@@ -449,5 +551,33 @@ describe('save/load round trip', () => {
     const storage = createInMemoryStorage();
     const loaded = await loadSave('never-saved', storage);
     expect(loaded).toBeNull();
+  });
+
+  // SaveData.itemsCollected is keyed by matchType and has no structural tie
+  // to GameState.objectives (it's a separate, always-empty-in-V1 field — see
+  // appPersistence.ts's buildSaveData) — this confirms the Objective array
+  // change didn't accidentally couple the two: a save recording progress for
+  // both of a two-objective level's matchTypes round-trips exactly as any
+  // other itemsCollected value would.
+  test('itemsCollected round-trips correctly for a save touching a multi-objective level', async () => {
+    const storage = createInMemoryStorage();
+    const data: SaveData = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 5,
+      lives: 4,
+      livesLastRegenAt: 1700000000000,
+      // Keyed by the same two targetMatchTypes a two-objective level's
+      // GameState.objectives would carry (see the 'multiple objectives'
+      // describe block above), but this dict's shape/round-trip behavior
+      // is entirely independent of how many objectives the level has.
+      itemsCollected: { tomato: 21, lemon: 9 },
+      powerUpCounts: {},
+    };
+
+    await saveProgress('lalas-kitchen', data, storage);
+    const loaded = await loadSave('lalas-kitchen', storage);
+
+    expect(loaded).toEqual(data);
+    expect(loaded?.itemsCollected).toEqual({ tomato: 21, lemon: 9 });
   });
 });

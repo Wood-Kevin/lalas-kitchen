@@ -11,6 +11,7 @@ import {
   findBlockerMatchType,
   generatedLevelSeed,
   generatedMovesLimit,
+  generatedObjectiveCount,
   generatedPieceTypeCount,
   generatedTargetCount,
   grantInstantLife,
@@ -98,7 +99,7 @@ describe('save/load wiring — real call sites, end to end', () => {
       pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
       movesLimit: 1,
       lives,
-      objective: { targetMatchType: 'A', targetCount: 100 },
+      objectives: [{ targetMatchType: 'A', targetCount: 100 }],
     };
     let state = createGameState(levelConfig);
     let prevStatus = state.status;
@@ -294,8 +295,27 @@ describe('generatedTargetCount', () => {
   });
 });
 
+describe('generatedObjectiveCount', () => {
+  test('a single objective before the introduction threshold', () => {
+    expect(generatedObjectiveCount(1, 6)).toBe(1);
+    expect(generatedObjectiveCount(3, 6)).toBe(1);
+  });
+
+  test('two objectives from the threshold level onward, given enough pool variety', () => {
+    expect(generatedObjectiveCount(4, 6)).toBe(2);
+    expect(generatedObjectiveCount(500, 6)).toBe(2);
+  });
+
+  test('never asks for more objectives than the level has distinct piece types', () => {
+    expect(generatedObjectiveCount(500, 1)).toBe(1);
+  });
+});
+
 describe('buildGeneratedLevelConfig', () => {
   test('builds a full LevelConfig (minus lives) for the first level past the hand-built queue', () => {
+    // Generated level number 1 is below INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL,
+    // so this is still a single-objective level — an array of length one,
+    // not a special case.
     const config = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config).toEqual({
       seed: 301,
@@ -303,21 +323,37 @@ describe('buildGeneratedLevelConfig', () => {
       cols: 6,
       pieceTypeIds: ['A', 'B', 'C', 'D', 'E', 'F'],
       movesLimit: 24,
-      objective: { targetMatchType: 'A', targetCount: 21 },
+      objectives: [{ targetMatchType: 'A', targetCount: 21 }],
     });
   });
 
-  test('shrinks the piece-type pool and rotates the objective target as levels continue', () => {
+  test('shrinks the piece-type pool and rotates the objective targets as levels continue', () => {
     // Level 10 -> generated level number 7 -> 6 - floor(6/3) = 4 types.
+    // Level number 7 is past INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL (4), so
+    // this level now asks for two distinct objectives.
     const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D']);
-    expect(config.objective.targetMatchType).toBe('C');
+    expect(config.objectives).toEqual([
+      { targetMatchType: 'C', targetCount: 26 },
+      { targetMatchType: 'D', targetCount: 26 },
+    ]);
   });
 
   test('is fully deterministic — the same level index always produces the same config', () => {
     const a = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     const b = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(a).toEqual(b);
+  });
+
+  test('never targets the same piece type twice on a level with two objectives', () => {
+    // Scans well past the two-objective threshold — every level in range
+    // must have distinct targetMatchTypes across its own objectives array,
+    // regardless of how the piece-type pool has shrunk by that point.
+    for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
+      const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+      const targetTypes = config.objectives.map((o) => o.targetMatchType);
+      expect(new Set(targetTypes).size).toBe(targetTypes.length);
+    }
   });
 
   const ALL_BLOCKERS = [

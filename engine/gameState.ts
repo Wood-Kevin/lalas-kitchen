@@ -54,12 +54,17 @@ export interface GameState {
   // PauseReason's comment above). The account-level lives count that
   // actually changes on a loss lives in App.tsx, not here.
   lives: number;
-  objective: Objective;
+  // Always at least one entry — a single-objective level (every hand-built
+  // LEVEL_QUEUE entry today) is just an array of length one, not a special
+  // case. Win requires every entry's currentCount to reach its targetCount
+  // (see applyMove), so this array is also the one place "how many things
+  // does this level ask for" lives.
+  objectives: Objective[];
   status: GameStatus;
   pauseReason: PauseReason;
   // Running total of every piece cleared this level, by matchType — feeds
-  // the level_summary event. Distinct from objective.currentCount, which
-  // only tracks the one matchType the objective cares about.
+  // the level_summary event. Distinct from each objective's currentCount,
+  // which only tracks the one matchType that objective cares about.
   totalCleared: Record<string, number>;
   // Generates the next cascade-spawned piece. Stored as a closure (not a
   // seed) so GameState never needs to know whether it's backed by a seeded
@@ -120,7 +125,11 @@ export interface LevelConfig {
   pieceTypeIds: string[];
   movesLimit: number;
   lives: number;
-  objective: { targetMatchType: string; targetCount: number };
+  // Always non-empty. Every objective must be met to win (see applyMove) —
+  // never let two entries share a targetMatchType, since clearedByMatchType
+  // is keyed by matchType and a shared target would double-credit the same
+  // clear toward two different objectives at once.
+  objectives: Array<{ targetMatchType: string; targetCount: number }>;
   // Optional so generator-driven levels (appPersistence.ts's
   // buildGeneratedLevelConfig) can leave it unset rather than fabricate a
   // name — components/levelProgress.ts's resolveLevelDisplayName falls back
@@ -148,12 +157,12 @@ export function createGameState(config: LevelConfig): GameState {
     board,
     movesRemaining: config.movesLimit,
     lives: config.lives,
-    objective: {
+    objectives: config.objectives.map((objective) => ({
       type: 'collect',
-      targetMatchType: config.objective.targetMatchType,
-      targetCount: config.objective.targetCount,
+      targetMatchType: objective.targetMatchType,
+      targetCount: objective.targetCount,
       currentCount: 0,
-    },
+    })),
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
@@ -256,17 +265,19 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     totalCleared[matchType] = (totalCleared[matchType] ?? 0) + count;
   }
 
-  const objectiveGain = clearedByMatchType[state.objective.targetMatchType] ?? 0;
-  const objective: Objective = {
-    ...state.objective,
-    currentCount: state.objective.currentCount + objectiveGain,
-  };
+  const objectives: Objective[] = state.objectives.map((objective) => ({
+    ...objective,
+    currentCount: objective.currentCount + (clearedByMatchType[objective.targetMatchType] ?? 0),
+  }));
 
   const movesRemaining = state.movesRemaining - 1;
 
   let status: GameStatus = state.status;
   let pauseReason: PauseReason = state.pauseReason;
-  if (objective.currentCount >= objective.targetCount) {
+  // Win requires every objective met, not just one — a two-objective level
+  // with only one target satisfied stays in_progress (or pauses on moves)
+  // exactly like an unmet single-objective level always has.
+  if (objectives.every((objective) => objective.currentCount >= objective.targetCount)) {
     status = 'won';
     pauseReason = null;
   } else if (movesRemaining <= 0) {
@@ -296,7 +307,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     ...state,
     board: resolvedBoard,
     movesRemaining,
-    objective,
+    objectives,
     status,
     pauseReason,
     totalCleared,

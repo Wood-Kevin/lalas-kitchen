@@ -49,7 +49,7 @@ The leak test: if you swapped the skin and something broke or looked weird, that
 **Goal:** The layer that turns "a board" into "a playable level with lives, moves, and a win condition."
 
 **Build:**
-- `GameState` shape: current board, moves remaining, lives, current objective (v1: a single item-collection target, e.g. collect 24 lemons)
+- `GameState` shape: current board, moves remaining, lives, current objectives (originally v1: a single item-collection target, e.g. collect 24 lemons — since generalized to an array of one-or-more targets, see `CLAUDE.md`'s Data Model Notes and `engine/DECISIONS.md`; a single-objective level is still just an array of length one)
 - `applyMove(gameState, posA, posB)`: validates the swap, applies it if legal, snaps back if not, resolves any cascades, decrements moves, checks win/loss
 - A `paused_awaiting_input` state for when moves hit zero, with a `grantBonusMoves(n)` command that resumes play (this is the hook for a rewarded ad later, but the state machine itself doesn't know or care what triggers the grant)
 - Combo streak tracking: if a single move triggers 4+ chained cascades, emit an event the skin layer can react to (sound, particles, or nothing, engine doesn't decide)
@@ -136,7 +136,7 @@ Skip these until the core loop is proven fun and stable:
 - Row clearers and other special piece behaviors beyond blockers (the `type` field is ready for them, but don't build the logic yet). Blocker clearing itself was built in Phase 6, below — no longer in this list.
 - Recipe box meta layer and its event listener (build the engine's summary event emitter when a level ends, but wire up the actual UI later)
 - Cloud asset delivery / CDN-based skin loading (only matters once there are multiple skins to distribute)
-- Multi-target or score-threshold level objectives (v1 is move limit plus one collection target)
+- Score-threshold level objectives (a numeric score threshold, distinct from counting matched pieces, is still unbuilt). Multi-target objectives were built in a later session — `GameState`/`LevelConfig`'s `objectives` is an array; see this file's Phase 3 note above and `engine/DECISIONS.md` — no longer in this list.
 - Any App Store "distinct product" layout variation work (only matters when skin number two is real)
 
 ---

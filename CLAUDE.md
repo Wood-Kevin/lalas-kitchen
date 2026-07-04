@@ -59,6 +59,8 @@ Minimum test coverage before a phase counts as done:
 
 Every piece object carries a `type` field from day one, so a future special piece becomes a config addition instead of a schema migration. `'blocker'` is no longer just the placeholder this note originally described — blockers are real as of the adjacent-damage clearing mechanic (see `engine/DECISIONS.md`'s Phase 6 section): not matchable, not swappable, cleared by taking one hit per adjacent match until `hitsRemaining` reaches zero, at which point the clear counts toward an objective exactly like any piece type's `matchType`. `'row_clearer'` remains an unbuilt placeholder — leave the door open, don't build its logic yet.
 
+`GameState.objective`/`LevelConfig.objective` are no longer a single item — both are now `objectives`, an array of the same per-item shape (`type`, `targetMatchType`, `targetCount`, `currentCount`). A single-objective level (every hand-built `LEVEL_QUEUE` entry today) is just an array of length one, not a special case. Win requires every entry to reach its target (see `engine/gameState.ts`'s `applyMove` and `engine/DECISIONS.md`'s multi-objective entry). Generator-driven levels only ever place a second objective once the level's own piece-type pool has at least 2 distinct types (see `appPersistence.ts`'s `generatedObjectiveCount`), and two objectives on one level are always distinct `targetMatchType`s — never the same piece type twice.
+
 `livesLastRegenAt` can be spoofed by changing the device clock. This is a known, accepted tradeoff at this scale. Leave a comment noting it, do not spend time solving it.
 
 ## Design Constraints (from actual user research, not guessing)
@@ -73,7 +75,7 @@ Do not build these yet, even if they seem like a natural extension mid-session:
 - Row clearers or any special piece behavior beyond blockers (blocker clearing itself is now built — see the Data Model Notes above and `engine/DECISIONS.md`'s Phase 6 section)
 - Recipe box meta layer UI (the engine's end-of-level summary event should exist, but nothing should listen to it yet)
 - Cloud asset delivery or per-skin CDN loading (irrelevant until skin number two is real)
-- Multi-target or score-threshold objectives (v1 is move limit plus one collection target)
+- Score-threshold objectives (v1 is move limit plus one-or-more collection targets — see the Data Model Notes above for the now-built multi-objective array; a numeric score threshold, distinct from counting matched pieces, is still unbuilt)
 - Any App Store "distinct product" layout variation (matters only once a second skin ships)
 
 If a build session surfaces a good idea that falls in this list, log it rather than building it. Add it to `DEFERRED_COMPLEXITY.md` at the repo root (create it if it doesn't exist yet) with a one-line note on why it was deferred.

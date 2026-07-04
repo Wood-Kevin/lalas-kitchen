@@ -60,13 +60,16 @@ export interface LevelSummary {
 // how a LevelConfig is actually constructed for a hand-built vs. generated
 // level.
 export function buildLevelSummary(
-  config: Pick<LevelConfig, 'displayName' | 'objective'>,
+  config: Pick<LevelConfig, 'displayName' | 'objectives'>,
   levelIndex: number
 ): LevelSummary {
   return {
     levelIndex,
     displayName: resolveLevelDisplayName(config.displayName, levelIndex),
-    targetMatchType: config.objective.targetMatchType,
+    // Row/"Up Next" icon space was never asked to grow with objective count —
+    // the first objective is always the one shown, same single-icon layout
+    // regardless of how many targets the level actually has.
+    targetMatchType: config.objectives[0].targetMatchType,
   };
 }
 

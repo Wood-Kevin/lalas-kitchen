@@ -66,8 +66,8 @@ describe('resolveVisibleLevelIndices', () => {
 });
 
 describe('buildLevelSummary', () => {
-  test('carries the real displayName and objective target through', () => {
-    const config = { displayName: 'Tomato Toss', objective: { targetMatchType: 'tomato', targetCount: 15 } };
+  test('carries the real displayName and first objective target through', () => {
+    const config = { displayName: 'Tomato Toss', objectives: [{ targetMatchType: 'tomato', targetCount: 15 }] };
     expect(buildLevelSummary(config, 1)).toEqual({
       levelIndex: 1,
       displayName: 'Tomato Toss',
@@ -76,12 +76,23 @@ describe('buildLevelSummary', () => {
   });
 
   test('falls back to "Level N" for a generated level with no displayName', () => {
-    const config = { displayName: undefined, objective: { targetMatchType: 'lemon', targetCount: 21 } };
+    const config = { displayName: undefined, objectives: [{ targetMatchType: 'lemon', targetCount: 21 }] };
     expect(buildLevelSummary(config, 5)).toEqual({
       levelIndex: 5,
       displayName: 'Level 5',
       targetMatchType: 'lemon',
     });
+  });
+
+  test('uses only the first objective for a multi-objective level — row icon stays single', () => {
+    const config = {
+      displayName: 'Double Duty',
+      objectives: [
+        { targetMatchType: 'chili', targetCount: 26 },
+        { targetMatchType: 'garlic', targetCount: 26 },
+      ],
+    };
+    expect(buildLevelSummary(config, 10).targetMatchType).toBe('chili');
   });
 });
 

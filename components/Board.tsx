@@ -287,7 +287,7 @@ export function Board({
         </View>
       )}
       <Hud
-        objective={gameState.objective}
+        objectives={gameState.objectives}
         movesRemaining={gameState.movesRemaining}
         lives={gameState.lives}
         config={skinConfig}
@@ -380,7 +380,7 @@ export function Board({
       )}
       {gameState.status === 'won' && (
         <WonOverlay
-          objective={gameState.objective}
+          objectives={gameState.objectives}
           levelIndex={levelIndex}
           config={skinConfig}
           spriteAssets={spriteAssets}

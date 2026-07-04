@@ -49,7 +49,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     cols: 5,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 20,
-    objective: { targetMatchType: skinConfig.pieceTypes[0].id, targetCount: 15 },
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[0].id, targetCount: 15 }],
     displayName: 'Tomato Toss',
   },
   {
@@ -58,7 +58,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     cols: 5,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 22,
-    objective: { targetMatchType: skinConfig.pieceTypes[1].id, targetCount: 18 },
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[1].id, targetCount: 18 }],
     displayName: 'Lemon Squeeze',
   },
   {
@@ -67,7 +67,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     cols: 5,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
-    objective: { targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 20 },
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 20 }],
     displayName: 'Herb Garden',
   },
 ];

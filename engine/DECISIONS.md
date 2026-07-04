@@ -871,3 +871,57 @@ scope: one minimal screen (message, brief detail, a back-to-Home button) is
 both less code and a more honest single answer to "what does being out of
 lives look like in this app" than three slightly-different placeholders
 would be.
+
+## Objective becomes an array — the multi-objective work an earlier phase explicitly deferred, now directly requested
+
+An earlier phase's entry above ("The 'Objective array' the session brief
+described doesn't exist") confirmed there was no multi-objective array
+anywhere in the codebase and flagged multi-target objectives as explicitly
+out of scope per `CLAUDE.md`. That conclusion was correct *for that
+session* — it wasn't asked for then. This session's brief asked for it
+directly and in detail, so it's now built; this entry supersedes that one's
+"doesn't exist" conclusion without erasing it, since it was accurate history
+at the time.
+
+`GameState.objective`/`LevelConfig.objective` (a single item) became
+`objectives`/`objectives` (an array of the same per-item shape). The
+per-item `Objective` type itself didn't change at all — every existing
+consumer of a single objective's shape (`components/wonActions.ts`, unused
+in production but still tested) needed zero changes, only the container
+around it did. `applyMove` maps every entry's `currentCount` forward each
+move (each keyed off its own `targetMatchType` against the same
+`clearedByMatchType` bookkeeping every match already produces) and wins only
+once `objectives.every((o) => o.currentCount >= o.targetCount)` — a
+single-objective level (every hand-built `LEVEL_QUEUE` entry today) is an
+array of length one, not a special case, so this required no changes to any
+existing level data.
+
+For generator-driven levels, `appPersistence.ts` gained
+`generatedObjectiveCount(levelNumber, typeCount)`: 1 objective until level
+number 4 (chosen so the very first generated level, still at full
+piece-type-pool size, doesn't also take on a second simultaneous target —
+a bigger jump than any other step this difficulty ramp takes elsewhere),
+then `min(2, typeCount)` — capped at the level's own piece-type pool size as
+a structural safety net, not a real difficulty lever, since
+`generatedPieceTypeCount`'s floor of 3 means it never actually bites once
+the threshold opens. Two objectives are picked as consecutive indices into
+the level's own `pieceTypeIds` (`pieceTypeIds[(levelNumber - 1 + i) %
+length]`), which is distinct-by-construction — never worth a runtime
+duplicate check since the math can't produce one as long as objectiveCount
+<= pieceTypeIds.length, which `generatedObjectiveCount`'s own cap
+guarantees.
+
+`components/Hud.tsx`'s Target panel maps over `objectives`, rendering one
+icon+count row per entry (stacked, `marginTop` only between rows past the
+first) — a single-objective level renders exactly the one row it always
+rendered before, unchanged. `components/WonOverlay.tsx`'s plated-dish
+illustration stays pinned to the first objective (no room for more than one
+icon there), but the "COLLECTED" chip row below now maps over every
+objective, each still reading its own real `currentCount`/`targetCount`
+directly (so overshoot — a cascade clearing more than the remaining target
+— still displays correctly per objective, unchanged behavior just no longer
+assumed singular). `components/levelProgress.ts`'s `buildLevelSummary`
+(Home's "Up Next" card, All Levels' row icons) deliberately still only ever
+reads `objectives[0]` — that single-icon row layout was never asked to grow
+with objective count, so a two-objective generated level's row/card just
+shows its first target, same as before.

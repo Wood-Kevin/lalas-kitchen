@@ -336,6 +336,23 @@ export function generatedTargetCount(levelNumber: number): number {
   return Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
 }
 
+// How many simultaneous objectives a generated level asks for — the last
+// difficulty lever, same "function of levelNumber alone" shape as the ones
+// above. Held at 1 until the piece-type pool has already started shrinking
+// (see generatedPieceTypeCount): opening a second simultaneous target on the
+// very first generated level, while the full pool is still in play, would be
+// a bigger jump than any other step this ramp takes. Capped at
+// `min(2, typeCount)` as a structural safety net, not a difficulty knob —
+// generatedPieceTypeCount's own floor of 3 means typeCount is never actually
+// below 2 once this gate opens, so the cap never bites in practice, but a
+// level can never be asked for more distinct objectives than it has distinct
+// piece types to give it.
+const INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL = 4;
+export function generatedObjectiveCount(levelNumber: number, typeCount: number): number {
+  if (levelNumber < INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL) return 1;
+  return Math.min(2, typeCount);
+}
+
 // The blocker-count difficulty lever, same shape as generatedPieceTypeCount/
 // generatedMovesLimit above: a function of levelNumber alone. No blockers on
 // the first couple of generated levels — a brand-new obstacle shouldn't show
@@ -409,7 +426,16 @@ export function buildGeneratedLevelConfig(
   const levelNumber = generatedLevelNumber(levelIndex, handBuiltLevelCount);
   const typeCount = generatedPieceTypeCount(levelNumber, allPieceTypeIds.length);
   const pieceTypeIds = allPieceTypeIds.slice(0, typeCount);
-  const targetMatchType = pieceTypeIds[(levelNumber - 1) % pieceTypeIds.length];
+
+  // Distinct-by-construction: consecutive indices into pieceTypeIds, modulo
+  // its own length. objectiveCount is capped at pieceTypeIds.length (see
+  // generatedObjectiveCount), so this can never wrap around and repeat a
+  // type within the same level.
+  const objectiveCount = generatedObjectiveCount(levelNumber, typeCount);
+  const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
+    targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
+    targetCount: generatedTargetCount(levelNumber),
+  }));
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
   const chosenBlocker =
@@ -424,7 +450,7 @@ export function buildGeneratedLevelConfig(
     cols,
     pieceTypeIds,
     movesLimit: generatedMovesLimit(levelNumber),
-    objective: { targetMatchType, targetCount: generatedTargetCount(levelNumber) },
+    objectives,
     ...(blockerCount > 0 && chosenBlocker
       ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
       : {}),

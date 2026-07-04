@@ -8,7 +8,7 @@ import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsse
 import { SteamWisp } from './SteamWisp';
 
 export interface WonOverlayProps {
-  objective: Objective;
+  objectives: Objective[];
   // Display-only "LEVEL N" label — see Board.tsx's levelIndex prop comment.
   levelIndex: number;
   config: SkinConfig;
@@ -79,7 +79,7 @@ function Sparkle({ style, color, delayMs }: { style: object; color: string; dela
 // read as siblings but are never mistakable for each other. Matches
 // skins/lalas-kitchen/design-reference (see this session's mockup).
 export function WonOverlay({
-  objective,
+  objectives,
   levelIndex,
   config,
   spriteAssets,
@@ -87,7 +87,11 @@ export function WonOverlay({
   onNext,
   onOpenDashboard,
 }: WonOverlayProps) {
-  const sprite = resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
+  // The plated-dish illustration only has room for one icon — it stays
+  // pinned to the first objective regardless of how many there are, the
+  // same way the illustration itself never changes shape per level. The
+  // chip row below is what actually shows every objective's final count.
+  const sprite = resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
 
   return (
@@ -110,17 +114,32 @@ export function WonOverlay({
         <Text style={[styles.headline, { color: text }]}>Order&apos;s Up!</Text>
         <Text style={[styles.subtext, { color: mutedText }]}>Plated with moves to spare — nicely done.</Text>
 
-        <View style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}>
-          <SpriteIcon sprite={sprite} size={22} labelColor={secondaryAccent} />
-          <View>
-            {/* Reads the objective's real counts directly, so an overshoot
-                cascade (currentCount > targetCount) always shows the true
-                numbers rather than clamping to the target. */}
-            <Text style={[styles.chipAmount, { color: text }]}>
-              {objective.currentCount} / {objective.targetCount}
-            </Text>
-            <Text style={[styles.chipLabel, { color: secondaryAccent }]}>COLLECTED</Text>
-          </View>
+        <View style={styles.chipRow}>
+          {objectives.map((objective) => {
+            const chipSprite = resolveSpriteAsset(
+              getSpriteForMatchType(objective.targetMatchType, config),
+              spriteAssets
+            );
+            return (
+              <View
+                key={objective.targetMatchType}
+                style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}
+              >
+                <SpriteIcon sprite={chipSprite} size={22} labelColor={secondaryAccent} />
+                <View>
+                  {/* Reads each objective's real counts directly, so an
+                      overshoot cascade (currentCount > targetCount) always
+                      shows the true numbers rather than clamping to the
+                      target — unchanged per-objective, just now repeated
+                      once per entry instead of assumed singular. */}
+                  <Text style={[styles.chipAmount, { color: text }]}>
+                    {objective.currentCount} / {objective.targetCount}
+                  </Text>
+                  <Text style={[styles.chipLabel, { color: secondaryAccent }]}>COLLECTED</Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
 
         <Pressable style={[styles.primaryButton, { backgroundColor: accent }]} onPress={onNext}>
@@ -208,11 +227,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  chipRow: {
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginTop: 16,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 14,
