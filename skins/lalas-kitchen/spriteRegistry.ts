@@ -11,9 +11,9 @@ import { SpriteAssetMap } from '../../components/spriteAsset';
 // Board.tsx, and Hud.tsx only ever go through resolveSpriteAsset() and
 // never know this file exists.
 //
-// All six pieceTypes sprites, the lives.icon sprite, and all three blocker
-// sprites (cling.webp, dish_stack.webp, pot_lid.webp) have landed; each
-// gets exactly one line below.
+// All six pieceTypes sprites, the lives.icon sprite, all three blocker
+// sprites (cling.webp, dish_stack.webp, pot_lid.webp), and all nine recipe
+// card illustrations have landed; each gets exactly one line below.
 //
 // home-hero-500h-crop.webp and splash-full-1024h.webp aren't piece/blocker
 // sprites from config.json — they're the Home screen's header banner and
@@ -35,4 +35,17 @@ export const spriteRegistry: SpriteAssetMap = {
   'pot_lid.webp': require('./sprites/pot_lid.webp'),
   'home-hero-500h-crop.webp': require('./sprites/home-hero-500h-crop.webp'),
   'splash-full-1024h.webp': require('./sprites/splash-full-1024h.webp'),
+  // Recipe card illustrations — one per config.json recipeCards entry, keyed
+  // by that entry's `sprite` field (see appPersistence.ts's
+  // findRecipeCardForLevel). Real art landing here is the only change needed
+  // to swap RecipeCardReveal/RecipeBook off the text-label fallback.
+  'recipe_tomato_stew.webp': require('./sprites/recipe_tomato_stew.webp'),
+  'recipe_herb_garden_salad.webp': require('./sprites/recipe_herb_garden_salad.webp'),
+  'recipe_lemon_roast_chicken.webp': require('./sprites/recipe_lemon_roast_chicken.webp'),
+  'recipe_garlic_bread_basket.webp': require('./sprites/recipe_garlic_bread_basket.webp'),
+  'recipe_hearty_chili_pot.webp': require('./sprites/recipe_hearty_chili_pot.webp'),
+  'recipe_wooden_spoon_pancakes.webp': require('./sprites/recipe_wooden_spoon_pancakes.webp'),
+  'recipe_chili_lemon_soup.webp': require('./sprites/recipe_chili_lemon_soup.webp'),
+  'recipe_garlic_herb_roast.webp': require('./sprites/recipe_garlic_herb_roast.webp'),
+  'recipe_grandmas_recipe_box.webp': require('./sprites/recipe_grandmas_recipe_box.webp'),
 };
