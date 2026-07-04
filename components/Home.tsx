@@ -87,7 +87,7 @@ export function Home({
       </View>
 
       <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
-        <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} cellCount={20} />
+        <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
         <View style={styles.cardPadding}>
           <View style={styles.nextRow}>
             <View style={[styles.nextIconBadge, { backgroundColor: config.palette.background[0], borderColor: config.palette.border }]}>
