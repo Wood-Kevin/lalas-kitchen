@@ -29,6 +29,17 @@ export const spriteRegistry: SpriteAssetMap = {
   'garlic.webp': require('./sprites/garlic.webp'),
   'chili.webp': require('./sprites/chili.webp'),
   'spoon.webp': require('./sprites/spoon.webp'),
+  // Striped special-piece art. A striped piece resolves to `striped_<its
+  // base sprite>` (see components/spriteMap.ts's getSpriteForPiece). All six
+  // ingredient types now have real striped art, one line per asset, exactly
+  // like the piece sprites above; the resolveSpriteAsset text-label fallback
+  // for a missing striped_* entry is no longer exercised in this skin.
+  'striped_tomato.webp': require('./sprites/striped_tomato.webp'),
+  'striped_lemon.webp': require('./sprites/striped_lemon.webp'),
+  'striped_herb.webp': require('./sprites/striped_herb.webp'),
+  'striped_garlic.webp': require('./sprites/striped_garlic.webp'),
+  'striped_chili.webp': require('./sprites/striped_chili.webp'),
+  'striped_spoon.webp': require('./sprites/striped_spoon.webp'),
   'flame.webp': require('./sprites/flame.webp'),
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),

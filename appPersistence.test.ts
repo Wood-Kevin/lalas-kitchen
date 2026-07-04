@@ -2,6 +2,7 @@ import { createGameState, applyMove, createInMemoryStorage, loadSave, saveProgre
 import { Board, Piece, Position } from './engine/matrix';
 import {
   applyLivesRegen,
+  backfillUnlockedRecipeCards,
   BLOCKER_TUTORIAL_ID,
   buildGeneratedLevelConfig,
   buildSaveData,
@@ -334,15 +335,21 @@ describe('buildGeneratedLevelConfig', () => {
     });
   });
 
-  test('grows the piece-type pool and rotates the objective targets as levels continue', () => {
+  test('grows the piece-type pool and shares the target total across two objectives', () => {
     // Level 10 -> generated level number 7 -> 3 + floor(6/3) = 5 types,
     // which clears MIN_TYPES_FOR_SECOND_OBJECTIVE (5), so this level now
-    // asks for two distinct objectives.
+    // asks for two distinct objectives. generatedTargetCount(7) is 26, and
+    // that is the TOTAL burden shared across the objectives, not a
+    // per-objective quota: 26 / 2 = 13 each, not 26 + 26 = 52. An earlier
+    // version of this test asserted 26 + 26 and so enshrined the compounding
+    // bug (a two-objective level demanding double an equivalent
+    // single-objective one) as intended behavior — see engine/DECISIONS.md's
+    // target-sharing entry.
     const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E']);
     expect(config.objectives).toEqual([
-      { targetMatchType: 'B', targetCount: 26 },
-      { targetMatchType: 'C', targetCount: 26 },
+      { targetMatchType: 'B', targetCount: 13 },
+      { targetMatchType: 'C', targetCount: 13 },
     ]);
   });
 
@@ -694,5 +701,75 @@ describe('unlockRecipeCard', () => {
 
   test('preserves existing entries when adding a different id', () => {
     expect(unlockRecipeCard(['tomato_stew'], 'herb_garden_salad')).toEqual(['tomato_stew', 'herb_garden_salad']);
+  });
+});
+
+// The real 9 curated milestone levels (see skins/lalas-kitchen/config.json)
+// — used to answer the concrete "a save at level 28" recovery question, not
+// just the 3-card RECIPE_CARDS fixture above.
+const FULL_MILESTONES = [1, 3, 6, 10, 15, 21, 28, 36, 45];
+const FULL_RECIPE_CARDS: RecipeCard[] = FULL_MILESTONES.map((lvl) => ({
+  id: `card_${lvl}`,
+  title: `Card ${lvl}`,
+  flavorText: '',
+  milestoneLevel: lvl,
+  sprite: `recipe_${lvl}.webp`,
+}));
+
+describe('backfillUnlockedRecipeCards — one-time catch-up for pre-feature progress', () => {
+  test('recovers every completed milestone when the unlocked list starts empty', () => {
+    // The exact migration case: milestone levels 1/3/6 were won before the
+    // recipe card system existed, so they sit in completedLevels with no
+    // matching unlocked card.
+    const result = backfillUnlockedRecipeCards(RECIPE_CARDS, [1, 3, 6], []);
+    expect(result).toEqual(['tomato_stew', 'herb_garden_salad', 'lemon_roast_chicken']);
+  });
+
+  test('a brand-new save (no completed levels) backfills nothing and returns the same reference', () => {
+    const unlocked: string[] = [];
+    const result = backfillUnlockedRecipeCards(RECIPE_CARDS, [], unlocked);
+    expect(result).toEqual([]);
+    expect(result).toBe(unlocked); // no-op, not a fresh copy
+  });
+
+  test('completed non-milestone levels unlock nothing', () => {
+    // 2/4/5 are completed but are not milestone levels — no card exists for
+    // them, so the backfill must leave the unlocked list untouched.
+    const unlocked: string[] = [];
+    const result = backfillUnlockedRecipeCards(RECIPE_CARDS, [2, 4, 5], unlocked);
+    expect(result).toEqual([]);
+    expect(result).toBe(unlocked);
+  });
+
+  test('running the backfill twice in a row never duplicates a card', () => {
+    const once = backfillUnlockedRecipeCards(RECIPE_CARDS, [1, 3, 6], []);
+    const twice = backfillUnlockedRecipeCards(RECIPE_CARDS, [1, 3, 6], once);
+    expect(twice).toEqual(['tomato_stew', 'herb_garden_salad', 'lemon_roast_chicken']);
+    expect(twice).toBe(once); // second run is a pure no-op — same reference back
+  });
+
+  test('preserves cards already unlocked by the live flow and adds only the missing ones', () => {
+    // tomato_stew was unlocked live; 3 and 6 predate the feature and need
+    // recovering. Order follows the card list, appending the new ones.
+    const result = backfillUnlockedRecipeCards(RECIPE_CARDS, [1, 3, 6], ['tomato_stew']);
+    expect(result).toEqual(['tomato_stew', 'herb_garden_salad', 'lemon_roast_chicken']);
+  });
+
+  test('a save at level 28 recovers exactly the 6 milestones already completed (1,3,6,10,15,21)', () => {
+    // Reaching level 28 through normal play means levels 1..27 are all in
+    // completedLevels (each must be won to advance). Milestones <= 27:
+    // 1,3,6,10,15,21 — six cards. Level 28's own card is NOT recovered here,
+    // since being *at* level 28 means it hasn't been won/completed yet.
+    const completedThrough27 = Array.from({ length: 27 }, (_, i) => i + 1);
+    const result = backfillUnlockedRecipeCards(FULL_RECIPE_CARDS, completedThrough27, []);
+    expect(result).toEqual(['card_1', 'card_3', 'card_6', 'card_10', 'card_15', 'card_21']);
+    expect(result).toHaveLength(6);
+  });
+
+  test('if level 28 itself was also completed, its card is recovered too (7 total)', () => {
+    const completedThrough28 = Array.from({ length: 28 }, (_, i) => i + 1);
+    const result = backfillUnlockedRecipeCards(FULL_RECIPE_CARDS, completedThrough28, []);
+    expect(result).toEqual(['card_1', 'card_3', 'card_6', 'card_10', 'card_15', 'card_21', 'card_28']);
+    expect(result).toHaveLength(7);
   });
 });

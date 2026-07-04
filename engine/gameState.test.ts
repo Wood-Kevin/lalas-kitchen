@@ -230,6 +230,295 @@ describe('applyMove — combo streak', () => {
   });
 });
 
+describe('applyMove — cascade steps', () => {
+  // The presentation layer animates each cascade pass as its own beat, so
+  // applyMove must hand back one board snapshot per pass in order, not just
+  // the final settled board (see engine/DECISIONS.md's cascade-steps entry).
+  test('a move that cascades through two distinct passes returns both passes as separate steps', () => {
+    const board = buildBoard([
+      ['A', 'X', 'Q'],
+      ['R', 'A', 'P'],
+      ['S', 'A', 'P'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      // Untouched objective so this move produces no win/paused event.
+      objectives: [{ type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // Pass 1 clears the vertical A-run; column 1 refills B,B,B — an instant
+      // second run. Pass 2 clears the B's; column 1 refills P,F,G, which
+      // forms no new run (P lines up under column 2's P,P pair only as a
+      // legal move, not an immediate match), so the chain stops at two
+      // passes and the settled board needs no rescue shuffle.
+      spawnPiece: queueSpawnPiece(['B', 'B', 'B', 'P', 'F', 'G']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // Two passes → exactly two snapshots, in resolution order.
+    expect(result.steps).toHaveLength(2);
+
+    // Step 1: the A-run has cleared and column 1 has refilled with the B-run
+    // that pass 2 will clear — a genuine mid-cascade state, still matchable.
+    expect(result.steps[0].map((row) => row.map((p) => p.matchType))).toEqual([
+      ['X', 'B', 'Q'],
+      ['R', 'B', 'P'],
+      ['S', 'B', 'P'],
+    ]);
+
+    // Step 2: the settled board, with no remaining matches.
+    expect(result.steps[1].map((row) => row.map((p) => p.matchType))).toEqual([
+      ['X', 'P', 'Q'],
+      ['R', 'F', 'P'],
+      ['S', 'G', 'P'],
+    ]);
+
+    // The final step is the exact object committed to state.board, so
+    // animating through the last step lands precisely on the live board.
+    expect(result.steps[result.steps.length - 1]).toBe(result.state.board);
+    expect(checkMatches(result.state.board)).toEqual([]);
+  });
+
+  test('a single-match move with no chain returns exactly one step, unchanged from the settled-board behavior', () => {
+    const board = buildBoard([
+      ['A', 'X', 'Q'],
+      ['R', 'A', 'P'],
+      ['S', 'A', 'P'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // Same swap as above, but column 1 refills straight to P,F,G — no
+      // intermediate B-run — so the move resolves in a single pass.
+      spawnPiece: queueSpawnPiece(['P', 'F', 'G']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // One pass → one step, and it is the settled board itself.
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0]).toBe(result.state.board);
+    expect(result.steps[0].map((row) => row.map((p) => p.matchType))).toEqual([
+      ['X', 'P', 'Q'],
+      ['R', 'F', 'P'],
+      ['S', 'G', 'P'],
+    ]);
+  });
+
+  test('a rejected move returns no steps', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['D', 'E', 'F'],
+      ['G', 'H', 'I'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'ZZ', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    // Adjacent swap that forms no match: snap back, no move spent, no steps.
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+    expect(result.state).toBe(state);
+    expect(result.steps).toEqual([]);
+  });
+});
+
+describe('applyMove — striped pieces', () => {
+  const countStriped = (board: Board): number =>
+    board.flat().filter((p) => p.type === 'striped').length;
+  const boardHasId = (board: Board, id: string): boolean =>
+    board.flat().some((p) => p.id === id);
+
+  test('a 4-in-a-row spawns exactly one striped piece and clears the other three', () => {
+    // Swapping (0,2) and (1,2) lines up row 0 into A,A,A,A — a run of exactly
+    // four, which converts its anchor cell into a striped piece rather than
+    // clearing all four.
+    const board = buildBoard([
+      ['A', 'A', 'W', 'A'],
+      ['X', 'Y', 'A', 'X'],
+      ['P', 'X', 'X', 'R'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // Exactly one striped piece exists, where the run's anchor cell was.
+    expect(countStriped(result.state.board)).toBe(1);
+    const striped = result.state.board[0][0];
+    expect(striped.type).toBe('striped');
+    expect(striped.matchType).toBe('A');
+    // A horizontal 4-run makes a row-clearing striped piece.
+    expect(striped.direction).toBe('row');
+    // It kept the id of the ordinary piece it was converted from.
+    expect(striped.id).toBe('0-0');
+
+    // Only the other three cells of the run cleared (the anchor became
+    // striped, it wasn't cleared), so the objective credits 3, not 4.
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    // No leftover matches, and the striped piece is an ordinary matchable
+    // 'A' everywhere except its pending special.
+    expect(checkMatches(result.state.board)).toEqual([]);
+  });
+
+  test('matching a striped piece clears its entire row (and the striped may itself be the swapped piece)', () => {
+    // Striped row-clearer at (2,0); swapping it up into (1,0) lines up row 1
+    // as A,A,A. W at (1,4) is a unique type that ONLY a full-row sweep can
+    // clear — a plain 3-match would leave it — so its clear is the proof the
+    // special fired.
+    const board = buildBoard([
+      ['P', 'Q', 'R', 'S', 'T'],
+      ['X', 'A', 'A', 'U', 'W'],
+      ['A', 'D', 'V', 'E', 'F'],
+    ]);
+    board[2][0] = { ...board[2][0], type: 'striped', direction: 'row' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5']),
+    };
+
+    const result = applyMove(state, { row: 2, col: 0 }, { row: 1, col: 0 });
+
+    // The whole of row 1 cleared: W (unique, row-only) and U (the other
+    // non-matched cell) both gone — decisive that the sweep, not just the
+    // 3-match, fired.
+    expect(boardHasId(result.state.board, '1-4')).toBe(false); // W
+    expect(boardHasId(result.state.board, '1-3')).toBe(false); // U
+    // The striped piece was consumed by triggering.
+    expect(countStriped(result.state.board)).toBe(0);
+    // Three A's in that row cleared (the striped counts as its 'A' matchType);
+    // objective credits exactly those three.
+    expect(result.state.objectives[0].currentCount).toBe(3);
+  });
+
+  test('matching a striped piece clears its entire column', () => {
+    // Striped col-clearer at (2,1); swapping (4,0)<->(4,1) lines up col 1 as
+    // A,A,A at rows 2-4. W at (0,1) is a unique type only a full-column sweep
+    // reaches.
+    const board = buildBoard([
+      ['P', 'W', 'Q'],
+      ['R', 'S', 'T'],
+      ['U', 'A', 'A'],
+      ['V', 'A', 'D'],
+      ['A', 'X', 'F'],
+    ]);
+    board[2][1] = { ...board[2][1], type: 'striped', direction: 'col' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5']),
+    };
+
+    const result = applyMove(state, { row: 4, col: 0 }, { row: 4, col: 1 });
+
+    // Full column 1 cleared: W (unique, top of the column) and S (the other
+    // non-matched cell) both gone.
+    expect(boardHasId(result.state.board, '0-1')).toBe(false); // W
+    expect(boardHasId(result.state.board, '1-1')).toBe(false); // S
+    expect(countStriped(result.state.board)).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(3);
+  });
+
+  test('a striped piece is swappable and inert until matched', () => {
+    // A striped piece at (1,1). Swapping it to a spot that forms no match is a
+    // plain no-op snap-back (proving it is swappable like any normal piece,
+    // not rejected outright the way a blocker is) and does NOT trigger.
+    const board = buildBoard([
+      ['B', 'C', 'D'],
+      ['E', 'A', 'F'],
+      ['G', 'H', 'I'],
+    ]);
+    board[1][1] = { ...board[1][1], type: 'striped', direction: 'row' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    const noMatch = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 0 });
+    // Snap back: no move spent, striped intact and untriggered.
+    expect(noMatch.state).toBe(state);
+    expect(countStriped(noMatch.state.board)).toBe(1);
+    expect(noMatch.state.board[1][1].type).toBe('striped');
+  });
+
+  test('a normal match elsewhere leaves an untriggered striped piece in place', () => {
+    // Swapping (0,2)<->(1,2) makes row 0 into A,A,A — an ordinary 3-match that
+    // does not involve the striped piece parked at (2,0), which must survive
+    // untriggered.
+    const board = buildBoard([
+      ['A', 'A', 'X', 'B', 'C'],
+      ['D', 'E', 'A', 'F', 'G'],
+      ['A', 'H', 'I', 'J', 'K'],
+    ]);
+    board[2][0] = { ...board[2][0], type: 'striped', direction: 'col' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // A real move happened, the striped piece is still present and still
+    // striped — the row-0 match did not trigger the unrelated col-clearer.
+    expect(result.state.movesRemaining).toBe(9);
+    expect(countStriped(result.state.board)).toBe(1);
+    const stillStriped = result.state.board.flat().find((p) => p.id === '2-0');
+    expect(stillStriped?.type).toBe('striped');
+    expect(stillStriped?.direction).toBe('col');
+    // Only the three row-0 A's cleared; the striped 'A' was not swept in.
+    expect(result.state.objectives[0].currentCount).toBe(3);
+  });
+});
+
 describe('applyMove — mid-play stuck board recovery', () => {
   // Reproduces a genuine mid-play stuck board (confirmed via real mobile
   // playtesting, not a visual miscount): a cascade can settle into a board

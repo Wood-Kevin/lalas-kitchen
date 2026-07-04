@@ -1,4 +1,12 @@
-export type PieceType = 'normal' | 'row_clearer' | 'blocker';
+export type PieceType = 'normal' | 'striped' | 'blocker';
+
+// Which line a striped piece clears when it's matched (see gameState.ts's
+// resolveCascades). A separate 'row'/'col' field rather than two piece types
+// ('row_clearer'/'col_clearer') so a striped piece is one type carrying a
+// direction — the exact "matchType plus a direction" shape the feature was
+// specified in, and it keeps every "is this special?" check a single
+// `type === 'striped'` test rather than a growing set of type literals.
+export type StripeDirection = 'row' | 'col';
 
 export interface Piece {
   id: string;
@@ -7,6 +15,10 @@ export interface Piece {
   // Only meaningful when type === 'blocker'. How many adjacent-match hits
   // this cell has left before it clears — see applyAdjacentDamage.
   hitsRemaining?: number;
+  // Only meaningful when type === 'striped'. Which line this piece clears
+  // the next time it's matched. Same optional-field-by-type pattern as
+  // hitsRemaining above.
+  direction?: StripeDirection;
 }
 
 export type Board = Piece[][];
@@ -19,6 +31,12 @@ export interface Position {
 export interface Match {
   matchType: string | undefined;
   positions: Position[];
+  // Which axis this run lies along — a horizontal run is 'row', a vertical
+  // run is 'col'. A 4-long run's orientation is what decides the direction of
+  // the striped piece it spawns (see gameState.ts's resolveCascades); a plain
+  // 3-match ignores it. positions.length already carries the run length, so a
+  // 4-match is distinguishable from a 3-match with no extra field.
+  orientation: StripeDirection;
 }
 
 // Two pieces only match if both carry a matchType and it's equal. A piece
@@ -58,6 +76,7 @@ export function checkMatches(board: Board): Match[] {
       matches.push({
         matchType: row[run.start].matchType,
         positions: Array.from({ length: run.length }, (_, i) => ({ row: r, col: run.start + i })),
+        orientation: 'row',
       });
     }
   }
@@ -68,6 +87,7 @@ export function checkMatches(board: Board): Match[] {
       matches.push({
         matchType: column[run.start].matchType,
         positions: Array.from({ length: run.length }, (_, i) => ({ row: run.start + i, col: c })),
+        orientation: 'col',
       });
     }
   }

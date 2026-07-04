@@ -3,6 +3,8 @@ import {
   Board,
   Piece,
   Position,
+  Match,
+  StripeDirection,
   checkMatches,
   swapPieces,
   calculateCascades,
@@ -93,6 +95,17 @@ export type EngineEvent = ComboStreakEvent | LevelSummaryEvent;
 export interface ApplyMoveResult {
   state: GameState;
   events: EngineEvent[];
+  // One board snapshot per cascade pass this move resolved, in order, for
+  // the presentation layer to animate as distinct sequential beats (this
+  // pass's clears settle, then the next pass's begin) rather than collapsing
+  // the whole chain into a single before/after diff. The final entry always
+  // equals `state.board`, so animating the last step lands exactly on the
+  // committed board. Empty for a rejected move (no match / not in progress),
+  // where `state` is returned unchanged. A single-match move with no chain
+  // yields exactly one step — the settled board — so simple cases are
+  // unchanged, just expressed as a length-1 sequence. See DECISIONS.md's
+  // cascade-steps entry.
+  steps: Board[];
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -183,42 +196,134 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
   return next;
 }
 
+// Decides what each of this pass's matches actually does — the one place the
+// striped-piece rules live:
+//  - a match that CONTAINS a striped piece triggers it, sweeping that piece's
+//    whole row or column (per its `direction`) into the clear set, plus the
+//    ordinary match cells;
+//  - a fresh 4-long run of ordinary pieces CONVERTS one cell into a striped
+//    piece carrying the run's orientation as its clear direction, and clears
+//    the other three;
+//  - anything else (a plain 3-match, or a 5+ run — longer specials aren't in
+//    scope this session, see DEFERRED_COMPLEXITY.md) clears every cell.
+// Blockers are never added to the clear set here: they only ever fall to
+// adjacent damage (applyAdjacentDamage), so a striped sweep across a blocker
+// still respects its hitsRemaining rather than force-clearing it. Pure —
+// reads `board`, mutates nothing, returns the cells to gap and the anchor
+// cells to turn striped.
+function resolveMatchEffects(
+  board: Board,
+  matches: Match[]
+): { clearedPositions: Position[]; anchors: Array<{ pos: Position; direction: StripeDirection }> } {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const keyOf = (r: number, c: number): string => `${r},${c}`;
+  const clearedKeys = new Set<string>();
+  const anchorByKey = new Map<string, StripeDirection>();
+
+  const addClear = (r: number, c: number): void => {
+    if (board[r][c].type !== 'blocker') clearedKeys.add(keyOf(r, c));
+  };
+
+  for (const match of matches) {
+    const cells = match.positions;
+    const containsStriped = cells.some((p) => board[p.row][p.col].type === 'striped');
+
+    if (containsStriped) {
+      // A striped piece was part of this match — sweep its full line. (Its
+      // own effect firing does NOT recursively trigger other striped pieces
+      // caught in the sweep this pass; those just clear. Chaining is deferred,
+      // see DEFERRED_COMPLEXITY.md.)
+      for (const p of cells) {
+        const piece = board[p.row][p.col];
+        if (piece.type !== 'striped') continue;
+        if (piece.direction === 'row') {
+          for (let c = 0; c < cols; c++) addClear(p.row, c);
+        } else {
+          for (let r = 0; r < rows; r++) addClear(r, p.col);
+        }
+      }
+      for (const p of cells) addClear(p.row, p.col);
+    } else if (cells.length === 4) {
+      const anchor = cells[0];
+      anchorByKey.set(keyOf(anchor.row, anchor.col), match.orientation);
+      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
+    } else {
+      for (const p of cells) addClear(p.row, p.col);
+    }
+  }
+
+  // A cell chosen to become a striped piece is never also gapped, even if an
+  // overlapping match added it to the clear set — the striped piece wins.
+  for (const k of anchorByKey.keys()) clearedKeys.delete(k);
+
+  const parseKey = (k: string): Position => {
+    const [r, c] = k.split(',').map(Number);
+    return { row: r, col: c };
+  };
+  return {
+    clearedPositions: [...clearedKeys].map(parseKey),
+    anchors: [...anchorByKey.entries()].map(([k, direction]) => ({ pos: parseKey(k), direction })),
+  };
+}
+
 function resolveCascades(
   board: Board,
   spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number> } {
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
   let currentBoard = board;
   let cascadeCount = 0;
   const clearedByMatchType: Record<string, number> = {};
+  // One settled board snapshot per cascade pass, in order, so the
+  // presentation layer can animate each pass as a distinct beat instead of
+  // diffing only the pre-move and final-settled boards (see DECISIONS.md's
+  // cascade-steps entry). steps.length always equals cascadeCount; the last
+  // entry equals the returned `board`. This is the exact per-pass state the
+  // while loop already computes — exposing it, not recomputing anything.
+  const steps: Board[] = [];
 
   while (true) {
     const matches = checkMatches(currentBoard);
     if (matches.length === 0) break;
 
     cascadeCount += 1;
-    for (const match of matches) {
-      const key = match.matchType ?? 'unknown';
-      clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + match.positions.length;
+
+    const { clearedPositions, anchors } = resolveMatchEffects(currentBoard, matches);
+
+    // Blockers don't match directly — they take damage from whatever clears
+    // next to them (see matrix.ts's applyAdjacentDamage and DECISIONS.md),
+    // now including a striped piece's line sweep. Any blocker that reaches
+    // zero this pass clears alongside and joins the same cascade/refill.
+    const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(currentBoard, clearedPositions);
+
+    // Count every cell that actually clears, by its matchType. The anchor
+    // cell of a 4-match is excluded (it becomes a striped piece, it isn't
+    // cleared), so a 4-match credits 3 toward objectives now and the striped
+    // piece pays out the rest when it later triggers.
+    for (const pos of clearedPositions) {
+      const key = currentBoard[pos.row][pos.col].matchType ?? 'unknown';
+      clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
     }
-
-    const matchPositions = matches.flatMap((m) => m.positions);
-
-    // Blockers don't match directly — they take damage from whatever match
-    // clears next to them (see matrix.ts's applyAdjacentDamage and
-    // DECISIONS.md). Any blocker that reaches zero hits this pass clears
-    // alongside the triggering match and joins the same cascade/refill.
-    const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(currentBoard, matchPositions);
     for (const pos of newlyClearedBlockers) {
       const key = damagedBoard[pos.row][pos.col].matchType ?? 'unknown';
       clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
     }
 
-    const allPositions = [...matchPositions, ...newlyClearedBlockers];
-    const withGaps = cloneBoardWithGaps(damagedBoard, allPositions);
+    const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
+    // Convert each anchor cell in place: the ordinary piece there keeps its
+    // id and matchType (so it still matches its own type and the presentation
+    // diff sees a piece that stayed put, not a new spawn) and gains the
+    // striped type plus its clear direction. It survives this pass's gravity
+    // and falls like any other piece.
+    for (const { pos, direction } of anchors) {
+      const base = currentBoard[pos.row][pos.col];
+      withGaps[pos.row][pos.col] = { ...base, type: 'striped', direction };
+    }
     currentBoard = calculateCascades(withGaps, spawnPiece);
+    steps.push(currentBoard);
   }
 
-  return { board: currentBoard, cascadeCount, clearedByMatchType };
+  return { board: currentBoard, cascadeCount, clearedByMatchType, steps };
 }
 
 // Fires when a single move triggers this many chained cascades or more.
@@ -226,7 +331,7 @@ const COMBO_STREAK_THRESHOLD = 4;
 
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [] };
+    return { state, events: [], steps: [] };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -235,16 +340,16 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [] };
+    return { state, events: [], steps: [] };
   }
 
   const swapped = swapPieces(state.board, posA, posB);
   if (checkMatches(swapped).length === 0) {
     // Illegal move: no match, snap back. No move spent, no state change.
-    return { state, events: [] };
+    return { state, events: [], steps: [] };
   }
 
-  const { board: cascadedBoard, cascadeCount, clearedByMatchType } = resolveCascades(
+  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps } = resolveCascades(
     swapped,
     state.spawnPiece
   );
@@ -313,7 +418,18 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     totalCleared,
   };
 
-  return { state: newState, events };
+  // resolveCascades' last step is the pre-rescue cascadedBoard; the state
+  // actually committed is resolvedBoard (identical unless a zero-legal-move
+  // rescue shuffle fired). Overwrite the final step so animating through
+  // `steps` always ends exactly on state.board — a rescue shuffle folds into
+  // that last beat rather than becoming a visible extra rearrangement, per
+  // its "silent and immediate" intent (see DECISIONS.md). steps is always
+  // non-empty here: applyMove reached this point only because `swapped` had
+  // at least one match, so resolveCascades ran at least one pass.
+  const finalSteps = steps.slice();
+  finalSteps[finalSteps.length - 1] = resolvedBoard;
+
+  return { state: newState, events, steps: finalSteps };
 }
 
 // The engine doesn't know or care what triggers this (rewarded ad, IAP,

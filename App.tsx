@@ -10,6 +10,7 @@ import { RecipeBook } from './components/RecipeBook';
 import { GameState, GameStatus, LevelConfig, loadSave, saveProgress } from './engine/gameState';
 import {
   applyLivesRegen,
+  backfillUnlockedRecipeCards,
   buildGeneratedLevelConfig,
   buildSaveData,
   canStartLevel,
@@ -154,7 +155,18 @@ export default function App() {
       const startLevelIndex = resolveStartLevelIndex(save);
       const initialCompleted = save?.completedLevels ?? [];
       const initialSeenTutorials = save?.seenTutorials ?? [];
-      const initialUnlockedRecipeCards = save?.unlockedRecipeCards ?? [];
+      // Reconcile the persisted card list against completed-level history on
+      // every load: progress made before the recipe card system existed left
+      // milestone levels in completedLevels with no matching unlocked card,
+      // and this is the one-time catch-up that recovers them (idempotent, so
+      // it's a no-op once caught up — see appPersistence.ts's
+      // backfillUnlockedRecipeCards). The live win flow below still owns
+      // *new* unlocks; this only heals old saves.
+      const initialUnlockedRecipeCards = backfillUnlockedRecipeCards(
+        skinConfig.recipeCards,
+        initialCompleted,
+        save?.unlockedRecipeCards ?? []
+      );
 
       // Regen is computed once here from whatever the save last recorded —
       // a session could have been closed for hours or days, and this is

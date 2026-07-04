@@ -278,6 +278,35 @@ export function unlockRecipeCard(unlockedRecipeCards: string[], cardId: string):
   return unlockedRecipeCards.includes(cardId) ? unlockedRecipeCards : [...unlockedRecipeCards, cardId];
 }
 
+// One-time catch-up for progress that predates the recipe card system: a
+// player could have completed milestone levels (their ids are already in
+// `completedLevels`) back when winning one never called unlockRecipeCard,
+// leaving `unlockedRecipeCards` empty despite genuine, earned progress.
+// Run on every save load (see App.tsx) — it's safe to run repeatedly
+// precisely because it composes the same idempotent unlockRecipeCard the
+// live win flow uses, so a card already unlocked is never added twice and a
+// save with nothing to recover comes back byte-identical.
+//
+// Iterates the fixed curated card set (not completedLevels) so only real
+// milestone completions can ever unlock anything — a completed *non*-
+// milestone level has no card to match and is silently, correctly ignored,
+// the same "every other level unlocks nothing" rule findRecipeCardForLevel
+// already enforces for the live path. Returns the input array unchanged by
+// reference when no card is recovered (unlockRecipeCard is a no-op each
+// step), so App.tsx's load can treat "same reference back" as "nothing to
+// backfill" without a separate diff.
+export function backfillUnlockedRecipeCards(
+  recipeCards: RecipeCard[],
+  completedLevels: number[],
+  unlockedRecipeCards: string[]
+): string[] {
+  return recipeCards.reduce(
+    (unlocked, card) =>
+      completedLevels.includes(card.milestoneLevel) ? unlockRecipeCard(unlocked, card.id) : unlocked,
+    unlockedRecipeCards
+  );
+}
+
 // The hand-built queue (App.tsx's LEVEL_QUEUE) is no longer the end of the
 // game — past it, generator-driven levels continue indefinitely (see
 // buildGeneratedLevelConfig below), so there's no ceiling left to hit.
@@ -472,9 +501,21 @@ export function buildGeneratedLevelConfig(
   // generatedObjectiveCount), so this can never wrap around and repeat a
   // type within the same level.
   const objectiveCount = generatedObjectiveCount(typeCount);
+  // generatedTargetCount is the TOTAL piece burden for the level, shared
+  // across its objectives, not a per-objective quota. Earlier this handed
+  // every objective the full single-objective count independently, so a
+  // two-objective level silently demanded double (26 + 26 = 52 pieces
+  // against an 18-move floor — effectively unwinnable, see
+  // engine/DECISIONS.md's target-sharing entry). Dividing keeps a
+  // two-objective level's total in line with a one-objective level of the
+  // same number. ceil so an odd total never rounds a level below its
+  // intended burden — though in practice two objectives only ever appear
+  // once the target has saturated at 26 (both need levelNumber >= 7), so
+  // this splits cleanly to 13 + 13.
+  const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber) / objectiveCount);
   const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
     targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
-    targetCount: generatedTargetCount(levelNumber),
+    targetCount: perObjectiveTarget,
   }));
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));

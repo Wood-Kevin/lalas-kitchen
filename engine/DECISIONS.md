@@ -7,12 +7,15 @@ it does — the code already tells you what.
 
 ## `type` vs `matchType`
 
-The piece shape has both `type: 'normal' | 'row_clearer' | 'blocker'` and an
+The piece shape has both `type: 'normal' | 'striped' | 'blocker'` and an
 optional `matchType?: string`. The spec doesn't spell out the difference, so
-I split them by role: `type` is the piece's *behavior* category (only
-`'normal'` exists this phase; `row_clearer`/`blocker` are placeholders for
-Phase 3+ special-piece logic per CLAUDE.md's "leave the door open" note).
-`matchType` is the *kind/flavor* used purely for match-detection equality —
+I split them by role: `type` is the piece's *behavior* category (`'normal'`
+was the only one in Phase 1; `blocker` became real in Phase 6, and `striped`
+— the first special piece — in the striped-piece session, see that entry
+below; the union's original third member was a `'row_clearer'` placeholder,
+renamed to `'striped'` once it was actually built as a single type carrying a
+row/col `direction`). `matchType` is the *kind/flavor* used purely for
+match-detection equality —
 the abstract stand-in for "tomato vs. lemon vs. herb" that the skin layer
 will eventually map to a sprite. `checkMatches` groups runs by `matchType`
 equality, never by `type`.
@@ -434,28 +437,51 @@ rendering-side reasoning (placeholder sprites, animation timing, etc.)
 lives in `components/NOTES.md`; this section is specifically about places
 where the engine's existing API shape made rendering against it awkward.
 
-## `applyMove` only returns the final settled board, not intermediate cascade steps
+## `applyMove` returns each cascade pass as a distinct step (was: only the final settled board)
 
-`Board.tsx` wants to animate a cascade as a sequence of beats — the swap,
-then each match popping, then pieces falling, then the next chained match
-popping, and so on — but `applyMove` resolves the *entire* chain internally
-(`resolveCascades`'s `while` loop) and only ever hands back the fully
-settled board plus aggregate counts (`cascadeCount`,
-`clearedByMatchType`). There's no way, from the public API, to render each
-cascade pass as a distinct visual step.
+**Resolved.** `applyMove` now returns `steps: Board[]` on `ApplyMoveResult`
+— one settled-board snapshot per cascade pass, in resolution order, with the
+last entry equal to `state.board`. `Board.tsx` walks that sequence and
+animates each pass as its own beat (this pass's clears settle, then a fixed
+interval later the next pass's clears begin), instead of collapsing the
+whole chain into one before/after diff.
 
-**What `Board.tsx` does instead:** a single before/after diff
-(`components/boardDiff.ts`) comparing piece ids between the board state
-before `applyMove` and the one after, inferring cleared/moved/spawned
-pieces from *only* the two endpoints. Multi-cascade chains still animate —
-every piece's start and end position is known — they just resolve as one
-continuous motion rather than distinct chained beats. For this project that
-arguably reads as *more* calm/satisfying, not less, which fits CLAUDE.md's
-pacing goal — but it's a real capability gap, not a deliberate design
-choice on the engine's part, and it's worth knowing about before any
-future session assumes step-by-step cascade animation is possible without
-an engine change (e.g. `applyMove` returning an array of intermediate board
-snapshots instead of just the final one).
+**Why this changed:** the original accepted limitation (below) was justified
+on the theory that one continuous motion reads *calmer* than distinct steps.
+Real play showed the opposite — watching every cell across a multi-pass
+chain clear simultaneously, including chains the player didn't directly
+cause, is *harder* to follow than watching it resolve in sequential beats.
+This traded the calm-vs-legible call the other way, which is the correct
+read of CLAUDE.md's calm-pacing constraint for *this* player.
+
+**How it's exposed, not recomputed:** `resolveCascades`'s `while` loop
+already computed each pass's settled board internally; the change just
+pushes each one onto a `steps` array and returns it. No new cascade math.
+`applyMove` overwrites the final step with the post-rescue `resolvedBoard`
+so the sequence ends exactly on the committed board — a zero-legal-move
+rescue shuffle (see the stuck-board entry below) folds silently into that
+last beat rather than becoming a visible extra rearrangement.
+
+**Presentation side (`Board.tsx`):** diffs consecutive snapshots
+(`components/boardDiff.ts`, still the same before/after id diff, now applied
+per pass rather than once end-to-end), renders intermediate passes from a
+`displayBoard` state, and defers committing `gameState` — and therefore any
+win/paused overlay — until the final pass so overlays never appear over a
+still-resolving board. Taps are locked (`animatingRef`) during the
+animation, since `gameState` is still the pre-move state until the chain
+finishes. Per-step pacing reuses the existing cascade fall duration
+(`cascadeStepIntervalMs`), not a new number. A single-pass move
+(`steps.length === 1`) collapses to exactly the prior one-shot behavior:
+one diff from the pre-move board to the settled board, `gameState`
+committed immediately.
+
+**Original limitation, kept for context:** `applyMove` used to resolve the
+entire chain internally and hand back only the fully settled board plus
+aggregate counts (`cascadeCount`, `clearedByMatchType`), so `Board.tsx`
+inferred cleared/moved/spawned pieces from *only* the pre- and post-move
+endpoints. Multi-cascade chains still animated — every piece's start and end
+position was known — but resolved as one continuous motion rather than
+distinct chained beats.
 
 ## `Position` isn't re-exported from `gameState.ts`
 
@@ -971,6 +997,54 @@ second objective trivializes the level, not a levelNumber proxy for it. The
 `min(2, typeCount)` cap and the distinct-consecutive-index construction
 described above are unchanged.
 
+## `generatedTargetCount` is a per-level total, shared across objectives — not a per-objective quota
+
+Reported from real play: level 28 asked for 26 tomatoes **and** 26 lemons,
+which felt unwinnable. Investigation confirmed it effectively was.
+`buildGeneratedLevelConfig` was handing **every** objective the full
+`generatedTargetCount(levelNumber)` independently, so a two-objective level
+demanded double an equivalent single-objective one. `generatedTargetCount`
+takes `levelNumber` alone and has no knowledge that multiple objectives
+exist, so nothing ever divided the burden — the two objectives compounded.
+
+The real numbers at level 28 (generated level number 25): 2 objectives ×
+26 = **52** pieces against an **18**-move floor = **2.89 target pieces
+cleared every single move**. The theoretical minimum of clean 3-matches
+(9 per objective = 18) *equals* the move budget, i.e. zero margin in a
+physically impossible perfect game — before accounting for the 4-of-6
+neutral piece types (~⅔ of the board makes no progress) and up to 4
+blockers. Not unique to 28: the 52-piece burden lands on **every**
+two-objective level from level 10 on, while the move budget only shrinks
+(21 → 18), so the milestones 15, 21, and 28 were all in the wall zone.
+
+Two contributing factors, both confirmed:
+1. **The compounding bug itself** (above) — the target formula was never
+   re-examined after multi-objective levels were introduced. The test that
+   should have caught it instead asserted `26 + 26` and enshrined it.
+2. **The `generatedPieceTypeCount` ramp inversion** (see the "Difficulty
+   tuning" retraction above) was correct on its own, but it widened the pool
+   at high levels, making each specific type ~1/6 of the board and target
+   matches statistically scarcer. The `generatedTargetCount` ceiling of 26
+   had been tuned under the old ramp (fewer types high up, denser target
+   packing), so the same 26 became meaningfully harder without anything
+   re-tuning it.
+
+**Fix:** `perObjectiveTarget = ceil(generatedTargetCount(levelNumber) /
+objectiveCount)`. `generatedTargetCount` is now the level's **total** piece
+burden, shared across its objectives, so a two-objective level stays in line
+with a one-objective level of the same number rather than doubling. `ceil`
+guards against an odd total rounding a level below its intended burden,
+though in practice two objectives only ever appear once the target has
+saturated at 26 (both need levelNumber >= 7), so it splits cleanly to 13 +
+13. Single-objective levels are unchanged (`ceil(x / 1) === x`).
+
+Corrected numbers at the reported milestones: level 15 → 13 + 13 = 26 over
+19 moves (1.37 pieces/move); level 21 → 13 + 13 over 18 moves (1.44); level
+28 → 13 + 13 over 18 moves (1.44). All comfortably feasible, down from 2.89.
+The alternative lever — keeping 52 and raising the move budget past ~30 —
+was rejected: it would break the deliberately calm 18-move floor, and
+lowering the grind is the cleaner correction than inflating the moves.
+
 ## `grantInstantLife` is a full refill to max, not the genre-standard +1
 
 Explicitly requested as a deliberate design choice, not a bug fix: the
@@ -1063,3 +1137,91 @@ place in the app that already used recipe-themed copy without a real
 recipe system behind it, so once a real one existed, leaving the old
 disconnected count in place under the same heading would have actively
 misled a player into conflating two different numbers.
+
+## Striped pieces: the first special piece (spawn on 4, sweep a line when matched)
+
+The first genre-standard special piece. A run of *exactly* 4 (row or column)
+converts one of its cells into a `type: 'striped'` piece carrying the base
+`matchType` plus a `direction: 'row' | 'col'`; matching that striped piece
+later (it participates in matches by its `matchType` like any ordinary
+piece) sweeps its whole row or column. All of this lives in
+`gameState.ts`'s `resolveCascades` / `resolveMatchEffects`; `matrix.ts` only
+gained the data to make it possible (`Match.orientation` and
+`Piece.direction`).
+
+**Why one `'striped'` type + a `direction` field, not `'row_clearer'` /
+`'col_clearer'`:** the feature was specified as "a striped piece carrying a
+direction," and one type keeps every "is this special?" check a single
+`type === 'striped'` test instead of a growing set of literals. This is the
+former `'row_clearer'` placeholder, now built and renamed.
+
+**Direction mapping — parallel, and deliberately one line to flip.** A
+horizontal 4-run makes a **row**-clearer, a vertical one a **col**-clearer
+(`resolveMatchEffects` sets the anchor's direction to `match.orientation`
+directly). This is the most literal reading of the spec ("4 in a row …
+clears a full row") and the simplest to reason about. The genre's other
+common convention is *perpendicular* (Candy Crush: a horizontal match makes a
+column-clearer); switching to it is the single expression
+`match.orientation === 'row' ? 'col' : 'row'` at that one call site — no
+other code cares. Engine correctness is identical either way; only feel
+differs, so it's parked as a runner-level default the architect can flip.
+
+**Spawn mechanics:**
+- The anchor is `positions[0]` of the run (deterministic, easy to test). The
+  other three cells clear; the anchor is transformed **in place**, keeping
+  its `id` and `matchType`, so the presentation diff sees a piece that stayed
+  put (not a spawn) and just re-renders as a striped tile, and it falls
+  under gravity like any piece.
+- **Objective counting:** only cells that actually clear are counted, so a
+  4-match credits **3** toward objectives (the anchor became a striped piece,
+  it wasn't cleared) and the striped piece pays out the rest when it later
+  sweeps. Counting is now driven by the actual cleared-cell set, not
+  `match.positions.length` — which also removed the old double-count when two
+  matches overlapped a shared cell.
+
+**Trigger mechanics:**
+- Any match *containing* a striped piece triggers it: its full row or column
+  is added to the clear set, alongside the ordinary match cells. The striped
+  piece is consumed.
+- **Blockers are never force-cleared by a sweep.** A line sweep adds only
+  non-blocker cells to the clear set; a blocker sitting in the swept line
+  still takes ordinary adjacent damage from its cleared neighbours
+  (`applyAdjacentDamage`), so its `hitsRemaining` semantics stay intact — one
+  clearing rule for blockers, everywhere.
+
+**Deliberate scope limits (see DEFERRED_COMPLEXITY.md):** a sweep does **not**
+chain — a striped piece caught in another's sweep just clears, it doesn't
+fire; runs of **5+** clear normally with no larger special (no color bomb);
+and overlapping straight runs (L/T shapes) are each handled independently,
+with an anchor cell winning over any match that also wanted to clear it
+(`resolveMatchEffects` deletes anchor keys from the clear set last). These
+keep the first special piece bounded and correct rather than half-building
+the whole genre's special-piece tree.
+
+**Rendering: dedicated art with the standard placeholder fallback (not an
+overlay).** A striped piece resolves its sprite through the *same* path every
+other piece uses — `components/spriteMap.ts`'s `getSpriteForPiece` returns
+`striped_<base sprite>` (e.g. `striped_tomato.webp`), and `resolveSpriteAsset`
+shows the registered image if the skin has that art or the usual text-label
+placeholder if not. So real striped art is purely a
+`skins/lalas-kitchen/spriteRegistry.ts` addition, one line per asset, exactly
+like piece/blocker/recipe-card art. Tomato and lemon have real striped art;
+herb/garlic/chili/spoon fall through to the placeholder until art lands. The
+filename is derived by prefixing the *base sprite filename config already
+gives*, so no literal piece name appears in the presentation layer (the leak
+test holds). Only the board's live tiles use `getSpriteForPiece`; HUD/objective
+icons still call `getSpriteForMatchType` (they show a matchType, never a
+striped piece).
+
+**An earlier draft drew a translucent directional stripe overlay** (horizontal
+bars for a row-clearer, vertical for a column-clearer) over the base sprite, as
+a general marker that worked for all six types before any dedicated art
+existed. It was removed once real striped art landed: the art bakes its own
+stripes in (a horizontal-striped, sparkled tomato/lemon), so an overlay would
+double them, and the provided art is one-per-type rather than per-direction.
+Consequence worth knowing: **row vs. column direction is no longer shown
+visually** — the dedicated art is non-directional and the placeholder is a
+plain label. The direction is still tracked and enforced in the engine; if
+surfacing it to the player matters, it needs either per-direction art
+(`striped_tomato_row` / `_col`) or a reintroduced subtle indicator. Flagged,
+not decided.

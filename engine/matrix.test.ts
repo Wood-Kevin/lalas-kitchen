@@ -81,6 +81,32 @@ describe('checkMatches', () => {
       { row: 3, col: 0 },
     ]);
   });
+
+  test('distinguishes a 4-match from a 3-match by run length, and reports orientation', () => {
+    // A striped piece is spawned off a run of exactly 4 (see gameState.ts),
+    // and its clear direction comes from the run's axis — so checkMatches has
+    // to carry both the length (via positions) and the orientation.
+    const horizontal = buildBoard([
+      ['A', 'A', 'A', 'A'],
+      ['B', 'C', 'B', 'C'],
+      ['C', 'B', 'C', 'B'],
+    ]);
+    const hMatches = checkMatches(horizontal);
+    expect(hMatches).toHaveLength(1);
+    expect(hMatches[0].positions).toHaveLength(4);
+    expect(hMatches[0].orientation).toBe('row');
+
+    const vertical = buildBoard([
+      ['A', 'P', 'Q'],
+      ['A', 'Q', 'P'],
+      ['A', 'P', 'Q'],
+      ['B', 'Q', 'P'],
+    ]);
+    const vMatches = checkMatches(vertical);
+    expect(vMatches).toHaveLength(1);
+    expect(vMatches[0].positions).toHaveLength(3);
+    expect(vMatches[0].orientation).toBe('col');
+  });
 });
 
 describe('swapPieces', () => {

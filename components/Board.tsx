@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
+  Board as BoardMatrix,
   GameState,
   LevelConfig,
   Position,
@@ -11,7 +12,7 @@ import {
 import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
-import { getSpriteForMatchType } from './spriteMap';
+import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs } from './cascadeTiming';
 import { Hud } from './Hud';
@@ -158,9 +159,32 @@ export function Board({
   // seeded generator (see engine/generator.ts) the exact same seed it just
   // started from — each replay gets a different, still-deterministic board.
   const nextSeedRef = useRef(levelConfig.seed + 1);
+  // While a multi-pass cascade is animating, the tiles render from this
+  // intermediate snapshot instead of gameState.board — applyMove now returns
+  // one board per cascade pass (see engine/gameState.ts's ApplyMoveResult),
+  // and we walk them in sequence so each pass reads as its own beat rather
+  // than the whole chain resolving at once. Null whenever nothing is
+  // mid-animation, in which case the live gameState.board is shown directly.
+  const [displayBoard, setDisplayBoard] = useState<BoardMatrix | null>(null);
+  // Synchronous input lock: gameState isn't committed until the cascade
+  // finishes animating (so the win/paused overlay doesn't pop mid-chain), so
+  // without this a tap during the animation would call applyMove against the
+  // stale pre-move state. A ref, not state, because handleTilePress must see
+  // the current value the instant it's set, not on the next render.
+  const animatingRef = useRef(false);
+  // Pending step/cleanup timers, cleared on unmount and on "play again" so a
+  // cascade animation from an abandoned attempt can't fire into a fresh one.
+  const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Monotonic per-move id, used only to key exiting tiles uniquely across
+  // moves (a piece clears at most once per move, so id+move is unique).
+  const moveCounterRef = useRef(0);
 
-  const rows = gameState.board.length;
-  const cols = gameState.board[0]?.length ?? 0;
+  // The board actually drawn: the mid-cascade snapshot when animating, else
+  // the committed game state. Grid dimensions are identical either way, so
+  // deriving rows/cols/tileSize from this is always correct.
+  const renderBoard = displayBoard ?? gameState.board;
+  const rows = renderBoard.length;
+  const cols = renderBoard[0]?.length ?? 0;
 
   const tileSize = useMemo(() => {
     if (!boardArea) return 0;
@@ -193,9 +217,27 @@ export function Board({
   // subsequent move — bounds the bookkeeping Sets below instead of letting
   // them grow for the life of the level.
   const transitionWindowMs = Math.max(cascadeDurationMs, swapDurationMs);
+  // Delay between one cascade pass's clears settling and the next pass's
+  // clears beginning. Reuses the existing per-pass fall duration as the beat
+  // rather than inventing a new number or stretching one value across the
+  // whole chain — each pass gets the same calm, legible pacing a single
+  // cascade already has (see CLAUDE.md's calm-not-frantic constraint).
+  const cascadeStepIntervalMs = cascadeDurationMs;
+
+  useEffect(() => {
+    // Clear any in-flight cascade timers if this Board unmounts mid-animation
+    // (e.g. the player exits to Home), so a queued step can't fire into a
+    // torn-down component. stepTimersRef is a ref, so this effect needs no
+    // deps — it only ever runs its cleanup on unmount.
+    return () => {
+      stepTimersRef.current.forEach((timer) => clearTimeout(timer));
+      stepTimersRef.current = [];
+    };
+  }, []);
 
   function handleTilePress(pos: Position) {
-    if (gameState.status !== 'in_progress' || snapBack || showBlockerTutorial) return;
+    if (gameState.status !== 'in_progress' || snapBack || showBlockerTutorial || animatingRef.current)
+      return;
 
     if (!selected) {
       setSelected(pos);
@@ -226,38 +268,85 @@ export function Board({
       return;
     }
 
-    const diff = diffBoards(gameState.board, result.state.board);
     const tappedIds = new Set([
       gameState.board[posA.row][posA.col].id,
       gameState.board[posB.row][posB.col].id,
     ]);
+    // result.events surfaces combo_streak the same way the step diffs surface
+    // cleared/spawned pieces — both are derived from the same applyMove call.
+    // Fired when the chain finishes animating (see animateCascade), so the
+    // acknowledgment lands on the completed streak, not its first pass.
+    const hasCombo = result.events.some((event) => event.type === 'combo_streak');
 
-    // result.events surfaces combo_streak the same way diff surfaces
-    // cleared/spawned pieces — both are derived from the same applyMove
-    // call, just read for a different purpose (a transient acknowledgment
-    // vs. the actual tile animations).
-    if (result.events.some((event) => event.type === 'combo_streak')) {
-      setComboKey(`combo-${gameState.movesRemaining}`);
-    }
+    animateCascade(gameState.board, result.state, result.steps, tappedIds, hasCombo);
+  }
 
-    setSwapDurationIds(tappedIds);
-    setSpawnedIds(new Set(diff.spawned.map((s) => s.piece.id)));
-    setExiting(
-      diff.cleared.map(({ piece, from }) => ({
-        key: `${piece.id}-${gameState.movesRemaining}`,
-        pieceId: piece.id,
-        matchType: piece.matchType,
-        row: from.row,
-        col: from.col,
-        isBlockerClear: piece.type === 'blocker',
-      }))
-    );
-    setGameState(result.state);
+  // Walks the per-pass board snapshots applyMove returned, animating each as
+  // its own beat: pass i's clears/refill are diffed against the previously
+  // shown board, played, then a fixed interval later pass i+1 begins. The
+  // committed gameState (and any win/paused overlay it implies) is deferred
+  // to the final pass so overlays never appear over a still-resolving board.
+  // A single-pass move (steps.length === 1) collapses to exactly the prior
+  // one-shot behavior: one diff from the pre-move board straight to the
+  // settled board, gameState committed immediately.
+  function animateCascade(
+    fromBoard: BoardMatrix,
+    finalState: GameState,
+    steps: BoardMatrix[],
+    tappedIds: Set<string>,
+    hasCombo: boolean
+  ) {
+    animatingRef.current = true;
+    const moveId = moveCounterRef.current++;
+    let previous = fromBoard;
 
-    setTimeout(() => {
-      setSwapDurationIds(new Set());
-      setSpawnedIds(new Set());
-    }, transitionWindowMs);
+    const runStep = (i: number) => {
+      const next = steps[i];
+      const diff = diffBoards(previous, next);
+
+      // Only the first pass carries the just-tapped pair, which uses the
+      // snappier swap duration; every later pass is a passive fall.
+      setSwapDurationIds(i === 0 ? tappedIds : new Set());
+      setSpawnedIds(new Set(diff.spawned.map((s) => s.piece.id)));
+      // Append (don't replace): a pass's exit tiles keep animating out while
+      // the next pass's clears begin, giving the layered, sequential read.
+      // Each ExitingTile removes itself on completion (see removeExiting).
+      setExiting((current) => [
+        ...current,
+        ...diff.cleared.map(({ piece, from }) => ({
+          key: `${piece.id}-${moveId}`,
+          pieceId: piece.id,
+          matchType: piece.matchType,
+          row: from.row,
+          col: from.col,
+          isBlockerClear: piece.type === 'blocker',
+        })),
+      ]);
+
+      previous = next;
+
+      if (i + 1 < steps.length) {
+        setDisplayBoard(next);
+        stepTimersRef.current.push(setTimeout(() => runStep(i + 1), cascadeStepIntervalMs));
+      } else {
+        // Final pass: commit the real game state (its board is this exact
+        // last snapshot) and drop the intermediate display board in the same
+        // render, so nothing jumps. Fire the combo ack here, on the settled
+        // chain.
+        if (hasCombo) setComboKey(`combo-${moveId}`);
+        setGameState(finalState);
+        setDisplayBoard(null);
+        animatingRef.current = false;
+        stepTimersRef.current.push(
+          setTimeout(() => {
+            setSwapDurationIds(new Set());
+            setSpawnedIds(new Set());
+          }, transitionWindowMs)
+        );
+      }
+    };
+
+    runStep(0);
   }
 
   function handleGrant(amount: number) {
@@ -280,11 +369,18 @@ export function Board({
     }
     const seed = nextSeedRef.current;
     nextSeedRef.current += 1;
+    // Cancel any cascade animation still in flight (from the attempt being
+    // replayed) so its queued steps can't commit the old state or exit tiles
+    // over the fresh board.
+    stepTimersRef.current.forEach((timer) => clearTimeout(timer));
+    stepTimersRef.current = [];
+    animatingRef.current = false;
     // Seeds the fresh attempt with the current `lives` prop, not
     // `levelConfig.lives` — the level's original mount-time snapshot could
     // be stale if this restart follows a loss (see the `lives` prop's doc
     // comment above).
     setGameState(createGameState({ ...levelConfig, seed, lives }));
+    setDisplayBoard(null);
     setSelected(null);
     setExiting([]);
     setSpawnedIds(new Set());
@@ -330,7 +426,7 @@ export function Board({
       >
         {tileSize > 0 && (
           <View style={[styles.board, { width: boardWidth, height: rows * tileSize }]}>
-            {gameState.board.flatMap((rowPieces, r) =>
+            {renderBoard.flatMap((rowPieces, r) =>
               rowPieces.map((piece, c) => {
                 let displayRow = r;
                 let displayCol = c;
@@ -354,7 +450,7 @@ export function Board({
                     row={displayRow}
                     col={displayCol}
                     tileSize={tileSize}
-                    sprite={resolveSpriteAsset(getSpriteForMatchType(piece.matchType, skinConfig), spriteAssets)}
+                    sprite={resolveSpriteAsset(getSpriteForPiece(piece, skinConfig), spriteAssets)}
                     accentColor={skinConfig.palette.accent}
                     panelColor={skinConfig.palette.panel}
                     selected={!!selected && selected.row === r && selected.col === c}

@@ -1,4 +1,5 @@
-import { getSpriteForMatchType } from './spriteMap';
+import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
+import { resolveSpriteAsset } from './spriteAsset';
 import { SkinConfig } from './skinConfig';
 
 const sampleConfig: SkinConfig = {
@@ -42,5 +43,46 @@ describe('getSpriteForMatchType', () => {
 
   test('returns undefined when matchType itself is undefined', () => {
     expect(getSpriteForMatchType(undefined, sampleConfig)).toBeUndefined();
+  });
+});
+
+describe('getSpriteForPiece', () => {
+  test('a normal piece resolves to its plain base sprite', () => {
+    expect(getSpriteForPiece({ type: 'normal', matchType: 'tomato' }, sampleConfig)).toBe('tomato.svg');
+  });
+
+  test('a striped piece resolves to the striped_ variant of its base sprite', () => {
+    expect(getSpriteForPiece({ type: 'striped', matchType: 'tomato' }, sampleConfig)).toBe('striped_tomato.svg');
+    expect(getSpriteForPiece({ type: 'striped', matchType: 'lemon' }, sampleConfig)).toBe('striped_lemon.svg');
+  });
+
+  test('a striped piece of a type with no base sprite stays undefined (no "striped_undefined")', () => {
+    expect(getSpriteForPiece({ type: 'striped', matchType: 'nonexistent' }, sampleConfig)).toBeUndefined();
+  });
+
+  // The graceful fallback the whole feature relies on: a striped piece whose
+  // striped_ art isn't in the registry yet resolves to the same text-label
+  // placeholder any un-arted sprite uses — never a crash or a blank tile.
+  test('a striped piece with dedicated art resolves to the image; one without falls back to a label', () => {
+    // A synthetic registry where only striped_tomato has real art. The real
+    // skin now has striped art for all six ingredient types, so this no
+    // longer mirrors it — it's a deliberately partial map that exercises the
+    // fallback mechanism (registered -> image, unregistered -> label), which
+    // must keep working for any future un-arted striped_ filename.
+    const assets = { 'striped_tomato.webp': 7 } as unknown as Parameters<typeof resolveSpriteAsset>[1];
+    const registryConfig: SkinConfig = {
+      ...sampleConfig,
+      pieceTypes: [
+        { id: 'tomato', sprite: 'tomato.webp' },
+        { id: 'herb', sprite: 'herb.webp' },
+      ],
+    };
+
+    const tomatoSprite = getSpriteForPiece({ type: 'striped', matchType: 'tomato' }, registryConfig);
+    expect(resolveSpriteAsset(tomatoSprite, assets)).toEqual({ kind: 'image', source: 7 });
+
+    const herbSprite = getSpriteForPiece({ type: 'striped', matchType: 'herb' }, registryConfig);
+    expect(herbSprite).toBe('striped_herb.webp');
+    expect(resolveSpriteAsset(herbSprite, assets)).toEqual({ kind: 'label', label: 'ST' });
   });
 });

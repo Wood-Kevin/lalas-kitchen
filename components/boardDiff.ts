@@ -40,11 +40,12 @@ function piecesById(board: Board): Map<string, Piece> {
 }
 
 // Compares two board snapshots by piece id (not by position) to figure out
-// what an applyMove call actually did, since applyMove only returns the
-// final settled board — see engine/DECISIONS.md's note on animating against
-// that limitation. A piece id present in `before` but missing from `after`
-// was cleared; one present in `after` but not `before` was spawned; one
-// present in both at different coordinates fell/slid there.
+// what changed between them. Board.tsx applies this once per cascade pass —
+// diffing each of applyMove's returned `steps` against the previously shown
+// board — to animate each pass as its own beat (see engine/DECISIONS.md's
+// cascade-steps entry). A piece id present in `before` but missing from
+// `after` was cleared; one present in `after` but not `before` was spawned;
+// one present in both at different coordinates fell/slid there.
 export function diffBoards(before: Board, after: Board): BoardDiff {
   const beforePositions = positionsById(before);
   const afterPositions = positionsById(after);
