@@ -29,3 +29,15 @@ ordinary match still commits (a move is spent) and detonates every piece of the
 swapped-with type across the entire board. All 191 engine/component tests pass
 (9 new: 5 in `engine/gameState.test.ts`, 2 in `engine/matrix.test.ts`, 2 in
 `components/spriteMap.test.ts`).
+
+## `color-bomb-art.png` — dedicated art landed
+
+Captured the same way, from a throwaway harness that runs the real
+`getSpriteForPiece` → `resolveSpriteAsset` path and parses the actual
+`spriteRegistry.ts` entry to load the real `color_bomb.webp`. Two tiles: the
+**before** state (no registry entry → the "CO" text-label placeholder) and the
+**now** state (the `'color_bomb'` registry entry present → the real glowing
+potion-bottle art). Confirms `color_bomb.webp` renders on the live board through
+the fixed `'color_bomb'` key, no code change — and that the key is correctly the
+bare `'color_bomb'` string (what `getSpriteForPiece` returns), not
+`'color_bomb.webp'`, which would have missed the lookup and kept the placeholder.

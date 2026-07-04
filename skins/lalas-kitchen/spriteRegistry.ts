@@ -11,9 +11,10 @@ import { SpriteAssetMap } from '../../components/spriteAsset';
 // Board.tsx, and Hud.tsx only ever go through resolveSpriteAsset() and
 // never know this file exists.
 //
-// All six pieceTypes sprites, the lives.icon sprite, all three blocker
-// sprites (cling.webp, dish_stack.webp, pot_lid.webp), and all nine recipe
-// card illustrations have landed; each gets exactly one line below.
+// All six pieceTypes sprites, all six striped_ variants, the color_bomb
+// special-piece sprite, the lives.icon sprite, all three blocker sprites
+// (cling.webp, dish_stack.webp, pot_lid.webp), and all nine recipe card
+// illustrations have landed; each gets exactly one line below.
 //
 // home-hero-500h-crop.webp and splash-full-1024h.webp aren't piece/blocker
 // sprites from config.json — they're the Home screen's header banner and
@@ -40,6 +41,14 @@ export const spriteRegistry: SpriteAssetMap = {
   'striped_garlic.webp': require('./sprites/striped_garlic.webp'),
   'striped_chili.webp': require('./sprites/striped_chili.webp'),
   'striped_spoon.webp': require('./sprites/striped_spoon.webp'),
+  // Color-bomb special-piece art. A color bomb is colorless (no matchType), so
+  // components/spriteMap.ts's getSpriteForPiece resolves every color bomb to
+  // the one fixed key 'color_bomb' (no extension — it's an engine piece-type,
+  // not a config.json filename like every other key here). The KEY must equal
+  // that lookup string exactly; the require path is the real asset file. With
+  // this entry present a bomb renders the real glowing art; before it, the
+  // lookup missed and fell through to resolveSpriteAsset's "CO" placeholder.
+  'color_bomb': require('./sprites/color_bomb.webp'),
   'flame.webp': require('./sprites/flame.webp'),
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),

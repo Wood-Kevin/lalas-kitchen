@@ -1304,9 +1304,15 @@ whole-board-detonation blocker test proves this end to end.
 `components/spriteMap.ts`'s `getSpriteForPiece` special-cases
 `type === 'color_bomb'` to a single fixed `'color_bomb'` sprite key (an engine
 piece-type name, not a skin flavor — the leak test holds exactly as it does for
-the `striped_` branch). With no registry entry yet it falls through to the same
-`spriteLabel` text-label placeholder every un-arted piece uses ("CO"); real art
-is one `spriteRegistry.ts` line, zero code changes. Verified live — see
+the `striped_` branch). Note this key has **no `.webp` extension**, unlike every
+other registry key (which is a config.json filename): the `spriteRegistry.ts`
+entry must therefore be keyed by the bare `'color_bomb'` string
+(`getSpriteForPiece`'s return value, which is what `resolveSpriteAsset` looks
+up), with the real `./sprites/color_bomb.webp` file only on the `require()`
+side. Real dedicated art (`color_bomb.webp` — a glowing potion bottle) has since
+landed via exactly that one registry line, zero code changes; before it, the
+lookup missed and fell through to the same `spriteLabel` "CO" text-label
+placeholder every un-arted piece uses. Both states verified live — see
 `docs/verification/color-bomb/`.
 
 **Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** only exactly-5
