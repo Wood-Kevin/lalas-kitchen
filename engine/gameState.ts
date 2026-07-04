@@ -1,5 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Board, Piece, Position, checkMatches, swapPieces, calculateCascades } from './matrix';
+import {
+  Board,
+  Piece,
+  Position,
+  checkMatches,
+  swapPieces,
+  calculateCascades,
+  hasLegalMoves,
+  shuffle,
+  applyAdjacentDamage,
+} from './matrix';
 import { generateLevel } from './generator';
 
 // Re-exported so components/ can depend on gameState.ts alone for the
@@ -21,18 +31,27 @@ export type GameStatus = 'in_progress' | 'paused_awaiting_input' | 'won';
 
 // Which resource hit zero to cause a paused_awaiting_input status. null
 // whenever status isn't paused_awaiting_input. This is the mechanism that
-// lets a future skin show different messaging per pause type ("out of
-// moves" vs "out of lives") without the engine needing to know what that
-// messaging is — same "engine emits data, skin decides presentation"
-// separation as the event types below.
-export type PauseReason = 'moves' | 'lives' | null;
+// lets a future skin show different messaging per pause type without the
+// engine needing to know what that messaging is — same "engine emits data,
+// skin decides presentation" separation as the event types below.
+//
+// 'lives' was removed from this union — see DECISIONS.md's life-spend
+// session. Mid-level lives exhaustion never had a real trigger (nothing
+// ever decremented GameState.lives during play), and the life-spend
+// mechanic actually built spends a life *after* a level ends, at the
+// account level, with level-start itself gated at lives > 0 — so
+// GameState.lives, fixed at level start to an already-gated value, can
+// never legitimately reach zero inside a call to applyMove. Re-add it here
+// only if a real mid-level lives-spend trigger is ever built.
+export type PauseReason = 'moves' | null;
 
 export interface GameState {
   board: Board;
   movesRemaining: number;
-  // Lives live here, not just in SaveData, because a level in progress
-  // needs to track its own life spend independently of the persisted
-  // between-sessions value — see DECISIONS.md.
+  // Snapshot of the account's persisted lives count at level start — read
+  // by the HUD for display, but not itself decremented during play (see
+  // PauseReason's comment above). The account-level lives count that
+  // actually changes on a loss lives in App.tsx, not here.
   lives: number;
   objective: Objective;
   status: GameStatus;
@@ -101,6 +120,17 @@ export interface LevelConfig {
   movesLimit: number;
   lives: number;
   objective: { targetMatchType: string; targetCount: number };
+  // Optional so generator-driven levels (appPersistence.ts's
+  // buildGeneratedLevelConfig) can leave it unset rather than fabricate a
+  // name — components/levelProgress.ts's resolveLevelDisplayName falls back
+  // to a plain "Level N" label whenever this is undefined.
+  displayName?: string;
+  // Optional generated-level blocker placement — mirrors generator.ts's
+  // GeneratorConfig fields exactly. Omitted (or blockerCount 0/undefined)
+  // means no blockers, identical to every level built before this phase.
+  blockerCount?: number;
+  blockerMatchType?: string;
+  blockerHitsToClear?: number;
 }
 
 export function createGameState(config: LevelConfig): GameState {
@@ -108,6 +138,9 @@ export function createGameState(config: LevelConfig): GameState {
     rows: config.rows,
     cols: config.cols,
     pieceTypeIds: config.pieceTypeIds,
+    blockerCount: config.blockerCount,
+    blockerMatchType: config.blockerMatchType,
+    blockerHitsToClear: config.blockerHitsToClear,
   });
 
   return {
@@ -158,8 +191,20 @@ function resolveCascades(
       clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + match.positions.length;
     }
 
-    const allPositions = matches.flatMap((m) => m.positions);
-    const withGaps = cloneBoardWithGaps(currentBoard, allPositions);
+    const matchPositions = matches.flatMap((m) => m.positions);
+
+    // Blockers don't match directly — they take damage from whatever match
+    // clears next to them (see matrix.ts's applyAdjacentDamage and
+    // DECISIONS.md). Any blocker that reaches zero hits this pass clears
+    // alongside the triggering match and joins the same cascade/refill.
+    const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(currentBoard, matchPositions);
+    for (const pos of newlyClearedBlockers) {
+      const key = damagedBoard[pos.row][pos.col].matchType ?? 'unknown';
+      clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
+    }
+
+    const allPositions = [...matchPositions, ...newlyClearedBlockers];
+    const withGaps = cloneBoardWithGaps(damagedBoard, allPositions);
     currentBoard = calculateCascades(withGaps, spawnPiece);
   }
 
@@ -174,16 +219,36 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     return { state, events: [] };
   }
 
+  // Blockers aren't swappable at all — moving one out of its cell would
+  // dodge the adjacent-damage mechanic entirely, so this is rejected the
+  // same way a no-match swap is: snap back, no move spent, no events.
+  const pieceA = state.board[posA.row][posA.col];
+  const pieceB = state.board[posB.row][posB.col];
+  if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
+    return { state, events: [] };
+  }
+
   const swapped = swapPieces(state.board, posA, posB);
   if (checkMatches(swapped).length === 0) {
     // Illegal move: no match, snap back. No move spent, no state change.
     return { state, events: [] };
   }
 
-  const { board: resolvedBoard, cascadeCount, clearedByMatchType } = resolveCascades(
+  const { board: cascadedBoard, cascadeCount, clearedByMatchType } = resolveCascades(
     swapped,
     state.spawnPiece
   );
+
+  // A settled cascade can leave a board with zero legal moves — confirmed
+  // during real mobile playtesting as a genuine mid-play stuck state, not
+  // just a theoretical edge case. `generateLevel` (generator.ts) already
+  // runs this exact hasLegalMoves -> shuffle rescue once at level creation;
+  // reusing both functions here rather than writing new logic keeps
+  // "board is playable" a single guarantee enforced the same way at both
+  // points it can be violated. No event fires for this — a shuffle should
+  // read as silent and immediate to the player, not an announced
+  // interruption, per CLAUDE.md's calm-pacing constraint.
+  const resolvedBoard = hasLegalMoves(cascadedBoard) ? cascadedBoard : shuffle(cascadedBoard);
 
   const totalCleared = { ...state.totalCleared };
   for (const [matchType, count] of Object.entries(clearedByMatchType)) {
@@ -203,13 +268,6 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   if (objective.currentCount >= objective.targetCount) {
     status = 'won';
     pauseReason = null;
-  } else if (state.lives <= 0) {
-    // Checked before movesRemaining: running out of lives is the more
-    // severe resource in this design (see DECISIONS.md on why the actual
-    // life-spend trigger is deliberately left unbuilt this phase), so if
-    // both happen to be exhausted at once, 'lives' is the reason surfaced.
-    status = 'paused_awaiting_input';
-    pauseReason = 'lives';
   } else if (movesRemaining <= 0) {
     status = 'paused_awaiting_input';
     pauseReason = 'moves';
@@ -248,9 +306,9 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
 
 // The engine doesn't know or care what triggers this (rewarded ad, IAP,
 // whatever) — that decision lives entirely outside the engine. It only
-// knows how to resume play from the paused state. Requires pauseReason to
-// specifically be 'moves' — granting the wrong resource must not
-// accidentally unstick a lives-exhausted pause.
+// knows how to resume play from the paused state. Checks pauseReason (not
+// just status) so this stays correct if a second pause reason is ever
+// reintroduced — see PauseReason's comment on why 'lives' was removed.
 export function grantBonusMoves(state: GameState, n: number): GameState {
   if (state.status !== 'paused_awaiting_input' || state.pauseReason !== 'moves') {
     return state;
@@ -258,21 +316,6 @@ export function grantBonusMoves(state: GameState, n: number): GameState {
   return {
     ...state,
     movesRemaining: state.movesRemaining + n,
-    status: 'in_progress',
-    pauseReason: null,
-  };
-}
-
-// Sibling to grantBonusMoves — same rule: doesn't know or care what
-// triggered it (rewarded ad, timer, debug button), and only resumes a
-// pause whose reason is specifically 'lives'.
-export function grantBonusLife(state: GameState, n: number): GameState {
-  if (state.status !== 'paused_awaiting_input' || state.pauseReason !== 'lives') {
-    return state;
-  }
-  return {
-    ...state,
-    lives: state.lives + n,
     status: 'in_progress',
     pauseReason: null,
   };
@@ -289,6 +332,13 @@ export interface SaveData {
   livesLastRegenAt: number;
   itemsCollected: Record<string, number>;
   powerUpCounts: Record<string, number>;
+  // 1-based level numbers the player has won at least once, feeding the
+  // dashboard screen. Optional (not just defaulted to []) so save files
+  // written before the level queue existed still parse — a hard schema
+  // migration isn't worth it at this scale, same call as livesLastRegenAt
+  // above. Every new write (see appPersistence.ts's buildSaveData) always
+  // populates it; readers fall back to [] themselves.
+  completedLevels?: number[];
 }
 
 // Small interface matching @react-native-async-storage/async-storage's

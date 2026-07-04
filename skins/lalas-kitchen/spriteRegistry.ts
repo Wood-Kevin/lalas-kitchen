@@ -11,12 +11,16 @@ import { SpriteAssetMap } from '../../components/spriteAsset';
 // Board.tsx, and Hud.tsx only ever go through resolveSpriteAsset() and
 // never know this file exists.
 //
-// The six pieceTypes sprites and the lives.icon sprite have landed; each
-// gets exactly one line below. `cling.webp` (the one blocker sprite) hasn't
-// landed yet, so it's deliberately absent — requiring a file that doesn't
-// exist would fail Metro's bundle step, not just fall back at runtime. Its
-// absence here is exactly what makes a cling piece keep rendering its
-// placeholder label until that file shows up too.
+// All six pieceTypes sprites, the lives.icon sprite, and the one blocker
+// sprite (cling.webp) have landed; each gets exactly one line below.
+//
+// home-hero-500h-crop.webp and splash-full-1024h.webp aren't piece/blocker
+// sprites from config.json — they're the Home screen's header banner and
+// the native splash reference art (components/Home.tsx looks the header
+// one up by this literal filename, not through getSpriteForMatchType) —
+// but they go through the exact same static require() registry since
+// Metro's literal-string requirement applies to any bundled asset, not
+// just piece art.
 export const spriteRegistry: SpriteAssetMap = {
   'tomato.webp': require('./sprites/tomato.webp'),
   'lemon.webp': require('./sprites/lemon.webp'),
@@ -25,4 +29,7 @@ export const spriteRegistry: SpriteAssetMap = {
   'chili.webp': require('./sprites/chili.webp'),
   'spoon.webp': require('./sprites/spoon.webp'),
   'flame.webp': require('./sprites/flame.webp'),
+  'cling.webp': require('./sprites/cling.webp'),
+  'home-hero-500h-crop.webp': require('./sprites/home-hero-500h-crop.webp'),
+  'splash-full-1024h.webp': require('./sprites/splash-full-1024h.webp'),
 };

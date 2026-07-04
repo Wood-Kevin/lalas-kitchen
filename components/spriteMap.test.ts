@@ -15,7 +15,15 @@ const sampleConfig: SkinConfig = {
     cascadeFallSpeed: 'medium',
     swapDurationMs: 140,
   },
-  palette: { background: ['#fff', '#eee'], panel: '#fff', accent: '#000' },
+  palette: {
+    background: ['#fff', '#eee'],
+    panel: '#fff',
+    accent: '#000',
+    secondaryAccent: '#0a0',
+    mutedText: '#333',
+    border: '#ccc',
+    text: '#111',
+  },
 };
 
 describe('getSpriteForMatchType', () => {

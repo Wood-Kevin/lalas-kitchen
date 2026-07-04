@@ -4,6 +4,9 @@ export interface Piece {
   id: string;
   type: PieceType;
   matchType?: string;
+  // Only meaningful when type === 'blocker'. How many adjacent-match hits
+  // this cell has left before it clears — see applyAdjacentDamage.
+  hitsRemaining?: number;
 }
 
 export type Board = Piece[][];
@@ -19,8 +22,12 @@ export interface Match {
 }
 
 // Two pieces only match if both carry a matchType and it's equal. A piece
-// with no matchType (e.g. a future blocker) can never form a run.
+// with no matchType can never form a run. Blockers are excluded outright
+// regardless of matchType — a blocker carries a matchType purely so its
+// clears can be counted toward an objective (see gameState.ts's
+// resolveCascades), not so it can participate in a run.
 function piecesMatch(a: Piece, b: Piece): boolean {
+  if (a.type === 'blocker' || b.type === 'blocker') return false;
   return a.matchType !== undefined && a.matchType === b.matchType;
 }
 
@@ -109,6 +116,63 @@ export function calculateCascades(
   return result;
 }
 
+export interface AdjacentDamageResult {
+  board: Board;
+  // Blockers whose hitsRemaining reached zero from this one call — the
+  // caller joins these positions into the same clear/cascade as the
+  // triggering match. Everything else about the board is unchanged aside
+  // from decremented hitsRemaining on the blockers that were hit.
+  newlyClearedBlockers: Position[];
+}
+
+const ADJACENT_OFFSETS: Position[] = [
+  { row: -1, col: 0 },
+  { row: 1, col: 0 },
+  { row: 0, col: -1 },
+  { row: 0, col: 1 },
+];
+
+// Whenever a match clears cells, any blocker cell adjacent to one of those
+// cells takes exactly one hit — not one hit per adjacent cleared cell, so a
+// blocker boxed in by a single L-shaped match still only loses one point of
+// hitsRemaining for that match, matching genre convention (see
+// DECISIONS.md for why adjacent damage was chosen over a hidden-piece
+// mechanic). Pure function: takes the board as it stood right before the
+// clear and the positions about to be cleared, returns a new board with
+// damaged blockers' hitsRemaining decremented, plus the positions of any
+// blocker that reached zero and should clear alongside the triggering match.
+export function applyAdjacentDamage(board: Board, clearedPositions: Position[]): AdjacentDamageResult {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const newBoard = board.map((row) => row.slice());
+  const clearedSet = new Set(clearedPositions.map((p) => `${p.row},${p.col}`));
+  const alreadyDamaged = new Set<string>();
+  const newlyClearedBlockers: Position[] = [];
+
+  for (const pos of clearedPositions) {
+    for (const offset of ADJACENT_OFFSETS) {
+      const row = pos.row + offset.row;
+      const col = pos.col + offset.col;
+      if (row < 0 || row >= rows || col < 0 || col >= cols) continue;
+
+      const key = `${row},${col}`;
+      if (clearedSet.has(key) || alreadyDamaged.has(key)) continue;
+
+      const cell = newBoard[row][col];
+      if (cell.type !== 'blocker') continue;
+
+      alreadyDamaged.add(key);
+      const hitsRemaining = (cell.hitsRemaining ?? 1) - 1;
+      newBoard[row][col] = { ...cell, hitsRemaining };
+      if (hitsRemaining <= 0) {
+        newlyClearedBlockers.push({ row, col });
+      }
+    }
+  }
+
+  return { board: newBoard, newlyClearedBlockers };
+}
+
 function fisherYates<T>(items: T[], rng: () => number): T[] {
   const shuffled = items.slice();
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -141,17 +205,23 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
   return candidate;
 }
 
+// Blockers are excluded as candidates on both sides of a swap, not just
+// left out of match runs — a swap that moves a blocker out of its cell
+// would itself be an illegal move (see gameState.ts's applyMove), so a
+// pair involving one must never be reported as "legal" here even if the
+// resulting board would otherwise contain a run.
 export function hasLegalMoves(board: Board): boolean {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (c + 1 < cols) {
+      if (board[r][c].type === 'blocker') continue;
+      if (c + 1 < cols && board[r][c + 1].type !== 'blocker') {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r, col: c + 1 });
         if (checkMatches(swapped).length > 0) return true;
       }
-      if (r + 1 < rows) {
+      if (r + 1 < rows && board[r + 1][c].type !== 'blocker') {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r + 1, col: c });
         if (checkMatches(swapped).length > 0) return true;
       }

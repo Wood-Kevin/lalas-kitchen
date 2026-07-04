@@ -1,9 +1,19 @@
-import { Board, checkMatches, hasLegalMoves, shuffle } from './matrix';
+import { Board, Position, checkMatches, hasLegalMoves, shuffle } from './matrix';
 
 export interface GeneratorConfig {
   rows: number;
   cols: number;
   pieceTypeIds: string[];
+  // Optional blocker placement. Omitted or 0 means no blockers — identical
+  // output to every board this generator produced before blockers existed
+  // (no extra rng calls happen in that case, so existing seeded-determinism
+  // tests are unaffected). The generator has no opinion on what a blocker
+  // "is" (its id or hit count) — that's skin data flowing in from the
+  // caller, same as pieceTypeIds; blockerMatchType is required whenever
+  // blockerCount is truthy.
+  blockerCount?: number;
+  blockerMatchType?: string;
+  blockerHitsToClear?: number;
 }
 
 // mulberry32: a small, dependency-free seeded PRNG. See DECISIONS.md for why
@@ -78,8 +88,48 @@ function repairAccidentalMatches(board: Board, pieceTypeIds: string[], rng: () =
   );
 }
 
+// Placed after the board is already fully filled and match-free. Converting
+// an existing cell to a blocker can only ever remove a matchType from play
+// at that position, never introduce a new run — a blocker is excluded from
+// matching outright (see matrix.ts's piecesMatch) — so this step never needs
+// to re-run repairAccidentalMatches. Positions are chosen via a fisherYates
+// shuffle of every board cell rather than picking `blockerCount` independent
+// random cells, so there's no risk of the same cell being chosen twice.
+function placeBlockers(
+  board: Board,
+  blockerCount: number,
+  blockerMatchType: string | undefined,
+  blockerHitsToClear: number | undefined,
+  rng: () => number
+): void {
+  if (blockerMatchType === undefined) {
+    throw new Error('generateLevel: blockerCount > 0 requires blockerMatchType.');
+  }
+
+  const rows = board.length;
+  const cols = board[0]?.length ?? 0;
+  const hitsToClear = blockerHitsToClear ?? 1;
+
+  const allPositions: Position[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      allPositions.push({ row: r, col: c });
+    }
+  }
+
+  const chosen = fisherYates(allPositions, rng).slice(0, Math.min(blockerCount, allPositions.length));
+  for (const pos of chosen) {
+    board[pos.row][pos.col] = {
+      id: `blocker-${pos.row}-${pos.col}`,
+      type: 'blocker',
+      matchType: blockerMatchType,
+      hitsRemaining: hitsToClear,
+    };
+  }
+}
+
 export function generateLevel(seed: number, config: GeneratorConfig): Board {
-  const { rows, cols, pieceTypeIds } = config;
+  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear } = config;
 
   if (pieceTypeIds.length < 2) {
     throw new Error('generateLevel: pieceTypeIds must contain at least 2 distinct types.');
@@ -99,6 +149,10 @@ export function generateLevel(seed: number, config: GeneratorConfig): Board {
   }
 
   repairAccidentalMatches(board, pieceTypeIds, rng);
+
+  if (blockerCount) {
+    placeBlockers(board, blockerCount, blockerMatchType, blockerHitsToClear, rng);
+  }
 
   if (!hasLegalMoves(board)) {
     return shuffle(board, rng);

@@ -454,6 +454,45 @@ since everything else `Board.tsx` needs from the engine (`GameState`,
 `export type { Position }` re-export in `gameState.ts` would remove the
 need for components to know `matrix.ts` exists at all.
 
+## Mid-play stuck-board rescue: reuses `hasLegalMoves`/`shuffle` from `matrix.ts`, no event fires
+
+Confirmed via real mobile playtesting (not a theoretical worry, and not a
+visual miscount — verified programmatically that the settled board had
+zero legal moves anywhere): a settled cascade can leave the player with no
+legal moves, same failure class `generateLevel` already guards against once
+at level creation. `applyMove` now runs the identical check-then-shuffle
+sequence after every cascade settles, reusing `hasLegalMoves` and `shuffle`
+directly rather than writing new stuck-detection logic — one guarantee
+("this board is playable"), enforced the same way everywhere it can be
+violated, instead of two similar-but-separate implementations to keep in
+sync.
+
+The check runs unconditionally after `resolveCascades`, regardless of the
+move's resulting `status` — not gated to `status === 'in_progress'`. A
+`paused_awaiting_input` board isn't necessarily done being played: granting
+a bonus (`grantBonusMoves`/`grantBonusLife`) resumes play on this exact
+board, so a paused board with zero legal moves would reproduce the same
+bug one layer later, just deferred until the player successfully
+un-pauses. Running the check unconditionally (including the harmless case
+where `status` is `'won'` and the board will never be swapped on again)
+was simpler than threading a status-dependent branch through for a case
+that costs nothing extra to cover.
+
+No `EngineEvent` fires for this. Per CLAUDE.md's calm-pacing constraint,
+the game shouldn't announce a shuffle happened — it should just always be
+true, silently, that a settled board has a move available. `shuffle` is
+called with its default `rng = Math.random`, not a seeded stream —
+unlike `generateLevel`'s board-fill (where "same seed always produces the
+same board" is the whole point), a mid-play rescue reshuffle was never
+part of that reproducibility contract; it only reacts to however the
+player actually played, which is already non-deterministic input.
+
+**Alternative not taken:** gating the check to `status === 'in_progress'`
+only was considered (simpler to read, matches the "no legal moves" bug as
+literally reported) but rejected once the resume-into-a-stuck-pause case
+above was noticed — that gate would silently reintroduce the same bug
+class for the `grantBonusMoves`/`grantBonusLife` path.
+
 ## Combo-streak and level-summary events aren't consumed by anything yet
 
 `gameState.ts` emits `ComboStreakEvent` and `LevelSummaryEvent` from
@@ -465,3 +504,370 @@ effect would run against the same "calm, not frantic" constraint that
 already rules out high-intensity particle effects. Noting it here so a
 future phase wiring up real event consumers knows the event data has been
 available and unused since Phase 3, not newly added.
+
+---
+
+# Phase 6 — blocker clearing (cling wraps go from inert to real)
+
+## Adjacent damage over a hidden-piece-underneath mechanic
+
+The cling sprite existed since Phase 5 but nothing ever placed a piece that
+used it — this phase is the first time `type: 'blocker'` does anything.
+Two designs were on the table for how a blocker actually clears: **adjacent
+damage** (a blocker takes a hit whenever a match clears next to it, and
+disappears once `hitsRemaining` reaches zero) versus a **hidden-piece
+underneath** mechanic (a blocker conceals a real matchable piece; clearing
+the blocker layer reveals it, and the player has to match the piece
+underneath separately, jelly-and-candy style).
+
+Adjacent damage was chosen and confirmed before this session started
+(design point 2 in the session brief). The reasoning: it's simpler (one
+integer counter per blocker cell, no second piece type tracked underneath),
+it matches the dominant genre convention for a first blocker type, and it
+avoids doubling the per-cell data model (every blocker cell would need both
+its own state *and* a full hidden `Piece` object, which cascades/spawning
+would then need to know how to reveal). The hidden-piece idea is logged in
+`DEFERRED_COMPLEXITY.md` as a richer mechanic worth considering once a
+second blocker type is real and "the same mechanic for everything" starts
+to feel thin — not dropped, just not built now.
+
+## `piecesMatch` and `hasLegalMoves` exclude blockers by `type`, not by absent `matchType`
+
+Before this phase, a blocker (or any piece) with no `matchType` was
+automatically excluded from matching because `piecesMatch` required a
+*defined* `matchType` on both sides (see the Phase 1 entry above). That
+approach stops working the moment a blocker needs to carry a *real*
+`matchType` (e.g. `'cling'`) so its clears can be counted toward an
+objective via the exact same `clearedByMatchType` bookkeeping every other
+match already uses. So `piecesMatch` now checks `type === 'blocker'`
+explicitly and short-circuits to `false` regardless of `matchType` — a
+blocker can carry any `matchType` for objective-counting purposes without
+that value ever letting it participate in a run.
+
+`hasLegalMoves` needed the same explicit exclusion, but for a different
+reason: it isn't enough that a blocker itself never forms a run.
+`swapPieces` swaps unconditionally, so a naive scan would happily "swap" a
+blocker with a neighboring normal piece and then check whether the
+*resulting* board has a match — and it can, if the neighbor's old position
+lines up two other same-type pieces around the vacated blocker cell. That
+would report a move as legal that would actually be **moving the
+blocker**, which design point 1 explicitly rules out ("not swappable").
+`hasLegalMoves` now skips any candidate pair where *either* cell is a
+blocker before ever calling `swapPieces`, so a blocker can never be
+half of a reported legal move even indirectly. `matrix.test.ts`'s
+"only 'matching' swap requires moving a blocker" test exists specifically
+to prove this — without the guard, that exact test fails.
+
+**Alternative not taken:** teaching `swapPieces` itself to reject
+blocker-involving swaps (throwing or no-op'ing) was considered, but
+`swapPieces` already has a documented contract of not validating anything
+about the positions it's given (see the Phase 1 "doesn't validate
+adjacency" entry) — adding a blocker-specific check there would break that
+existing invariant for one specific caller's concern. Both `hasLegalMoves`
+and `gameState.ts`'s `applyMove` enforce "blockers aren't swappable" at
+their own call sites instead, each already the natural boundary for that
+distinct instance of the rule.
+
+## `applyAdjacentDamage` lives in `matrix.ts`, not `gameState.ts`
+
+The actual "which blocker gets hit and does it clear" computation
+(`applyAdjacentDamage(board, clearedPositions)`) is a pure board-algorithm
+function — same shape as `checkMatches`/`calculateCascades`/`shuffle` — so
+it lives in `matrix.ts` alongside them rather than being inlined into
+`gameState.ts`'s `resolveCascades` loop. `gameState.ts` is left owning only
+the orchestration: call it once per cascade pass, fold any newly-cleared
+blocker positions into the same clear/refill this pass already does, and
+count the blocker's own `matchType` into `clearedByMatchType` the same way
+a normal match's cleared cells are counted. This mirrors exactly how
+`resolveCascades` already treats `calculateCascades` as the pure worker and
+itself as the loop that calls it repeatedly.
+
+A blocker adjacent to *several* cells cleared by the same match (e.g. an
+L-shaped match wrapping two sides of it) only takes **one** hit for that
+match, not one hit per adjacent cleared cell — `applyAdjacentDamage`
+dedupes via a per-call "already damaged" set. This wasn't explicit in the
+session brief, but it's the reading that matches the genre convention cited
+as the reason for choosing adjacent damage in the first place (a jelly/
+blocker tile in Candy Crush-style games takes one hit per match event, not
+per tile of that match it happens to touch) — the alternative (counting
+every adjacent cleared cell as a separate hit) would make a single
+big/L-shaped cascade disproportionately more damaging than the same-size
+match shape mattering at all, which isn't a rule anything asked for.
+
+## `applyMove` rejects a blocker-involving swap the same way it rejects a no-match swap
+
+Attempting to swap a cell that's a blocker (on either side of the pair)
+returns the original `state` unchanged with `events: []` — identical to the
+existing "no match, snap back" contract for an illegal swap (see the Phase
+3 entry above). This was the smaller, more-consistent option versus
+inventing a new "invalid move" outcome distinct from "no match" — from the
+player's perspective both are "nothing happened," and the two-line guard
+sits right next to the existing no-match check in `applyMove` rather than
+needing its own event type or state field.
+
+## The "Objective array" the session brief described doesn't exist — confirmed the single `Objective` already covers this
+
+The session brief's design point 3 asked to confirm that blocker-clearing
+objectives "use the exact same Objective array already built for
+multi-objective levels" before building anything new. Checking the actual
+code: `GameState.objective` and `LevelConfig.objective` are both a single
+`Objective`, not an array — there is no multi-objective array anywhere in
+this codebase, and `CLAUDE.md`'s own out-of-scope list explicitly excludes
+"multi-target or score-threshold objectives" from V1. Flagging this
+directly rather than silently building an `Objective[]` to match a premise
+that didn't hold, since that would both be scope creep past `CLAUDE.md` and
+solve a problem this phase doesn't have.
+
+The underlying design goal holds anyway, with zero new architecture: a
+blocker's clear already gets folded into `clearedByMatchType` (keyed by the
+blocker's own `matchType`, e.g. `'cling'`) by the same code path a normal
+match's cleared cells go through. `applyMove`'s existing
+`objectiveGain = clearedByMatchType[state.objective.targetMatchType] ?? 0`
+line — unchanged by this phase — already treats a blocker's `matchType` no
+differently than any piece type's. A level wanting "clear 3 cling wraps" is
+exactly `objective: { targetMatchType: 'cling', targetCount: 3 }`, and
+`gameState.test.ts`'s blocker win-condition test proves it end to end.
+
+## Blockers are placed by overwriting cells after the board is already match-free, not woven into the fill loop
+
+`generator.ts`'s `placeBlockers` runs *after* the greedy fill and
+`repairAccidentalMatches` pass, converting a random selection of already-
+placed normal cells into blocker cells, rather than being woven into
+`forbiddenTypesAt`/the per-cell fill loop. This is safe specifically
+because a blocker is excluded from matching outright (see the
+`piecesMatch` entry above): turning an existing cell into a blocker can
+only ever *remove* a matchType from play at that position, never introduce
+a new run, so there's no need to re-run the repair pass afterward, and
+`forbiddenTypesAt` never needs to know blockers exist at all. This keeps
+the fill/repair pipeline — already carefully reasoned through for the
+hostile-config case (see the Phase 2 entry above) — completely untouched.
+
+Positions are chosen via one `fisherYates` shuffle of every board cell,
+taking the first `blockerCount`, rather than repeatedly picking a random
+cell and re-rolling on collision — guarantees distinct cells in one pass
+with no retry loop needed, the same reasoning `fisherYates` was already
+used for elsewhere in this file.
+
+The existing `hasLegalMoves` → `shuffle` fallback at the end of
+`generateLevel` is reused unchanged as blocker placement's own safety net:
+since `hasLegalMoves` now itself excludes blocker cells as candidates (see
+above), that check already answers "is this board — including its
+blockers — actually playable," and `shuffle` already handles rearranging a
+board with mixed piece types into one that passes. No new safety-net logic
+was written specifically for the blocker case.
+
+**Alternative not taken:** validating that `blockerCount` stays under some
+board-size-relative ceiling was considered, but rejected as unneeded
+defensive code — `generatedBlockerCount` (`appPersistence.ts`) is the one
+caller that actually varies this value, and it's capped at 4 on an 8x6
+board, nowhere near dense enough to threaten `hasLegalMoves`. If a much
+higher `blockerCount` is ever passed directly to `generateLevel`, the
+existing bounded-retry `shuffle` fallback already degrades the same way it
+does today for any other hostile config — returning its last attempt
+rather than hanging (see the Phase 2 shuffle-retry-cap entry above).
+
+---
+
+# Phase 7 — the real life-spend trigger (losing costs a life)
+
+## Investigation before building: regen math didn't exist, and three named entry points were actually four
+
+This session's brief asked for an investigation pass before any code
+changed, so the findings are recorded here rather than just implied by the
+diff.
+
+**Regen math:** `SaveData.livesLastRegenAt` existed since Phase 4 but was
+write-only — `buildSaveData` stamped it on every save, and nothing anywhere
+read it back to compute elapsed time or grant regenerated lives. Confirmed
+via a repo-wide search for every reference to the field before writing any
+regen logic.
+
+**Level-start entry points:** the session brief named three (Home's "Start
+cooking", an All Levels row, and Play Again from both overlays). Checking
+`App.tsx` directly showed Home's "Start cooking" and an All Levels row tap
+already call the exact same function, `handlePlayLevel` — not two separate
+code paths that happened to look similar. The fourth entry point,
+WonOverlay's "Next Level" (`handleNextLevel`), was deliberately **not**
+gated: reaching a win already required lives > 0 to have started that same
+level, and winning never spends a life anywhere in this design, so it can
+never legitimately fire at zero lives. Gating it anyway would be dead
+defensive code for a state that structurally cannot occur.
+
+Play Again (`Board.tsx`'s internal `handlePlayAgain`, shared by both
+overlays per the prior session) turned out to be the one entry point with
+no gate *and* a latent staleness bug: it rebuilt the level from
+`levelConfig.lives`, the value frozen at Board's original mount, not
+whatever the account's lives actually were by the time the player tapped
+Play Again. Under the old build this was harmless (nothing ever changed
+lives), but it would have silently ignored this session's own loss
+decrement. Fixed by threading a live `lives` prop down from `App.tsx`
+instead — see the `Board.tsx` entry below.
+
+## `pauseReason: 'lives'` removed outright, not just left unreachable
+
+The investigation's third question was whether `pauseReason: 'lives'` (and
+`grantBonusLife`, and `applyMove`'s `state.lives <= 0` check) were still
+reachable. They weren't, for two independent reasons stacking on top of
+each other:
+
+- **Already true before this session:** Phase 4's own decision log
+  (above) flags that nothing was ever built to decrement `GameState.lives`
+  mid-level — the check existed, but nothing could trigger it outside a
+  hand-built test state.
+- **Permanently true after this session:** the life-spend mechanic actually
+  built here spends a life *after* a level ends (at the account level, in
+  `App.tsx`), not mid-level, and level-start itself is now gated at
+  `lives > 0`. `GameState.lives` is fixed at level-start to an
+  already-gated value and nothing ever decrements it during play, so it can
+  now *never* reach zero inside a call to `applyMove` — not "not yet
+  wired," but structurally excluded by the model this phase ships.
+
+Given that, keeping the branch, `grantBonusLife`, and the `'lives'` values
+on `PauseReason`/`PauseAction` around as inert "insurance" was rejected —
+unlike `Piece.type`'s `'row_clearer'` placeholder (a field that costs
+nothing to leave unused and has an obvious future use), this was a full
+branch of *reachable-looking but dead* logic with its own test coverage
+asserting behavior that could no longer occur, which is exactly the kind
+of thing that lies about what's true the same way a stale doc does. Removed
+cleanly: `PauseReason` is now `'moves' | null`, `grantBonusMoves` is the
+only grant function left, `pauseActions.ts`'s `getPauseAction` only
+handles `'moves'`, and the old lives-exhausted tests were deleted and
+replaced with one regression test proving `lives <= 0` no longer causes or
+reports a pause at all.
+
+**Alternative not taken:** keeping the mechanism "for later, in case a
+mid-level lives-spend trigger is ever built" was considered and rejected —
+if that trigger is ever built, it's a new design decision (what event
+spends a life mid-level, and per Phase 4's own note, whether resuming it
+needs to replenish moves too) that deserves fresh reasoning at that time,
+not a resurrection of a branch that was already flagged as built without a
+real trigger once before.
+
+## Life-spend lives in `App.tsx`, not `engine/gameState.ts`
+
+The loss condition (`applyMove` reaching `paused_awaiting_input` with
+reason `'moves'`) is an engine-level fact, but *spending an account-level
+life because of it* is not engine logic — it's exactly the kind of
+persistence/meta-progression decision `appPersistence.ts` already owns
+(alongside `markLevelCompleted`, `buildSaveData`, etc.), not something
+`engine/gameState.ts` should know exists. `GameState.lives` continues to
+exist purely as the HUD's per-level display value, seeded fresh from the
+account's lives at level start; the account-level count that actually
+changes lives in `App.tsx` as real `useState`, mirrored into a ref
+(`livesRef`) for the same stale-closure reason `levelIndexRef`/
+`completedLevelsRef` already exist.
+
+Two pure functions carry the actual logic, tested directly rather than
+through a mounted component (this project still has no component-mount
+harness — see `components/NOTES.md`): `shouldSpendLifeOnLoss(prevStatus,
+nextStatus, pauseReason)` decides *whether* this transition is a loss (by
+composing the already-existing `didLevelJustEnd`, not re-deriving that
+condition), and `livesAfterLoss(lives)` is the one-line decrement itself.
+Splitting them this way means "is this a loss" and "what does a loss do to
+the count" are each independently testable, and `handleBoardStateChange`
+in `App.tsx` is left doing only orchestration — no branching logic of its
+own to get subtly wrong.
+
+**Why this can't double-decrement:** `shouldSpendLifeOnLoss` is checked
+using the exact `prevStatus`/`nextStatus` pair `didLevelJustEnd` already
+uses to gate `persistLatestState()`, captured from `prevStatusRef` *before*
+it's overwritten. Board's own
+`useEffect(() => onStateChange?.(gameState), [gameState])` only re-fires
+when the `gameState` object identity actually changes (a real move, grant,
+or restart) — a plain re-render with the same `gameState` reference never
+re-invokes it. So a paused state sitting on screen while the player reads
+"Out of moves!" and decides what to do next re-renders freely without ever
+calling `handleBoardStateChange` again, and the one call that *does* fire
+for the loss sees `prevStatus === 'in_progress'` exactly once, immediately
+overwriting `prevStatusRef.current` to `'paused_awaiting_input'` before
+any subsequent call could see the same prior value again.
+
+## `buildSaveData` takes an explicit `livesLastRegenAt` instead of always stamping `now()`
+
+Before this session, every single save (level end, app backgrounding)
+called `now()` unconditionally for this field — harmless when nothing read
+it back, but it would have silently reset the regen clock on every save
+once real regen math existed, since a player backgrounding the app while
+sitting on 3/5 lives would erase whatever partial progress the timer had
+made toward the next tick. `buildSaveData` now takes an optional
+`livesLastRegenAt` parameter that, when provided, is used verbatim instead
+of falling back to `now()` — optional (not required) specifically so the
+one pre-existing test call site (which predates regen math and isn't
+testing the regen anchor) keeps working completely unchanged, while
+`App.tsx`'s real call site always passes the authoritative anchor it's
+been tracking in `livesLastRegenAtRef`.
+
+## `applyLivesRegen`: caps discard excess elapsed time, but a partial interval below the cap doesn't
+
+`applyLivesRegen(lives, livesLastRegenAt, max, regenMinutes, now)` is a
+pure function (elapsed time computed from an injected `now: number`, not
+read internally via `Date.now()`) — same reasoning as `calculateCascades`'s
+injected `spawnPiece` in `matrix.ts`: same inputs, same output, directly
+testable without mocking a clock.
+
+Two cases are handled differently on purpose, both required by this
+session's own test list:
+
+- **Already at (or would exceed) `max`:** lives clamp to `max` and the
+  anchor resets to `now`. Elapsed time beyond what `max` can absorb is
+  discarded outright, not banked — otherwise a player idle for days at full
+  lives who then loses one later would appear to have an enormous head
+  start on the next regen, which is exactly the "doesn't grant extra lives
+  for elapsed time beyond what regenMinutes and max allow" behavior this
+  session's tests require.
+- **Still below `max` after granting whatever intervals fit:** the anchor
+  only advances by the elapsed time actually *consumed* by the granted
+  intervals (`livesLastRegenAt + grantedIntervals * regenMs`), not reset to
+  `now`. A player who checks in slightly before the next tick is due
+  shouldn't lose that partial progress just because *something* happened
+  to trigger a regen check.
+
+**Where regen is actually invoked:** three checkpoints, all owned by
+`App.tsx`, no ticking timer anywhere (matching Home's own "No timers. No
+rush." footer copy) — app boot (from whatever the save last recorded),
+every `handlePlayLevel` call (a player can sit on Home or All Levels for a
+while before tapping into a level), and immediately before applying a loss
+decrement (so a delayed save flush still reflects the most accurate
+possible count). `handleNextLevel` also refreshes it, for the same
+"freshest possible count" reason, without gating on the result — see this
+phase's investigation note above on why "Next Level" is exempt from the
+lives gate itself.
+
+**Alternative not taken:** a genuinely spoof-resistant regen scheme (server
+time, monotonic clocks, etc.) was not built — `CLAUDE.md`'s Data Model
+Notes already call the `livesLastRegenAt` clock-spoofing gap an accepted
+tradeoff at this project's scale, and this session's brief explicitly asked
+to reuse the existing field and caveat rather than solve that problem now.
+
+## `Board.tsx` gates Play Again with a `lives` prop, not `levelConfig.lives`
+
+`Board.tsx` now takes `lives: number` (the account's current count, kept
+fresh by `App.tsx`) and `onOutOfLives: () => void` as new props.
+`handlePlayAgain` checks `canStartLevel(lives)` — the exact same function
+`App.tsx`'s `handlePlayLevel` calls, imported directly rather than
+duplicated as an inline `lives <= 0` — before restarting, and seeds the
+fresh `createGameState` call with the live `lives` prop instead of the
+frozen `levelConfig.lives` snapshot from this Board instance's original
+mount (see this phase's investigation note above on why that mattered).
+
+Reusing `canStartLevel` here means `components/Board.tsx` imports from
+root-level `appPersistence.ts` — a new cross-import direction for this
+codebase (previously only `App.tsx` imported from it). Considered keeping
+the check as a duplicated one-line inline expression instead to avoid the
+new dependency, but rejected: the session's own emphasis on "the same lives
+gate, not just one of them" argues for one shared function over three call
+sites that happen to currently agree, and `appPersistence.ts` is already
+documented as app-shell logic split out specifically for testability, not
+something scoped exclusively to `App.tsx`'s own file.
+
+## `OutOfLives.tsx` is one shared screen, not three inline treatments
+
+All three gated entry points (`handlePlayLevel` for Home/All Levels, and
+Board's `onOutOfLives` callback for Play Again) route to the same
+`App.tsx` `screen: 'outOfLives'` state and the same `OutOfLives` component,
+rather than each rendering its own inline "blocked" message. Consistent
+with this session's "just needs to exist and be honest, not polished"
+scope: one minimal screen (message, brief detail, a back-to-Home button) is
+both less code and a more honest single answer to "what does being out of
+lives look like in this app" than three slightly-different placeholders
+would be.

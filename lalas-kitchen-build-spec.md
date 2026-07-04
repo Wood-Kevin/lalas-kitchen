@@ -20,7 +20,8 @@ The leak test: if you swapped the skin and something broke or looked weird, that
 - `swapPieces(board, posA, posB)`: swaps two adjacent tiles, returns new board (does not mutate the original)
 - `calculateCascades(board)`: after a clear, drops pieces down to fill gaps, spawns new pieces at the top
 - `shuffle(board)`: rearranges existing piece IDs in place (same counts, new positions), used when zero legal moves exist
-- `hasLegalMoves(board)`: simulates every possible adjacent swap, returns true if any would create a match
+- `hasLegalMoves(board)`: simulates every possible adjacent swap, returns true if any would create a match — excludes blocker cells from both sides of a candidate swap (see Phase 6)
+- `applyAdjacentDamage(board, clearedPositions)`: added in Phase 6 — given the cells a match is about to clear, decrements `hitsRemaining` on any adjacent blocker cell by one hit, returning which blockers (if any) reached zero and should clear alongside the match
 
 **Testing note (this is the fun part):** since everything here is a pure function, you can write tests using hand built board arrays instead of tapping through a simulator. Try a board with no matches, a board with one obvious three in a row, and a board that cascades twice. If a test fails, you can paste the exact board state into a scratch file and ask "why didn't this clear," no app needed.
 
@@ -35,8 +36,9 @@ The leak test: if you swapped the skin and something broke or looked weird, that
 **Build:**
 - `generateLevel(seed, config)`: fills a board of the given dimensions using a seeded random number generator, never `Math.random()` directly
 - While filling, check the two pieces already placed to the left and above each new cell, and avoid picking a piece type that would create an instant match
-- After filling, run `hasLegalMoves()` from Phase 1. If false, reshuffle and check again
-- Difficulty should be tunable by constraining inputs (fewer piece types, tighter move limits) rather than rigging the randomness itself
+- After filling (and, since Phase 6, after blocker placement — see below), run `hasLegalMoves()` from Phase 1. If false, reshuffle and check again
+- Difficulty should be tunable by constraining inputs (fewer piece types, tighter move limits, and since Phase 6, blocker count) rather than rigging the randomness itself
+- Since Phase 6: optional `blockerCount`/`blockerMatchType`/`blockerHitsToClear` on `GeneratorConfig` — after the fill and repair pass, overwrite that many random cells with blocker pieces. Safe to do without re-running the repair pass, since a blocker can never join a match run in the first place (see Phase 6 below)
 
 **Why this belongs next to the matrix, not in its own folder:** the generator needs to inherit the same deterministic discipline as match detection. If it lived somewhere else, it would be easy for a future prompt to reach for unsanitized randomness "since it's just content." Keeping it in `engine/` as its own file (not merged into `matrix.ts`) gets cohesion without bloating the core file.
 
@@ -51,7 +53,8 @@ The leak test: if you swapped the skin and something broke or looked weird, that
 - `applyMove(gameState, posA, posB)`: validates the swap, applies it if legal, snaps back if not, resolves any cascades, decrements moves, checks win/loss
 - A `paused_awaiting_input` state for when moves hit zero, with a `grantBonusMoves(n)` command that resumes play (this is the hook for a rewarded ad later, but the state machine itself doesn't know or care what triggers the grant)
 - Combo streak tracking: if a single move triggers 4+ chained cascades, emit an event the skin layer can react to (sound, particles, or nothing, engine doesn't decide)
-- Save data as its own object, separate from skin config: `{ skinId, currentLevel, lives, livesLastRegenAt, itemsCollected, powerUpCounts }`
+- Save data as its own object, separate from skin config: `{ skinId, currentLevel, lives, livesLastRegenAt, itemsCollected, powerUpCounts, completedLevels? }`. `completedLevels` (1-based level numbers won at least once) was added when the win flow grew a level queue and dashboard screen — see `App.tsx`'s `LEVEL_QUEUE` and `components/Dashboard.tsx`. It's optional on the type so save files written before that change still parse.
+- `currentLevel` is no longer bounded by `LEVEL_QUEUE.length` — past the 3 hand-built levels, `App.tsx`'s `buildLevelConfig` falls through to `buildGeneratedLevelConfig` (`appPersistence.ts`), which derives a full `LevelConfig` (seed, moves limit, piece-type pool, objective) purely from the level index, then hands it to the exact same `createGameState`/`generateLevel` pipeline every level already goes through. So `currentLevel` can grow past 3 indefinitely; `resolveStartScreen` always resumes gameplay at whatever it is, with no upper clamp.
 - `loadSave(skinId)` and `saveProgress(skinId, data)` wired to AsyncStorage
 
 **Known and accepted limitation:** `livesLastRegenAt` can be spoofed by changing the device clock. Not worth solving at this scale, just leave a comment noting it's a known tradeoff.
@@ -113,10 +116,24 @@ Board dimensions and objectives live per level, not in this skin file, since boa
 
 ---
 
+## Phase 6: Blocker Clearing (`engine/matrix.ts`, `engine/gameState.ts`, `engine/generator.ts`)
+
+**Goal:** Make the `'blocker'` piece type — real since Phase 1's `type` field, but inert until now — actually clear, using the cling wrap sprite that's been wired into the skin config since Phase 5.
+
+**Build:**
+- Blockers are not matchable and not swappable: `checkMatches` and `hasLegalMoves` both exclude any cell whose `type` is `'blocker'`, regardless of its `matchType`
+- Blockers clear via adjacent damage, not by being matched directly: whenever a match clears cells, any blocker adjacent to one of those cells takes one hit (one hit per match, not per adjacent cell — see `engine/DECISIONS.md`). A blocker whose `hitsRemaining` reaches zero clears alongside the triggering match and refills the same way any other cleared cell does
+- Blocker clears count toward level objectives through the exact same `Objective`/`clearedByMatchType` mechanism every other piece type already uses — `targetMatchType: 'cling'` just works, no new objective architecture needed
+- Generated levels place blockers too: `GeneratorConfig` gained optional `blockerCount`/`blockerMatchType`/`blockerHitsToClear`, and `appPersistence.ts`'s `generatedBlockerCount` is the difficulty lever (same shape as `generatedPieceTypeCount`/`generatedMovesLimit`) — none on the first couple of generated levels, then a slow ramp capped at 4
+
+**Full reasoning, including the hidden-piece-underneath alternative that was considered and deferred, lives in `engine/DECISIONS.md`'s Phase 6 section — this file only tracks what got built, not why.**
+
+---
+
 ## What's Explicitly Out of Scope for V1
 
 Skip these until the core loop is proven fun and stable:
-- Row clearers, bedrock-style unmovable blockers, and other special piece behaviors (the `type` field is ready for them, but don't build the logic yet)
+- Row clearers and other special piece behaviors beyond blockers (the `type` field is ready for them, but don't build the logic yet). Blocker clearing itself was built in Phase 6, below — no longer in this list.
 - Recipe box meta layer and its event listener (build the engine's summary event emitter when a level ends, but wire up the actual UI later)
 - Cloud asset delivery / CDN-based skin loading (only matters once there are multiple skins to distribute)
 - Multi-target or score-threshold level objectives (v1 is move limit plus one collection target)

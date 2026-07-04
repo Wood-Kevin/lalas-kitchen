@@ -18,7 +18,7 @@ If yes, it belongs in `skins/`, not `engine/`. The engine should never contain a
 
 ```
 /engine
-  matrix.ts        pure functions: checkMatches, swapPieces, calculateCascades, shuffle, hasLegalMoves
+  matrix.ts        pure functions: checkMatches, swapPieces, calculateCascades, shuffle, hasLegalMoves, applyAdjacentDamage
   generator.ts      seeded random level generator, lives next to matrix.ts for the same purity guarantee
   gameState.ts      lives, moves, save/load, the paused_awaiting_input state machine
 /skins
@@ -57,7 +57,7 @@ Minimum test coverage before a phase counts as done:
 
 ## Data Model Notes
 
-Every piece object carries a `type` field from day one (`'normal'` for now), even though v1 has no special pieces. This is cheap insurance: a future row-clearer or immovable blocker becomes a config addition instead of a schema migration. Don't build the special-piece logic yet, just leave the door open.
+Every piece object carries a `type` field from day one, so a future special piece becomes a config addition instead of a schema migration. `'blocker'` is no longer just the placeholder this note originally described — blockers are real as of the adjacent-damage clearing mechanic (see `engine/DECISIONS.md`'s Phase 6 section): not matchable, not swappable, cleared by taking one hit per adjacent match until `hitsRemaining` reaches zero, at which point the clear counts toward an objective exactly like any piece type's `matchType`. `'row_clearer'` remains an unbuilt placeholder — leave the door open, don't build its logic yet.
 
 `livesLastRegenAt` can be spoofed by changing the device clock. This is a known, accepted tradeoff at this scale. Leave a comment noting it, do not spend time solving it.
 
@@ -70,7 +70,7 @@ Every piece object carries a `type` field from day one (`'normal'` for now), eve
 ## Explicitly Out of Scope for V1
 
 Do not build these yet, even if they seem like a natural extension mid-session:
-- Row clearers, immovable blockers, or any special piece behavior beyond the `type` field placeholder
+- Row clearers or any special piece behavior beyond blockers (blocker clearing itself is now built — see the Data Model Notes above and `engine/DECISIONS.md`'s Phase 6 section)
 - Recipe box meta layer UI (the engine's end-of-level summary event should exist, but nothing should listen to it yet)
 - Cloud asset delivery or per-skin CDN loading (irrelevant until skin number two is real)
 - Multi-target or score-threshold objectives (v1 is move limit plus one collection target)

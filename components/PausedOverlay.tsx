@@ -7,14 +7,29 @@ import { getPauseAction } from './pauseActions';
 export interface PausedOverlayProps {
   reason: PauseReason;
   config: SkinConfig;
-  onGrant: (resource: 'moves' | 'lives', amount: number) => void;
+  // Only 'moves' is grantable now — see pauseActions.ts's comment on why
+  // the 'lives' branch was removed.
+  onGrant: (amount: number) => void;
+  // The exact same function Board.tsx passes to WonOverlay's onPlayAgain —
+  // not a second implementation. Restarts this level fresh (new seed) so a
+  // stuck player has a real way out that isn't the ad path.
+  onPlayAgain: () => void;
+  // Returns to Home. A stuck player shouldn't be forced to either watch an
+  // ad or restart — leaving entirely is a third, equally real option.
+  onExit: () => void;
 }
 
 // Placeholder pause UI — functionally correct (shows the right message and
 // wires the right grant function per reason), not a final design. Recipe
 // box / power-up / ad-watching presentation is out of scope for V1 per
 // CLAUDE.md.
-export function PausedOverlay({ reason, config, onGrant }: PausedOverlayProps) {
+//
+// Three actions, not one: the bonus grant button stays primary (existing
+// ad-for-resource behavior, unchanged), with "Play again" and "Exit" added
+// as equally-visible secondary options — mirrors WonOverlay's own
+// primary/secondary button split so a stuck player is never funneled into
+// the ad path just to get unstuck.
+export function PausedOverlay({ reason, config, onGrant, onPlayAgain, onExit }: PausedOverlayProps) {
   const action = getPauseAction(reason);
   if (!action) return null;
 
@@ -24,9 +39,15 @@ export function PausedOverlay({ reason, config, onGrant }: PausedOverlayProps) {
         <Text style={[styles.message, { color: config.palette.accent }]}>{action.message}</Text>
         <Pressable
           style={[styles.button, { backgroundColor: config.palette.accent }]}
-          onPress={() => onGrant(action.resource, action.bonusAmount)}
+          onPress={() => onGrant(action.bonusAmount)}
         >
           <Text style={styles.buttonLabel}>{action.buttonLabel}</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, { borderColor: config.palette.accent }]} onPress={onPlayAgain}>
+          <Text style={[styles.secondaryButtonLabel, { color: config.palette.accent }]}>Play again</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryButton, { borderColor: config.palette.accent }]} onPress={onExit}>
+          <Text style={[styles.secondaryButtonLabel, { color: config.palette.accent }]}>Exit</Text>
         </Pressable>
       </View>
     </View>
@@ -65,5 +86,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 16,
+  },
+  secondaryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  secondaryButtonLabel: {
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

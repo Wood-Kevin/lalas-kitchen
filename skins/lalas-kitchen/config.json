@@ -21,6 +21,10 @@
   "palette": {
     "background": ["#F6D9A8", "#EFC087"],
     "panel": "#FBF3E1",
-    "accent": "#A83A2E"
+    "accent": "#A83A2E",
+    "secondaryAccent": "#7C8F6E",
+    "mutedText": "#6E5C49",
+    "border": "#D9C79E",
+    "text": "#2B211A"
   }
 }

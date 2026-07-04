@@ -4,12 +4,17 @@ import {
   calculateCascades,
   shuffle,
   hasLegalMoves,
+  applyAdjacentDamage,
   Board,
   Piece,
 } from './matrix';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
+}
+
+function blockerPiece(matchType: string, id: string, hitsRemaining: number): Piece {
+  return { id, type: 'blocker', matchType, hitsRemaining };
 }
 
 function buildBoard(letters: string[][]): Board {
@@ -218,5 +223,100 @@ describe('shuffle', () => {
 
     expect(checkMatches(result)).toEqual([]);
     expect(hasLegalMoves(result)).toBe(true);
+  });
+});
+
+describe('blockers — checkMatches skips them entirely', () => {
+  test('a blocker sitting between two equal-matchType runs breaks the run instead of joining it', () => {
+    // If the blocker weren't excluded, this would read as a 4-in-a-row of
+    // 'A'. Since it is, each side is only length 2 — no match at all.
+    const board: Board = [
+      [piece('A', 'a0'), piece('A', 'a1'), blockerPiece('A', 'blk', 1), piece('A', 'a2')],
+    ];
+
+    expect(checkMatches(board)).toEqual([]);
+  });
+});
+
+describe('blockers — hasLegalMoves excludes them as swap candidates', () => {
+  test('a board whose only "matching" swap requires moving a blocker reports no legal moves', () => {
+    // col 1 is A / BLK / A. If the blocker could be swapped out of (1,1)
+    // with either of its horizontal neighbors (both 'A'), the vacated cell
+    // would complete a pure-normal-piece A,A,A run in col 1 — but blockers
+    // aren't swappable, so neither candidate pair may count. No other
+    // adjacent pair on this board produces a match either.
+    const board: Board = [
+      [piece('X', 'x'), piece('A', 'a0'), piece('Y', 'y')],
+      [piece('A', 'a1'), blockerPiece('A', 'blk', 1), piece('A', 'a2')],
+      [piece('Z', 'z'), piece('A', 'a3'), piece('W', 'w')],
+    ];
+
+    expect(hasLegalMoves(board)).toBe(false);
+  });
+
+  test('a real legal move elsewhere is still found on a board that also contains a blocker', () => {
+    const board: Board = [
+      [piece('A', 'a0'), piece('A', 'a1'), piece('B', 'b0')],
+      [piece('B', 'b1'), piece('C', 'c0'), piece('A', 'a2')],
+      [blockerPiece('Z', 'blk', 1), piece('D', 'd0'), piece('E', 'e0')],
+    ];
+
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+});
+
+describe('applyAdjacentDamage', () => {
+  function boardWithBlockerAt(hitsRemaining: number): Board {
+    return [
+      [piece('P', 'p0'), piece('Q', 'q0'), piece('R', 'r0')],
+      [piece('S', 's0'), blockerPiece('K', 'blk', hitsRemaining), piece('T', 't0')],
+      [piece('U', 'u0'), piece('V', 'v0'), piece('W', 'w0')],
+    ];
+  }
+
+  test('a hit that does not exhaust hitsRemaining decrements it without clearing', () => {
+    const board = boardWithBlockerAt(2);
+    const result = applyAdjacentDamage(board, [{ row: 0, col: 1 }]);
+
+    expect(result.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 1 })
+    );
+    expect(result.newlyClearedBlockers).toEqual([]);
+  });
+
+  test('a hit that exhausts hitsRemaining reports the cell as newly cleared', () => {
+    const board = boardWithBlockerAt(1);
+    const result = applyAdjacentDamage(board, [{ row: 0, col: 1 }]);
+
+    expect(result.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 0 })
+    );
+    expect(result.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
+  });
+
+  test('a blocker adjacent to several simultaneously-cleared cells takes exactly one hit', () => {
+    const board = boardWithBlockerAt(3);
+    // All four neighbors of the blocker cleared by the same match.
+    const result = applyAdjacentDamage(board, [
+      { row: 0, col: 1 },
+      { row: 2, col: 1 },
+      { row: 1, col: 0 },
+      { row: 1, col: 2 },
+    ]);
+
+    expect(result.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 2 })
+    );
+    expect(result.newlyClearedBlockers).toEqual([]);
+  });
+
+  test('a blocker with no adjacent cleared cells is left untouched', () => {
+    const board = boardWithBlockerAt(1);
+    const result = applyAdjacentDamage(board, [{ row: 0, col: 0 }]);
+
+    expect(result.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 1 })
+    );
+    expect(result.newlyClearedBlockers).toEqual([]);
   });
 });

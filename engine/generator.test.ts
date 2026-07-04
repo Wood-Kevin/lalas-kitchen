@@ -58,3 +58,50 @@ describe('generateLevel', () => {
     expect(() => generateLevel(1, { rows: 5, cols: 5, pieceTypeIds: ['A'] })).toThrow();
   });
 });
+
+describe('generateLevel — blocker placement', () => {
+  const blockerConfig: GeneratorConfig = {
+    rows: 8,
+    cols: 8,
+    pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+    blockerCount: 4,
+    blockerMatchType: 'cling',
+    blockerHitsToClear: 1,
+  };
+
+  test('places the requested number of blockers with the right matchType and hit count', () => {
+    for (const seed of [1, 2, 3, 42, 999]) {
+      const board = generateLevel(seed, blockerConfig);
+      const blockers = board.flat().filter((p) => p.type === 'blocker');
+
+      expect(blockers).toHaveLength(4);
+      for (const blocker of blockers) {
+        expect(blocker.matchType).toBe('cling');
+        expect(blocker.hitsRemaining).toBe(1);
+      }
+    }
+  });
+
+  test('a board with blockers still never contains an accidental match on creation', () => {
+    for (const seed of [1, 2, 3, 42, 999, 123456]) {
+      const board = generateLevel(seed, blockerConfig);
+      expect(checkMatches(board)).toEqual([]);
+    }
+  });
+
+  test('a board with blockers still always has at least one legal move', () => {
+    for (const seed of [1, 2, 3, 42, 999, 123456]) {
+      const board = generateLevel(seed, blockerConfig);
+      expect(hasLegalMoves(board)).toBe(true);
+    }
+  });
+
+  test('omitting blockerCount places no blockers, unchanged from every level built before this phase', () => {
+    const board = generateLevel(1, {
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+    });
+    expect(board.flat().some((p) => p.type === 'blocker')).toBe(false);
+  });
+});
