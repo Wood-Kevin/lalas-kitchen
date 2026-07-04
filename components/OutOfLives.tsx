@@ -52,7 +52,14 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
   }, []);
 
   const remainingMs = msUntilNextLifeRegen(lives, livesLastRegenAt, max, regenMinutes, now);
-  const ready = remainingMs <= 0;
+  // Distinct from `ready` below: once lives are already at max (e.g. right
+  // after tapping "watch a video" while still on this screen), there is
+  // nothing left to regenerate — msUntilNextLifeRegen already returns 0 for
+  // that case (see its own comment), but "a life should be ready" would
+  // misread as one more life pending on top of a full flame row, not the
+  // full-refill result that already landed.
+  const atMax = lives >= max;
+  const ready = !atMax && remainingMs <= 0;
 
   return (
     <View style={[styles.backdrop, { backgroundColor: 'rgba(59, 38, 26, 0.6)' }]}>
@@ -65,18 +72,22 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
 
         <Text style={[styles.headline, { color: text }]}>The Kitchen&apos;s Resting</Text>
         <Text style={[styles.subtext, { color: mutedText }]}>
-          Lives refill over time, up to 5. Come back soon, or watch a video to speed things up.
+          Lives refill over time, up to 5. Come back soon, or watch a video for a full refill.
         </Text>
 
         <View style={[styles.countdownPill, { borderColor: secondaryAccent }]}>
           <Text style={[styles.countdownText, { color: secondaryAccent }]}>
-            {ready ? 'A life should be ready' : `Next life in ${formatCountdown(remainingMs)}`}
+            {atMax
+              ? 'Lives are full'
+              : ready
+              ? 'A life should be ready'
+              : `Next life in ${formatCountdown(remainingMs)}`}
           </Text>
         </View>
 
         {onGrantLife && (
           <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={onGrantLife}>
-            <Text style={styles.primaryButtonLabel}>Watch a video for a life</Text>
+            <Text style={styles.primaryButtonLabel}>Watch a video to refill your lives</Text>
           </Pressable>
         )}
         <Pressable style={styles.secondaryLink} onPress={onBack}>

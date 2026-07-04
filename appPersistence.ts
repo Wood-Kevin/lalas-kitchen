@@ -178,9 +178,12 @@ export function msUntilNextLifeRegen(
   return Math.max(0, regenMs - elapsedMs);
 }
 
-// An instant, one-off +1 to the account's persisted lives count — the
-// "watch a video for a life" bonus on the OutOfLives screen (blocking a
-// *new* level from starting). Distinct in kind from the old
+// An instant, full refill of the account's persisted lives count to `max`
+// — the "watch a video" bonus on the OutOfLives screen (blocking a *new*
+// level from starting). Deliberately a full refill, not the genre-standard
+// single-life grant: this app already leans calm/generous everywhere else
+// (see CLAUDE.md's Design Constraints), and a stingy +1 after sitting
+// through an ad would cut against that. Distinct in kind from the old
 // grantBonusMoves/grantBonusLife mid-level pause mechanic (see
 // engine/gameState.ts's PauseReason comment on why the latter was
 // deleted): those mutated a live GameState in progress, this mutates the
@@ -190,11 +193,10 @@ export function msUntilNextLifeRegen(
 // on its own schedule regardless of this bonus, exactly like a loss only
 // resets the anchor when lives were previously at cap (see
 // `applyLivesRegen`'s own comment) rather than whenever lives change at
-// all. Capped at `max` for the same reason `applyLivesRegen` caps: this
-// screen only ever appears at zero lives in practice, but the function
-// itself should stay honestly capped rather than trusting the call site.
-export function grantInstantLife(lives: number, max: number): number {
-  return Math.min(lives + 1, max);
+// all. Takes no `lives` argument — unlike the old +1-and-cap shape, the
+// result never depends on the current count, only on `max`.
+export function grantInstantLife(max: number): number {
+  return max;
 }
 
 // Adds levelIndex to the completed set if it isn't already there, kept

@@ -333,13 +333,15 @@ export default function App() {
     setScreen('game');
   }, []);
 
-  // OutOfLives' "Watch a video for a life" action — the instant-grant
-  // mechanism this session's investigation confirmed didn't exist yet for
-  // this context (see appPersistence.ts's grantInstantLife comment on how
-  // this differs from the deleted mid-level grantBonusMoves/grantBonusLife
-  // pair). Deliberately does not touch livesLastRegenAtRef — the passive
-  // regen clock keeps counting down on its own schedule regardless of this
-  // bonus, same reasoning as grantInstantLife's own comment.
+  // OutOfLives' "Watch a video to refill your lives" action — the
+  // instant-grant mechanism this session's investigation confirmed didn't
+  // exist yet for this context (see appPersistence.ts's grantInstantLife
+  // comment on how this differs from the deleted mid-level
+  // grantBonusMoves/grantBonusLife pair, and on why it's a full refill
+  // rather than the genre-standard +1). Deliberately does not touch
+  // livesLastRegenAtRef — the passive regen clock keeps counting down on
+  // its own schedule regardless of this bonus, same reasoning as
+  // grantInstantLife's own comment.
   //
   // Persists immediately, unlike every other lives change in this file —
   // persistLatestState (used everywhere else) reads latestStateRef, which
@@ -349,7 +351,7 @@ export default function App() {
   // life would show correctly on screen and then silently vanish if the
   // player backgrounds the app before starting a level.
   const handleGrantLife = useCallback(() => {
-    const newLives = grantInstantLife(livesRef.current, skinConfig.lives.max);
+    const newLives = grantInstantLife(skinConfig.lives.max);
     livesRef.current = newLives;
     setLives(newLives);
     saveProgress(

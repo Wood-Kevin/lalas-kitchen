@@ -540,14 +540,16 @@ describe('msUntilNextLifeRegen', () => {
 });
 
 describe('grantInstantLife', () => {
-  test('adds exactly one life', () => {
-    expect(grantInstantLife(0, 5)).toBe(1);
-    expect(grantInstantLife(2, 5)).toBe(3);
+  // Deliberately a full refill to max, not the genre-standard +1 — see
+  // appPersistence.ts's grantInstantLife comment. The result never depends
+  // on the current lives count, only on max, so there's nothing to vary
+  // here beyond confirming that directly.
+  test('refills to the full configured max, regardless of the current count', () => {
+    expect(grantInstantLife(5)).toBe(5);
   });
 
-  test('respects the max cap instead of exceeding it', () => {
-    expect(grantInstantLife(4, 5)).toBe(5);
-    expect(grantInstantLife(5, 5)).toBe(5);
+  test('still returns exactly max for a different configured max', () => {
+    expect(grantInstantLife(3)).toBe(3);
   });
 });
 

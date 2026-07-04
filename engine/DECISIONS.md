@@ -925,3 +925,27 @@ assumed singular). `components/levelProgress.ts`'s `buildLevelSummary`
 reads `objectives[0]` — that single-icon row layout was never asked to grow
 with objective count, so a two-objective generated level's row/card just
 shows its first target, same as before.
+
+## `grantInstantLife` is a full refill to max, not the genre-standard +1
+
+Explicitly requested as a deliberate design choice, not a bug fix: the
+"watch a video" bonus on `OutOfLives.tsx` now restores lives to `max`
+outright rather than adding exactly one. Match-3 games conventionally grant
+a single life per ad specifically to keep the player wanting more (and
+watching more ads) — this app has no ad-revenue incentive pulling that way,
+and CLAUDE.md's Design Constraints already establish a calm, generous,
+no-pressure tone everywhere else (no timers, no urgency copy, no
+high-intensity effects), so a stingy grant here would be the one place that
+tone breaks.
+
+Mechanically, this made the function's `lives` parameter dead — the result
+never depended on the current count, only on `max` — so the signature
+dropped it (`grantInstantLife(max)`), rather than keeping an unused
+parameter around for a shape no longer accurate. `OutOfLives.tsx`'s
+countdown pill needed a third state alongside its existing
+counting-down/ready pair: `msUntilNextLifeRegen` already returns 0 once
+`lives >= max` (nothing left to regenerate), which the pill used to read as
+"a life should be ready" — technically true but misleading once a full
+refill already landed and all flame slots are already filled. Added an
+explicit `atMax` check ahead of `ready` so that state reads "Lives are full"
+instead.
