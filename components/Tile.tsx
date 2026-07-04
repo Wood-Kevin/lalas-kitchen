@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Image, Pressable, StyleSheet, Text } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { ResolvedSprite } from './spriteAsset';
 import { BLOCKER_CLEAR_HIGHLIGHT_MS } from './cascadeTiming';
+import { StripeDirection } from '../engine/matrix';
 
 export interface TileProps {
   pieceId: string;
@@ -25,6 +26,11 @@ export interface TileProps {
   // instead of popping directly into its landing row — see
   // components/NOTES.md.
   enterFromRow?: number;
+  // Present only for a striped piece — which line it will sweep when matched
+  // ('row' = horizontal, 'col' = vertical). Drives the small corner badge
+  // that replaces the visual signal the old stripe overlay used to carry (see
+  // DirectionBadge). Undefined for every ordinary piece, so no badge renders.
+  direction?: StripeDirection;
   onPress: () => void;
 }
 
@@ -43,6 +49,7 @@ export function Tile({
   selected,
   durationMs,
   enterFromRow,
+  direction,
   onPress,
 }: TileProps) {
   const rowShared = useSharedValue(enterFromRow ?? row);
@@ -81,8 +88,68 @@ export function Tile({
         ]}
       >
         <SpriteContent sprite={sprite} accentColor={accentColor} />
+        {direction && (
+          <DirectionBadge
+            direction={direction}
+            tileSize={tileSize}
+            accentColor={accentColor}
+            panelColor={panelColor}
+          />
+        )}
       </Pressable>
     </Animated.View>
+  );
+}
+
+// The small corner badge that tells a player, at a glance, whether a striped
+// piece will sweep its row or its column before they commit the move. It
+// exists because dedicated striped art replaced the old full-tile stripe
+// overlay that used to carry this direction cue implicitly; the engine still
+// enforces the real direction (gameState.ts's resolveCascades), this just
+// makes it visible again. Deliberately small and informational — a single
+// double-headed arrow (↔ horizontal for a row sweep, ↕ vertical for a column
+// sweep), not a celebratory effect — per CLAUDE.md's calm-not-frantic rule.
+// Sits above the sprite and renders identically whether the sprite is
+// dedicated art or the text-label placeholder, since it's layered over
+// SpriteContent rather than baked into either path. pointerEvents="none" so
+// it never steals the tile's tap.
+function DirectionBadge({
+  direction,
+  tileSize,
+  accentColor,
+  panelColor,
+}: {
+  direction: StripeDirection;
+  tileSize: number;
+  accentColor: string;
+  panelColor: string;
+}) {
+  // Scale with the tile so it stays a consistent, small fraction of the piece
+  // across screen sizes, with a floor so it can't shrink below legibility on
+  // a very small board.
+  const badgeSize = Math.max(14, Math.round(tileSize * 0.32));
+  const glyph = direction === 'row' ? '↔' : '↕';
+  return (
+    <View
+      pointerEvents="none"
+      testID={`direction-badge-${direction}`}
+      style={[
+        styles.directionBadge,
+        {
+          width: badgeSize,
+          height: badgeSize,
+          borderRadius: badgeSize / 2,
+          backgroundColor: panelColor,
+          borderColor: accentColor,
+        },
+      ]}
+    >
+      <Text
+        style={[styles.directionGlyph, { color: accentColor, fontSize: Math.round(badgeSize * 0.7) }]}
+      >
+        {glyph}
+      </Text>
+    </View>
   );
 }
 
@@ -219,5 +286,21 @@ const styles = StyleSheet.create({
   image: {
     width: '80%',
     height: '80%',
+  },
+  // Pinned to the top-right corner so it sits clear of the sprite's centered
+  // artwork. A bordered pill in the same panel/accent pairing the tile itself
+  // uses, so it reads as part of the established chrome rather than a new
+  // visual language.
+  directionBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  directionGlyph: {
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });

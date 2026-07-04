@@ -360,6 +360,11 @@ export function Board({
                     selected={!!selected && selected.row === r && selected.col === c}
                     durationMs={duration}
                     enterFromRow={isSpawn ? r - 2 : undefined}
+                    // Only a striped piece carries a direction; every other
+                    // piece passes undefined, so Tile renders no badge. This
+                    // is the one place the row/column sweep a striped piece
+                    // will perform is made visible before the player commits.
+                    direction={piece.type === 'striped' ? piece.direction : undefined}
                     onPress={() => handleTilePress({ row: r, col: c })}
                   />
                 );
