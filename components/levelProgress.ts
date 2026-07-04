@@ -73,18 +73,23 @@ export function buildLevelSummary(
   };
 }
 
-// The recipe book's progress copy — an open running count, never a ratio
-// against some "total". Generator-driven levels continue indefinitely past
-// the hand-built set (see appPersistence.ts's buildGeneratedLevelConfig),
-// so there is no real ceiling to measure against or ever "finish" — a
-// denominator here would just be resolveVisibleLevelIndices' current
-// visible-row count smuggled back in as a fake total, which is exactly the
-// bug this rewrite removes (see components/NOTES.md). No percentage, no
-// urgency language, matching the Home screen's explicit design requirement.
-export function buildProgressCopy(completedCount: number): string {
-  if (completedCount <= 0) {
+// The recipe book collection's progress copy — unlike level-completion
+// progress (which has no ceiling, see this file's git history for the
+// now-removed buildProgressCopy), the recipe card collection genuinely is
+// a fixed, curated set (skinConfig.recipeCards, currently 9 — see
+// appPersistence.ts's findRecipeCardForLevel), so "X of Y" is a real ratio
+// here, not a fake denominator smuggled back in. Still just a plain count,
+// no percentage, no progress bar, no urgency language, per this feature's
+// explicit "not a competitive achievement system" design brief.
+export function buildRecipeBookSubtitle(unlockedCount: number, totalCount: number): string {
+  if (unlockedCount <= 0) {
     return 'A fresh recipe book, ready when you are.';
   }
-  const recipeWord = completedCount === 1 ? 'recipe' : 'recipes';
-  return `${completedCount} ${recipeWord} cooked so far.`;
+  if (unlockedCount >= totalCount) {
+    return 'Every recipe collected — the book is complete.';
+  }
+  // "recipes" stays plural even at a count of 1 — the ratio's denominator
+  // ("of 9") already frames this as a pool, so "1 of 9 recipe collected"
+  // reads wrong the way a bare "1 recipe" never would.
+  return `${unlockedCount} of ${totalCount} recipes collected.`;
 }

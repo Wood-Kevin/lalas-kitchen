@@ -4,18 +4,26 @@ import { SkinConfig } from './skinConfig';
 import { SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
-import { LevelSummary, buildProgressCopy } from './levelProgress';
+import { LevelSummary, buildRecipeBookSubtitle } from './levelProgress';
 
 export interface HomeProps {
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
-  completedLevels: number[];
   // The real next-unplayed level (see App.tsx's use of
   // resolveNextUnplayedLevel + buildLevelSummary) — never the mockup's
   // illustrative "Level 12, Wooden Spoon" placeholder values.
   nextLevel: LevelSummary;
+  // Feeds the "Your recipe book" card's subtitle (see
+  // components/levelProgress.ts's buildRecipeBookSubtitle) — a plain count
+  // against the fixed curated set, not the old open-ended "levels
+  // completed" flavor text this card used to show.
+  unlockedRecipeCardCount: number;
+  totalRecipeCardCount: number;
   onStartNext: () => void;
   onBrowseAllLevels: () => void;
+  // The recipe book card's own tap target — opens the RecipeBook collection
+  // screen (see App.tsx's handleOpenRecipeBook).
+  onOpenRecipeBook: () => void;
 }
 
 const HERO_HEIGHT = 260;
@@ -28,13 +36,14 @@ const HERO_HEIGHT = 260;
 export function Home({
   config,
   spriteAssets,
-  completedLevels,
   nextLevel,
+  unlockedRecipeCardCount,
+  totalRecipeCardCount,
   onStartNext,
   onBrowseAllLevels,
+  onOpenRecipeBook,
 }: HomeProps) {
-  const completedCount = completedLevels.length;
-  const progressCopy = buildProgressCopy(completedCount);
+  const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
 
   const heroSprite = resolveSpriteAsset('home-hero-500h-crop.webp', spriteAssets);
   const nextIconSprite = resolveSpriteAsset(
@@ -74,17 +83,18 @@ export function Home({
         </View>
       </View>
 
-      <View
+      <Pressable
         style={[
           styles.card,
           { backgroundColor: config.palette.panel, borderColor: config.palette.border, marginTop: 14 },
         ]}
+        onPress={onOpenRecipeBook}
       >
         <View style={styles.cardPadding}>
           <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
-          <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{progressCopy}</Text>
+          <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
         </View>
-      </View>
+      </Pressable>
 
       <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
         <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />

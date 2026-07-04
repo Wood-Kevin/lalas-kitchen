@@ -24,6 +24,7 @@ const sampleConfig: SkinConfig = {
     border: '#ccc',
     text: '#111',
   },
+  recipeCards: [],
 };
 
 describe('getSpriteForMatchType', () => {

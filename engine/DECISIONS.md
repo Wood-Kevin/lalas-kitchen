@@ -192,10 +192,25 @@ now on spec.
 Per the build spec, difficulty should come from constraining inputs, not
 from rigging the randomness. Concretely, in `GeneratorConfig`:
 
-- **`pieceTypeIds` (shorter list → harder):** fewer distinct types means
-  fewer safe choices at each cell, more frequent forced repairs, and denser
-  boards where legal moves are harder to spot by eye — this is the main
-  difficulty lever `generateLevel` itself controls.
+- **`pieceTypeIds` (longer list → harder):** **Retraction, corrected in the
+  generated-level ramp (`appPersistence.ts`'s `generatedPieceTypeCount`):**
+  this entry originally claimed a *shorter* `pieceTypeIds` list was the
+  harder direction ("fewer distinct types means fewer safe choices at each
+  cell, more frequent forced repairs, and denser boards"). That's a
+  board-generation-difficulty claim, not a player-difficulty one, and it's
+  backwards for the player: on a fixed board size, fewer distinct types
+  means each type is packed more densely, so any given swap has a much
+  higher statistical chance of creating a match — the board gets *easier*
+  to play, not harder. Real match-3 games add colors for harder difficulty,
+  not remove them, since more types make matches genuinely rarer and
+  require deliberate play instead of near-automatic ones. This was caught
+  after generated levels using the old (backwards) ramp were clearing
+  two-objective levels in ~3 moves once the pool shrank toward its floor.
+  The corrected direction — fewer types early (gentle intro), more types as
+  levels continue (matches genuinely rarer) — is what `generatedPieceTypeCount`
+  implements now. `generateLevel` itself is difficulty-direction-agnostic;
+  it just fills whatever `pieceTypeIds` it's given, so this correction lives
+  entirely in the caller's ramp, not in this file.
 - **`rows` / `cols`:** board dimensions are a per-level content choice, not
   strictly a difficulty axis, but a smaller board with the same
   `pieceTypeIds` count is harder for the same reason (less room to
@@ -504,6 +519,18 @@ effect would run against the same "calm, not frantic" constraint that
 already rules out high-intensity particle effects. Noting it here so a
 future phase wiring up real event consumers knows the event data has been
 available and unused since Phase 3, not newly added.
+
+**Superseded for `combo_streak` specifically:** a later session asked for
+exactly this — a calm acknowledgment, explicitly not a celebration — so
+`combo_streak` is consumed now. `Board.tsx` reads `result.events` for a
+`combo_streak` entry and mounts `components/ComboStreakBanner.tsx`, a
+small text pill ("Nice chain!") that fades in, holds briefly, and fades
+back out on its own — no scale/bounce/particle motion, satisfying the same
+"calm, not frantic" constraint this entry originally cited as the reason
+*not* to build one, by simply picking a gentler effect than a particle
+burst rather than skipping the effect entirely. `LevelSummaryEvent` is
+still unconsumed — the recipe-box/summary layer it would feed remains out
+of scope per CLAUDE.md, and this session didn't touch it.
 
 ---
 
@@ -926,6 +953,24 @@ reads `objectives[0]` — that single-icon row layout was never asked to grow
 with objective count, so a two-objective generated level's row/card just
 shows its first target, same as before.
 
+**Retraction, corrected alongside the `generatedPieceTypeCount` inversion
+(see the "Difficulty tuning" entry above):** the `generatedObjectiveCount`
+description two paragraphs up is stale. It gated the second objective on
+`levelNumber < 4`, timed against the old (backwards) piece-type ramp so the
+second objective wouldn't land "while the full piece-type pool was still in
+play." Once the piece-type direction inverted, that timing became actively
+harmful: the second objective was landing exactly when the piece-type pool
+was at its smallest (the new ramp's easy end), and two objectives drawn from
+a tiny pool meant nearly every random match satisfied one target or the
+other — generated levels were clearing in ~3 moves. `generatedObjectiveCount`
+now takes `typeCount` alone (no `levelNumber` parameter) and gates on
+`typeCount >= MIN_TYPES_FOR_SECOND_OBJECTIVE` (5), so the second objective
+only appears once the pool has grown large enough that 3 types remain
+"neutral" (not a target) — the actual variable that determines whether a
+second objective trivializes the level, not a levelNumber proxy for it. The
+`min(2, typeCount)` cap and the distinct-consecutive-index construction
+described above are unchanged.
+
 ## `grantInstantLife` is a full refill to max, not the genre-standard +1
 
 Explicitly requested as a deliberate design choice, not a bug fix: the
@@ -949,3 +994,72 @@ counting-down/ready pair: `msUntilNextLifeRegen` already returns 0 once
 refill already landed and all flame slots are already filled. Added an
 explicit `atMax` check ahead of `ready` so that state reads "Lives are full"
 instead.
+
+## Recipe card collection: a fixed curated set tied to milestone levels, not one card per level
+
+Brought into V1 scope from CLAUDE.md's Explicitly Out of Scope list
+(previously "Recipe box meta layer UI" — the engine's `level_summary`
+event existed but nothing consumed it, see this file's "Combo-streak and
+level-summary events" entry above for the sibling case). The core design
+question: levels generate indefinitely (`buildGeneratedLevelConfig`), but a
+personal collection needs to actually be completable someday, so a card
+can't be awarded per level forever.
+
+**Chosen: a fixed array of 9 curated cards, each pinned to one specific
+milestone level number** (`skinConfig.recipeCards` in `config.json` — `id`,
+`title`, `flavorText`, `milestoneLevel`, `sprite`), looked up by
+`appPersistence.ts`'s `findRecipeCardForLevel`. Every other level (every
+non-milestone hand-built or generated level) unlocks nothing. Milestone
+levels are 1, 3, 6, 10, 15, 21, 28, 36, 45 — triangular numbers
+(`T(n) = n(n+1)/2`), chosen so cards land quickly at first (levels 1, 3, 6
+are reachable in a single sitting) and the gaps widen gradually rather than
+jumping straight to some arbitrary late-game number, without hand-tuning
+nine unrelated constants. Confirmed with the requester before implementing,
+per that session's explicit ask.
+
+**Alternative not taken:** one card per level, capped at 9 by only
+rewarding the first 9 levels ever completed. Rejected because it would tie
+the collection to raw completion order rather than to specific, memorable
+level identities — replaying out of order, or skipping around via All
+Levels, would make "which 9 levels give cards" an accident of play order
+instead of a deliberate curated set a player could look forward to by name.
+
+**Persistence mirrors `seenTutorials` exactly, not a new pattern:**
+`SaveData.unlockedRecipeCards` is an optional string list of unlocked card
+ids; `appPersistence.ts`'s `unlockRecipeCard` is idempotent the same way
+`markTutorialSeen`/`markLevelCompleted` are, so replaying an
+already-unlocked milestone level (Board.tsx's "Play Again", or revisiting
+it from All Levels) never duplicates an entry. The reveal itself
+(`components/RecipeCardReveal.tsx`) is a distinct, separately-computed
+value — `App.tsx`'s `handleBoardStateChange` recomputes "did this exact win
+just unlock a *new* card" fresh at every won transition (the same spot
+`completedLevels` already updates from) and threads the single resolved
+card (or `null`) down through `Board.tsx` to `WonOverlay.tsx`, rather than
+having `WonOverlay` or `Board` independently infer newness from the
+persisted list — one place decides "is this new," everything downstream
+just renders what it's told.
+
+**No real card art exists yet, by design, not as a gap left for later:**
+every `recipeCards[].sprite` value has no corresponding
+`skins/lalas-kitchen/spriteRegistry.ts` entry, so every card renders
+through the exact same `resolveSpriteAsset` image/text-label fallback
+contract every piece and blocker already uses. This was explicitly asked
+for as a way to ship the whole system now and drop in real illustrations
+later as a pure asset addition — zero code changes in
+`RecipeCardReveal.tsx` or `RecipeBook.tsx` either way.
+
+**Calm over gamified, by explicit design brief, not an oversight:** the
+reveal is a single card at a fixed gentle tilt with one soft glow and a
+mount-in fade — no confetti, no burst, no flip animation. The collection
+screen (`components/RecipeBook.tsx`) is a plain 3x3 grid with dashed-empty
+placeholders for anything not yet unlocked — no lock glyph (unlike
+`AllLevels.tsx`'s locked-level rows, which do use one), no star, no tier,
+no percentage, no progress bar, just `components/levelProgress.ts`'s
+`buildRecipeBookSubtitle` plain "X of 9 collected" count. This replaced
+`Home.tsx`'s old `buildProgressCopy` (an open-ended "N recipes cooked so
+far" flavor line keyed off level-completion count, unrelated to any real
+collection) — that function and its "Your recipe book" card were the only
+place in the app that already used recipe-themed copy without a real
+recipe system behind it, so once a real one existed, leaving the old
+disconnected count in place under the same heading would have actively
+misled a player into conflating two different numbers.

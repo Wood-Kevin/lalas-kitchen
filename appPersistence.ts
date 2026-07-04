@@ -1,4 +1,5 @@
 import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
+import { RecipeCard } from './components/skinConfig';
 
 // Pure decision logic behind App.tsx's save/load wiring, split out the same
 // way pauseActions.ts sits beside PausedOverlay.tsx — so the actual rules
@@ -29,10 +30,11 @@ export function didLevelJustEnd(prevStatus: GameStatus | null, nextStatus: GameS
 }
 
 // Builds the SaveData for the current moment. `itemsCollected` and
-// `powerUpCounts` are always empty — V1 has nothing that writes to them
-// (recipe box meta layer and power-ups are both out of scope per
-// CLAUDE.md) — they exist on the type as insurance for later, the same way
-// Piece.type does.
+// `powerUpCounts` are always empty — V1 still has nothing that writes to
+// them (power-ups remain out of scope per CLAUDE.md; the recipe box meta
+// layer is now in scope, but its persisted state is `unlockedRecipeCards`
+// below, not `itemsCollected`) — they exist on the type as insurance for
+// later, the same way Piece.type does.
 //
 // `state.lives` is read here for backward-compat with call sites that only
 // have a GameState-shaped object handy, but the real source of truth as of
@@ -53,6 +55,7 @@ export function buildSaveData(
   currentLevel: number,
   completedLevels: number[],
   seenTutorials: string[],
+  unlockedRecipeCards: string[],
   state: Pick<GameState, 'lives'>,
   livesLastRegenAt?: number,
   now: () => number = Date.now
@@ -66,6 +69,7 @@ export function buildSaveData(
     powerUpCounts: {},
     completedLevels,
     seenTutorials,
+    unlockedRecipeCards,
   };
 }
 
@@ -248,6 +252,32 @@ export function markTutorialSeen(seenTutorials: string[], id: string): string[] 
   return seenTutorials.includes(id) ? seenTutorials : [...seenTutorials, id];
 }
 
+// The recipe card (if any) a given level number unlocks — a fixed lookup
+// against skinConfig.recipeCards's own milestoneLevel field, not a formula.
+// Levels generate indefinitely (buildGeneratedLevelConfig below), but a
+// collection needs a completable set, so only the 9 curated milestone
+// levels actually resolve to a card; every other level (including every
+// hand-built LEVEL_QUEUE entry not chosen as a milestone) returns
+// undefined. Undefined is also the correct answer for a duplicate/invalid
+// config (two cards sharing a milestoneLevel) — find() just returns
+// whichever comes first, and that's a config-authoring bug to fix in
+// config.json, not something this function should silently paper over.
+export function findRecipeCardForLevel(
+  recipeCards: RecipeCard[],
+  levelIndex: number
+): RecipeCard | undefined {
+  return recipeCards.find((card) => card.milestoneLevel === levelIndex);
+}
+
+// Adds a recipe card id to the unlocked list if it isn't already there —
+// same idempotent-add shape as markTutorialSeen/markLevelCompleted above,
+// so replaying an already-unlocked milestone level (Board.tsx's "Play
+// Again", or revisiting it from All Levels) never grows the list with
+// duplicates.
+export function unlockRecipeCard(unlockedRecipeCards: string[], cardId: string): string[] {
+  return unlockedRecipeCards.includes(cardId) ? unlockedRecipeCards : [...unlockedRecipeCards, cardId];
+}
+
 // The hand-built queue (App.tsx's LEVEL_QUEUE) is no longer the end of the
 // game — past it, generator-driven levels continue indefinitely (see
 // buildGeneratedLevelConfig below), so there's no ceiling left to hit.
@@ -303,17 +333,22 @@ export function generatedLevelNumber(levelIndex: number, handBuiltLevelCount: nu
   return levelIndex - handBuiltLevelCount;
 }
 
-// Difficulty ramps by shrinking the piece-type pool as generated levels
-// continue — per engine/DECISIONS.md, fewer distinct types is the
-// generator's actual difficulty lever ("constrain the randomness, don't rig
-// the luck"), since it means fewer safe choices per cell and denser boards.
-// Steps down by one every 3 levels; floored at 3 (not generateLevel's own
-// hard minimum of 2) so there's always a little headroom before the board
-// becomes maximally constrained.
+// Difficulty ramps by GROWING the piece-type pool as generated levels
+// continue. This is inverted from an earlier version of this function,
+// which shrank the pool on the assumption that fewer distinct types made
+// boards harder — backwards for a human player: on a fixed board, fewer
+// types means each type is packed more densely, so any given swap has a
+// much higher statistical chance of creating a match. Real match-3 games
+// add colors for harder difficulty, not remove them, since more types make
+// matches genuinely rarer and require more deliberate play. See
+// engine/DECISIONS.md's "Difficulty tuning" entry for the full retraction.
+// Starts at MIN_TYPES (easy — matches come readily, a gentle introduction)
+// and steps up by one every 3 levels, capped at the skin's own full pool
+// size so the ramp never asks for more types than the skin actually has.
 export function generatedPieceTypeCount(levelNumber: number, availableTypeCount: number): number {
   const MIN_TYPES = 3;
   const step = Math.floor((levelNumber - 1) / 3);
-  return Math.max(MIN_TYPES, availableTypeCount - step);
+  return Math.min(availableTypeCount, MIN_TYPES + step);
 }
 
 // The other difficulty lever: engine/DECISIONS.md is explicit that a move
@@ -338,20 +373,23 @@ export function generatedTargetCount(levelNumber: number): number {
   return Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
 }
 
-// How many simultaneous objectives a generated level asks for — the last
-// difficulty lever, same "function of levelNumber alone" shape as the ones
-// above. Held at 1 until the piece-type pool has already started shrinking
-// (see generatedPieceTypeCount): opening a second simultaneous target on the
-// very first generated level, while the full pool is still in play, would be
-// a bigger jump than any other step this ramp takes. Capped at
-// `min(2, typeCount)` as a structural safety net, not a difficulty knob —
-// generatedPieceTypeCount's own floor of 3 means typeCount is never actually
-// below 2 once this gate opens, so the cap never bites in practice, but a
-// level can never be asked for more distinct objectives than it has distinct
-// piece types to give it.
-const INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL = 4;
-export function generatedObjectiveCount(levelNumber: number, typeCount: number): number {
-  if (levelNumber < INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL) return 1;
+// How many simultaneous objectives a generated level asks for. Gated on
+// typeCount itself, not levelNumber, since typeCount is what actually
+// determines whether a second objective trivializes the level: with only a
+// few piece types in play, two simultaneous objectives cover most of the
+// pool, and nearly every random match satisfies one target or the other
+// almost immediately (levels clearing in ~3 moves — the exact regression
+// this rewrite fixes, see engine/DECISIONS.md). Requiring at least
+// MIN_TYPES_FOR_SECOND_OBJECTIVE (5) means at least 3 types stay "neutral"
+// once 2 objectives are chosen, so most matches on a two-objective board
+// still don't progress either target. Capped at `min(2, typeCount)` as a
+// structural safety net, not a difficulty knob — the threshold above
+// already requires typeCount >= 5 > 2, so the cap never bites in practice,
+// but a level can never be asked for more distinct objectives than it has
+// distinct piece types to give it.
+const MIN_TYPES_FOR_SECOND_OBJECTIVE = 5;
+export function generatedObjectiveCount(typeCount: number): number {
+  if (typeCount < MIN_TYPES_FOR_SECOND_OBJECTIVE) return 1;
   return Math.min(2, typeCount);
 }
 
@@ -433,7 +471,7 @@ export function buildGeneratedLevelConfig(
   // its own length. objectiveCount is capped at pieceTypeIds.length (see
   // generatedObjectiveCount), so this can never wrap around and repeat a
   // type within the same level.
-  const objectiveCount = generatedObjectiveCount(levelNumber, typeCount);
+  const objectiveCount = generatedObjectiveCount(typeCount);
   const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
     targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
     targetCount: generatedTargetCount(levelNumber),

@@ -1,6 +1,6 @@
 import {
   buildLevelSummary,
-  buildProgressCopy,
+  buildRecipeBookSubtitle,
   resolveLevelDisplayName,
   resolveLevelStatus,
   resolveNextUnplayedLevel,
@@ -96,31 +96,27 @@ describe('buildLevelSummary', () => {
   });
 });
 
-describe('buildProgressCopy', () => {
-  // Single-argument signature is itself part of the fix: there is no
-  // `totalCount` parameter for a ceiling to be computed from, since
-  // generator-driven levels continue indefinitely past the hand-built set
-  // (see components/NOTES.md).
-  test('a fresh recipe book with nothing cooked yet', () => {
-    expect(buildProgressCopy(0)).toBe('A fresh recipe book, ready when you are.');
+describe('buildRecipeBookSubtitle', () => {
+  test('a fresh recipe book with nothing collected yet', () => {
+    expect(buildRecipeBookSubtitle(0, 9)).toBe('A fresh recipe book, ready when you are.');
   });
 
-  test('reads naturally at a low count — singular wording at exactly 1', () => {
-    expect(buildProgressCopy(1)).toBe('1 recipe cooked so far.');
+  test('stays plural even at a count of 1 — the "of 9" ratio already frames it as a pool', () => {
+    expect(buildRecipeBookSubtitle(1, 9)).toBe('1 of 9 recipes collected.');
   });
 
-  test('reads naturally at a low count — plural wording at 2', () => {
-    expect(buildProgressCopy(2)).toBe('2 recipes cooked so far.');
+  test('plural wording at 2', () => {
+    expect(buildRecipeBookSubtitle(2, 9)).toBe('2 of 9 recipes collected.');
   });
 
-  test('a high count still reports the same open running total, no ceiling implied', () => {
-    expect(buildProgressCopy(47)).toBe('47 recipes cooked so far.');
+  test('a completed collection gets its own line instead of "9 of 9"', () => {
+    expect(buildRecipeBookSubtitle(9, 9)).toBe('Every recipe collected — the book is complete.');
   });
 
-  test('never mentions a remaining/waiting count or a "fully caught up" state', () => {
-    for (const count of [0, 1, 2, 11, 47]) {
-      const copy = buildProgressCopy(count);
-      expect(copy).not.toMatch(/waiting|remaining|left|of \d|fully|every/i);
+  test('no stars, numbers-as-badges, or urgency language beyond the plain count', () => {
+    for (const count of [0, 1, 5, 9]) {
+      const copy = buildRecipeBookSubtitle(count, 9);
+      expect(copy).not.toMatch(/star|badge|tier|rank|hurry|limited/i);
     }
   });
 });

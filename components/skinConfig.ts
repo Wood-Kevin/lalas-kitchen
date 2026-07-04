@@ -13,6 +13,22 @@ export interface SkinBlocker {
   hitsToClear: number;
 }
 
+// A fixed, curated collectible tied to one specific level number — not one
+// per level forever (levels generate indefinitely; a collection needs a
+// completable set). `milestoneLevel` is the absolute level index (matching
+// LEVEL_QUEUE/buildGeneratedLevelConfig's own numbering in App.tsx) that
+// unlocks this card the first time it's won. See
+// appPersistence.ts's findRecipeCardForLevel for the lookup and
+// engine/DECISIONS.md for why the mapping is a fixed array rather than a
+// formula.
+export interface RecipeCard {
+  id: string;
+  title: string;
+  flavorText: string;
+  milestoneLevel: number;
+  sprite: string;
+}
+
 export type CascadeFallSpeed = 'slow' | 'medium' | 'fast';
 
 export interface SkinAnimationProfile {
@@ -45,4 +61,5 @@ export interface SkinConfig {
   lives: { max: number; regenMinutes: number; icon: string };
   animationProfile: SkinAnimationProfile;
   palette: SkinPalette;
+  recipeCards: RecipeCard[];
 }

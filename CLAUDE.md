@@ -23,7 +23,7 @@ If yes, it belongs in `skins/`, not `engine/`. The engine should never contain a
   gameState.ts      lives, moves, save/load, the paused_awaiting_input state machine
 /skins
   /lalas-kitchen
-    config.json     pieceTypes, blockers, lives, animationProfile, palette
+    config.json     pieceTypes, blockers, lives, animationProfile, palette, recipeCards
     /sprites
 /components
   Board.tsx         reads engine output + active skin config, renders, never hardcodes piece names
@@ -59,9 +59,11 @@ Minimum test coverage before a phase counts as done:
 
 Every piece object carries a `type` field from day one, so a future special piece becomes a config addition instead of a schema migration. `'blocker'` is no longer just the placeholder this note originally described — blockers are real as of the adjacent-damage clearing mechanic (see `engine/DECISIONS.md`'s Phase 6 section): not matchable, not swappable, cleared by taking one hit per adjacent match until `hitsRemaining` reaches zero, at which point the clear counts toward an objective exactly like any piece type's `matchType`. `'row_clearer'` remains an unbuilt placeholder — leave the door open, don't build its logic yet.
 
-`GameState.objective`/`LevelConfig.objective` are no longer a single item — both are now `objectives`, an array of the same per-item shape (`type`, `targetMatchType`, `targetCount`, `currentCount`). A single-objective level (every hand-built `LEVEL_QUEUE` entry today) is just an array of length one, not a special case. Win requires every entry to reach its target (see `engine/gameState.ts`'s `applyMove` and `engine/DECISIONS.md`'s multi-objective entry). Generator-driven levels only ever place a second objective once the level's own piece-type pool has at least 2 distinct types (see `appPersistence.ts`'s `generatedObjectiveCount`), and two objectives on one level are always distinct `targetMatchType`s — never the same piece type twice.
+`GameState.objective`/`LevelConfig.objective` are no longer a single item — both are now `objectives`, an array of the same per-item shape (`type`, `targetMatchType`, `targetCount`, `currentCount`). A single-objective level (every hand-built `LEVEL_QUEUE` entry today) is just an array of length one, not a special case. Win requires every entry to reach its target (see `engine/gameState.ts`'s `applyMove` and `engine/DECISIONS.md`'s multi-objective entry). Generator-driven levels only ever place a second objective once the level's own piece-type pool has grown to at least 5 distinct types (see `appPersistence.ts`'s `generatedObjectiveCount`) — deliberately late, since a second objective drawn from a small pool makes nearly every random match satisfy some target, and two objectives on one level are always distinct `targetMatchType`s — never the same piece type twice. The piece-type pool itself now grows as generated levels continue (fewer types early, more later — see `engine/DECISIONS.md`'s "Difficulty tuning" entry), the opposite direction from an earlier, incorrect version of this ramp.
 
 `livesLastRegenAt` can be spoofed by changing the device clock. This is a known, accepted tradeoff at this scale. Leave a comment noting it, do not spend time solving it.
+
+The recipe box meta layer is now in V1 scope (see Explicitly Out of Scope, below, for that line's own annotation). It's a fixed, curated collectible set, not one card per level forever: `skinConfig.recipeCards` (`config.json`) is a small array of 9 entries, each with `id`, `title`, `flavorText`, `milestoneLevel`, and `sprite`, and `appPersistence.ts`'s `findRecipeCardForLevel` is the one lookup from a level index to its card. Levels generate indefinitely, but a collection needs a completable set, so only those 9 milestone level numbers (currently 1, 3, 6, 10, 15, 21, 28, 36, 45 — triangular spacing, gaps widen gradually) ever unlock a card; every other level unlocks nothing. `SaveData.unlockedRecipeCards` persists which ids have been unlocked, the same optional-string-list shape as `seenTutorials` (see `appPersistence.ts`'s `unlockRecipeCard`, idempotent the same way `markTutorialSeen` is). No real card illustrations exist yet — every card's `sprite` field falls back to the same image/text-label placeholder contract `resolveSpriteAsset` already gives piece/blocker art with no bundled asset (see `components/spriteAsset.ts`), so dropping real art in later is purely a `skins/lalas-kitchen/spriteRegistry.ts` addition, zero code changes. The reveal (a single card at a gentle angle with a soft glow, shown inside the existing win overlay) and the collection screen (a plain 3x3 grid, filled vs. dashed-empty, reachable from Home's "Your recipe book" card) are both deliberately *not* a gamified badge/rarity system — no stars, no tiers, no locks, no progress bar, just a plain count against the fixed set.
 
 ## Design Constraints (from actual user research, not guessing)
 
@@ -73,7 +75,7 @@ Every piece object carries a `type` field from day one, so a future special piec
 
 Do not build these yet, even if they seem like a natural extension mid-session:
 - Row clearers or any special piece behavior beyond blockers (blocker clearing itself is now built — see the Data Model Notes above and `engine/DECISIONS.md`'s Phase 6 section)
-- Recipe box meta layer UI (the engine's end-of-level summary event should exist, but nothing should listen to it yet)
+- Recipe box meta layer UI — brought into V1 scope and fully built this session (see the Data Model Notes above); no longer in this list
 - Cloud asset delivery or per-skin CDN loading (irrelevant until skin number two is real)
 - Score-threshold objectives (v1 is move limit plus one-or-more collection targets — see the Data Model Notes above for the now-built multi-objective array; a numeric score threshold, distinct from counting matched pieces, is still unbuilt)
 - Any App Store "distinct product" layout variation (matters only once a second skin ships)
@@ -86,4 +88,4 @@ Docs move with the code. If a session changes the engine's shape, the config sch
 
 ## Definition of Done for V1
 
-A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have progress saved on close. No power-ups, no recipe unlocks, no ads wired in. Just a real, playable, saved match-3 level, themed, calm, and built for the one person it's actually for.
+A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have progress saved on close. Winning one of the 9 curated milestone levels reveals a recipe card into a real, persisted collection, viewable from Home. No power-ups, no ads wired in. Just a real, playable, saved match-3 level, themed, calm, and built for the one person it's actually for.

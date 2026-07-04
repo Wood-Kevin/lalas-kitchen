@@ -9,6 +9,7 @@ import {
   didLevelJustEnd,
   eligibleBlockerIds,
   findBlockerMatchType,
+  findRecipeCardForLevel,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
@@ -25,7 +26,9 @@ import {
   shouldShowBlockerTutorial,
   shouldSpendLifeOnLoss,
   startingLives,
+  unlockRecipeCard,
 } from './appPersistence';
+import { RecipeCard } from './components/skinConfig';
 
 function piece(id: string, matchType: string): Piece {
   return { id, type: 'normal', matchType };
@@ -123,7 +126,7 @@ describe('save/load wiring — real call sites, end to end', () => {
     expect(justEnded).toBe(true);
 
     if (justEnded) {
-      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], state), storage);
+      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], [], state), storage);
     }
 
     // --- "App reopened" ---
@@ -257,18 +260,25 @@ describe('generatedLevelSeed', () => {
 });
 
 describe('generatedPieceTypeCount', () => {
-  test('starts at the full available pool for the first generated level', () => {
-    expect(generatedPieceTypeCount(1, 6)).toBe(6);
+  test('starts at the minimal pool for the first generated level', () => {
+    expect(generatedPieceTypeCount(1, 6)).toBe(3);
   });
 
-  test('steps down by one every 3 levels', () => {
-    expect(generatedPieceTypeCount(3, 6)).toBe(6);
-    expect(generatedPieceTypeCount(4, 6)).toBe(5);
-    expect(generatedPieceTypeCount(7, 6)).toBe(4);
+  test('steps up by one every 3 levels', () => {
+    expect(generatedPieceTypeCount(3, 6)).toBe(3);
+    expect(generatedPieceTypeCount(4, 6)).toBe(4);
+    expect(generatedPieceTypeCount(7, 6)).toBe(5);
   });
 
-  test('floors at 3 types no matter how far the ramp continues', () => {
-    expect(generatedPieceTypeCount(500, 6)).toBe(3);
+  test('caps at the full available pool no matter how far the ramp continues', () => {
+    expect(generatedPieceTypeCount(500, 6)).toBe(6);
+  });
+
+  test('a level well into the generated range has meaningfully more piece types than an early level', () => {
+    const early = generatedPieceTypeCount(1, 6);
+    const deep = generatedPieceTypeCount(30, 6);
+    expect(deep).toBeGreaterThan(early);
+    expect(deep).toBe(6);
   });
 });
 
@@ -296,24 +306,21 @@ describe('generatedTargetCount', () => {
 });
 
 describe('generatedObjectiveCount', () => {
-  test('a single objective before the introduction threshold', () => {
-    expect(generatedObjectiveCount(1, 6)).toBe(1);
-    expect(generatedObjectiveCount(3, 6)).toBe(1);
+  test('a single objective while the piece-type pool is still small', () => {
+    expect(generatedObjectiveCount(1)).toBe(1);
+    expect(generatedObjectiveCount(4)).toBe(1);
   });
 
-  test('two objectives from the threshold level onward, given enough pool variety', () => {
-    expect(generatedObjectiveCount(4, 6)).toBe(2);
-    expect(generatedObjectiveCount(500, 6)).toBe(2);
-  });
-
-  test('never asks for more objectives than the level has distinct piece types', () => {
-    expect(generatedObjectiveCount(500, 1)).toBe(1);
+  test('two objectives once the pool clears the trivialization threshold', () => {
+    expect(generatedObjectiveCount(5)).toBe(2);
+    expect(generatedObjectiveCount(6)).toBe(2);
   });
 });
 
 describe('buildGeneratedLevelConfig', () => {
   test('builds a full LevelConfig (minus lives) for the first level past the hand-built queue', () => {
-    // Generated level number 1 is below INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL,
+    // Generated level number 1 -> minimal 3-type pool (see
+    // generatedPieceTypeCount), which is below MIN_TYPES_FOR_SECOND_OBJECTIVE,
     // so this is still a single-objective level — an array of length one,
     // not a special case.
     const config = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
@@ -321,21 +328,21 @@ describe('buildGeneratedLevelConfig', () => {
       seed: 301,
       rows: 8,
       cols: 6,
-      pieceTypeIds: ['A', 'B', 'C', 'D', 'E', 'F'],
+      pieceTypeIds: ['A', 'B', 'C'],
       movesLimit: 24,
       objectives: [{ targetMatchType: 'A', targetCount: 21 }],
     });
   });
 
-  test('shrinks the piece-type pool and rotates the objective targets as levels continue', () => {
-    // Level 10 -> generated level number 7 -> 6 - floor(6/3) = 4 types.
-    // Level number 7 is past INTRODUCE_SECOND_OBJECTIVE_AT_LEVEL (4), so
-    // this level now asks for two distinct objectives.
+  test('grows the piece-type pool and rotates the objective targets as levels continue', () => {
+    // Level 10 -> generated level number 7 -> 3 + floor(6/3) = 5 types,
+    // which clears MIN_TYPES_FOR_SECOND_OBJECTIVE (5), so this level now
+    // asks for two distinct objectives.
     const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D']);
+    expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E']);
     expect(config.objectives).toEqual([
+      { targetMatchType: 'B', targetCount: 26 },
       { targetMatchType: 'C', targetCount: 26 },
-      { targetMatchType: 'D', targetCount: 26 },
     ]);
   });
 
@@ -353,6 +360,34 @@ describe('buildGeneratedLevelConfig', () => {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
       const targetTypes = config.objectives.map((o) => o.targetMatchType);
       expect(new Set(targetTypes).size).toBe(targetTypes.length);
+    }
+  });
+
+  // Regression guard for a reported symptom (boards only ever spawning 3 of
+  // 6 established piece types) suspected to be objectives narrowing
+  // pieceTypeIds down to just the target types, rather than pieceTypeIds
+  // being the independent, full-pool-minus-difficulty-ramp source objectives
+  // are chosen *from*. Investigated directly: pieceTypeIds is computed via
+  // generatedPieceTypeCount (the pre-existing, unrelated difficulty ramp)
+  // before objectives are ever chosen, and objectives are sliced out of that
+  // already-computed pieceTypeIds array — there is no code path where it
+  // runs the other way. This test locks that in explicitly: a level with two
+  // objectives must still carry a pieceTypeIds pool sized by
+  // generatedPieceTypeCount alone, strictly larger than the objective count,
+  // with every objective's targetMatchType drawn from it.
+  test('a two-objective level still carries the full generatedPieceTypeCount pool, not just its objective types', () => {
+    const ALL_TYPES = ['tomato', 'lemon', 'herb', 'garlic', 'chili', 'spoon'];
+    // levelIndex 11 -> generated level number 8 -> two objectives (typeCount
+    // has cleared MIN_TYPES_FOR_SECOND_OBJECTIVE) but still only 5 of 6
+    // piece types (generatedPieceTypeCount(8, 6) = 3 + floor(7/3) = 5) — a
+    // real case where objectiveCount (2) and pieceTypeIds.length (5) must
+    // clearly differ.
+    const config = buildGeneratedLevelConfig(11, 3, ALL_TYPES, 8, 6);
+    expect(config.objectives).toHaveLength(2);
+    expect(config.pieceTypeIds).toEqual(['tomato', 'lemon', 'herb', 'garlic', 'chili']);
+    expect(config.pieceTypeIds.length).toBeGreaterThan(config.objectives.length);
+    for (const objective of config.objectives) {
+      expect(config.pieceTypeIds).toContain(objective.targetMatchType);
     }
   });
 
@@ -556,20 +591,25 @@ describe('grantInstantLife', () => {
 describe('buildSaveData — regen anchor', () => {
   test('writes the explicitly-passed livesLastRegenAt instead of always stamping "now"', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], { lives: 3 }, 1234567, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], [], { lives: 3 }, 1234567, fixedNow);
     expect(data.livesLastRegenAt).toBe(1234567);
     expect(data.lives).toBe(3);
   });
 
   test('falls back to now() when no explicit anchor is given, unchanged from before regen math existed', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], { lives: 3 }, undefined, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], [], { lives: 3 }, undefined, fixedNow);
     expect(data.livesLastRegenAt).toBe(9999999);
   });
 
   test('writes the seenTutorials list passed in', () => {
-    const data = buildSaveData('skin', 1, [], ['blocker'], { lives: 3 });
+    const data = buildSaveData('skin', 1, [], ['blocker'], [], { lives: 3 });
     expect(data.seenTutorials).toEqual(['blocker']);
+  });
+
+  test('writes the unlockedRecipeCards list passed in', () => {
+    const data = buildSaveData('skin', 1, [], [], ['tomato_stew'], { lives: 3 });
+    expect(data.unlockedRecipeCards).toEqual(['tomato_stew']);
   });
 });
 
@@ -616,5 +656,43 @@ describe('markTutorialSeen', () => {
 
   test('preserves existing entries when adding a different id', () => {
     expect(markTutorialSeen([BLOCKER_TUTORIAL_ID], 'powerup')).toEqual([BLOCKER_TUTORIAL_ID, 'powerup']);
+  });
+});
+
+const RECIPE_CARDS: RecipeCard[] = [
+  { id: 'tomato_stew', title: 'Sunday Tomato Stew', flavorText: 'Simmered slow.', milestoneLevel: 1, sprite: 'recipe_tomato_stew.webp' },
+  { id: 'herb_garden_salad', title: 'Herb Garden Salad', flavorText: 'Fresh off the sill.', milestoneLevel: 3, sprite: 'recipe_herb_garden_salad.webp' },
+  { id: 'lemon_roast_chicken', title: 'Lemon Roast Chicken', flavorText: 'Worth the wait.', milestoneLevel: 6, sprite: 'recipe_lemon_roast_chicken.webp' },
+];
+
+describe('findRecipeCardForLevel', () => {
+  test('returns the card whose milestoneLevel matches exactly', () => {
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 1)).toEqual(RECIPE_CARDS[0]);
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 3)).toEqual(RECIPE_CARDS[1]);
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 6)).toEqual(RECIPE_CARDS[2]);
+  });
+
+  test('is undefined for a level number that is not a milestone', () => {
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 2)).toBeUndefined();
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 4)).toBeUndefined();
+    expect(findRecipeCardForLevel(RECIPE_CARDS, 500)).toBeUndefined();
+  });
+
+  test('is undefined for an empty recipe card list', () => {
+    expect(findRecipeCardForLevel([], 1)).toBeUndefined();
+  });
+});
+
+describe('unlockRecipeCard', () => {
+  test('adds a new card id', () => {
+    expect(unlockRecipeCard([], 'tomato_stew')).toEqual(['tomato_stew']);
+  });
+
+  test('is idempotent — replaying an already-unlocked milestone level does not duplicate it', () => {
+    expect(unlockRecipeCard(['tomato_stew'], 'tomato_stew')).toEqual(['tomato_stew']);
+  });
+
+  test('preserves existing entries when adding a different id', () => {
+    expect(unlockRecipeCard(['tomato_stew'], 'herb_garden_salad')).toEqual(['tomato_stew', 'herb_garden_salad']);
   });
 });

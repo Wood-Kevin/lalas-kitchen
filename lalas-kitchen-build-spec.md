@@ -37,7 +37,7 @@ The leak test: if you swapped the skin and something broke or looked weird, that
 - `generateLevel(seed, config)`: fills a board of the given dimensions using a seeded random number generator, never `Math.random()` directly
 - While filling, check the two pieces already placed to the left and above each new cell, and avoid picking a piece type that would create an instant match
 - After filling (and, since Phase 6, after blocker placement — see below), run `hasLegalMoves()` from Phase 1. If false, reshuffle and check again
-- Difficulty should be tunable by constraining inputs (fewer piece types, tighter move limits, and since Phase 6, blocker count) rather than rigging the randomness itself
+- Difficulty should be tunable by constraining inputs (piece-type pool size, tighter move limits, and since Phase 6, blocker count) rather than rigging the randomness itself — `generateLevel` itself is direction-agnostic about which way "more types" or "fewer types" trends harder; that ramp direction is a caller decision (see `engine/DECISIONS.md`'s "Difficulty tuning" entry: more types is the harder direction for a human player, since it makes matches statistically rarer, not fewer)
 - Since Phase 6: optional `blockerCount`/`blockerMatchType`/`blockerHitsToClear` on `GeneratorConfig` — after the fill and repair pass, overwrite that many random cells with blocker pieces. Safe to do without re-running the repair pass, since a blocker can never join a match run in the first place (see Phase 6 below)
 
 **Why this belongs next to the matrix, not in its own folder:** the generator needs to inherit the same deterministic discipline as match detection. If it lived somewhere else, it would be easy for a future prompt to reach for unsanitized randomness "since it's just content." Keeping it in `engine/` as its own file (not merged into `matrix.ts`) gets cohesion without bloating the core file.
@@ -134,7 +134,7 @@ Board dimensions and objectives live per level, not in this skin file, since boa
 
 Skip these until the core loop is proven fun and stable:
 - Row clearers and other special piece behaviors beyond blockers (the `type` field is ready for them, but don't build the logic yet). Blocker clearing itself was built in Phase 6, below — no longer in this list.
-- Recipe box meta layer and its event listener (build the engine's summary event emitter when a level ends, but wire up the actual UI later)
+- Recipe box meta layer and its event listener (build the engine's summary event emitter when a level ends, but wire up the actual UI later). Brought into V1 scope and built in a later session: `skinConfig.recipeCards` is a fixed 9-card curated set, each tied to one milestone level number (`appPersistence.ts`'s `findRecipeCardForLevel`); winning a milestone level reveals the card inside the existing win overlay and adds it to `SaveData.unlockedRecipeCards` (same shape as `seenTutorials`); a "My Recipe Book" screen off Home shows the fixed 3x3 grid, filled vs. dashed-empty — no stars, tiers, or locks. See `CLAUDE.md`'s Data Model Notes for the full mapping and `engine/DECISIONS.md` for the reasoning. No longer in this list.
 - Cloud asset delivery / CDN-based skin loading (only matters once there are multiple skins to distribute)
 - Score-threshold level objectives (a numeric score threshold, distinct from counting matched pieces, is still unbuilt). Multi-target objectives were built in a later session — `GameState`/`LevelConfig`'s `objectives` is an array; see this file's Phase 3 note above and `engine/DECISIONS.md` — no longer in this list.
 - Any App Store "distinct product" layout variation work (only matters when skin number two is real)
@@ -143,4 +143,4 @@ Skip these until the core loop is proven fun and stable:
 
 ## Success Criteria for V1
 
-A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have their progress saved when they close the app. No power-ups, no recipe unlocks, no ads wired in yet, just a real, playable, saved match-3 level themed around cooking.
+A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have their progress saved when they close the app. Winning one of the 9 curated milestone levels reveals a recipe card into a real, persisted collection. No power-ups, no ads wired in yet, just a real, playable, saved match-3 level themed around cooking.

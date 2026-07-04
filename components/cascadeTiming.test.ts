@@ -11,6 +11,6 @@ describe('cascadeFallDurationMs', () => {
   });
 
   test('"medium" matches the value used by the lalas-kitchen config', () => {
-    expect(cascadeFallDurationMs('medium')).toBe(350);
+    expect(cascadeFallDurationMs('medium')).toBe(480);
   });
 });

@@ -5,7 +5,8 @@ import { Board } from './components/Board';
 import { Home } from './components/Home';
 import { AllLevels, AllLevelsRow } from './components/AllLevels';
 import { OutOfLives } from './components/OutOfLives';
-import { SkinConfig } from './components/skinConfig';
+import { RecipeCard, SkinConfig } from './components/skinConfig';
+import { RecipeBook } from './components/RecipeBook';
 import { GameState, GameStatus, LevelConfig, loadSave, saveProgress } from './engine/gameState';
 import {
   applyLivesRegen,
@@ -13,6 +14,7 @@ import {
   buildSaveData,
   canStartLevel,
   didLevelJustEnd,
+  findRecipeCardForLevel,
   grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
@@ -22,6 +24,7 @@ import {
   resolveStartScreen,
   shouldSpendLifeOnLoss,
   startingLives,
+  unlockRecipeCard,
 } from './appPersistence';
 import {
   buildLevelSummary,
@@ -87,7 +90,7 @@ function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {
   return { ...base, lives };
 }
 
-type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives';
+type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook';
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('loading');
@@ -100,6 +103,16 @@ export default function App() {
   // see engine/gameState.ts's SaveData.seenTutorials comment on why this
   // is a plain string list rather than a bespoke boolean per tutorial.
   const [seenTutorials, setSeenTutorials] = useState<string[]>([]);
+  // IDs of recipe cards (skinConfig.recipeCards) unlocked so far — see
+  // engine/gameState.ts's SaveData.unlockedRecipeCards comment. Feeds both
+  // Home's recipe-book teaser card and the RecipeBook collection screen.
+  const [unlockedRecipeCards, setUnlockedRecipeCards] = useState<string[]>([]);
+  // The card the most recent win transition newly unlocked, or null for an
+  // ordinary win — recomputed at every won transition in
+  // handleBoardStateChange below, never left stale across levels (see that
+  // computation for why no separate reset is needed elsewhere). Threaded
+  // through Board -> WonOverlay to decide whether to show the reveal.
+  const [revealedRecipeCard, setRevealedRecipeCard] = useState<RecipeCard | null>(null);
 
   // Mirrors Board's current GameState so the AppState background handler
   // (below) has something to persist even mid-level, without lifting the
@@ -114,6 +127,7 @@ export default function App() {
   const levelIndexRef = useRef(levelIndex);
   const completedLevelsRef = useRef(completedLevels);
   const seenTutorialsRef = useRef(seenTutorials);
+  const unlockedRecipeCardsRef = useRef(unlockedRecipeCards);
   // The account's persisted lives count — the single source of truth for
   // every level-start gate (Home's "Start cooking", an All Levels row, and
   // Board's internal "Play again") and the value that actually decrements
@@ -140,6 +154,7 @@ export default function App() {
       const startLevelIndex = resolveStartLevelIndex(save);
       const initialCompleted = save?.completedLevels ?? [];
       const initialSeenTutorials = save?.seenTutorials ?? [];
+      const initialUnlockedRecipeCards = save?.unlockedRecipeCards ?? [];
 
       // Regen is computed once here from whatever the save last recorded —
       // a session could have been closed for hours or days, and this is
@@ -159,12 +174,14 @@ export default function App() {
       levelIndexRef.current = startLevelIndex;
       completedLevelsRef.current = initialCompleted;
       seenTutorialsRef.current = initialSeenTutorials;
+      unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
       livesRef.current = regenerated.lives;
       livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
       setLives(regenerated.lives);
       setLevelIndex(startLevelIndex);
       setCompletedLevels(initialCompleted);
       setSeenTutorials(initialSeenTutorials);
+      setUnlockedRecipeCards(initialUnlockedRecipeCards);
       // levelConfig stays null here — every session now opens on Home (see
       // resolveStartScreen), not straight into a board, so there's nothing
       // to preload until the player actually taps into a level.
@@ -196,6 +213,7 @@ export default function App() {
         levelIndexRef.current,
         completedLevelsRef.current,
         seenTutorialsRef.current,
+        unlockedRecipeCardsRef.current,
         { lives: livesRef.current },
         livesLastRegenAtRef.current
       )
@@ -220,6 +238,21 @@ export default function App() {
           const updated = markLevelCompleted(completedLevelsRef.current, levelIndexRef.current);
           completedLevelsRef.current = updated;
           setCompletedLevels(updated);
+
+          // Recomputed fresh on every won transition (not just the first
+          // time) so a replay of an already-unlocked milestone level, or a
+          // win on a non-milestone level, correctly clears any reveal left
+          // over from a previous win rather than showing it again — see
+          // this state's own doc comment above for why no separate reset
+          // elsewhere is needed.
+          const card = findRecipeCardForLevel(skinConfig.recipeCards, levelIndexRef.current);
+          const isNewUnlock = !!card && !unlockedRecipeCardsRef.current.includes(card.id);
+          if (isNewUnlock && card) {
+            const updatedCards = unlockRecipeCard(unlockedRecipeCardsRef.current, card.id);
+            unlockedRecipeCardsRef.current = updatedCards;
+            setUnlockedRecipeCards(updatedCards);
+          }
+          setRevealedRecipeCard(isNewUnlock ? card! : null);
         }
         if (shouldSpendLifeOnLoss(prevStatus, state.status, state.pauseReason)) {
           // Apply any regen owed first, then spend the loss — so a player
@@ -294,6 +327,13 @@ export default function App() {
     setScreen('levels');
   }, []);
 
+  // Home's "Your recipe book" card — the collection view's one entry
+  // point (see this session's brief). No gating: unlike level-start, there
+  // is no lives cost or lock to check before just looking at a collection.
+  const handleOpenRecipeBook = useCallback(() => {
+    setScreen('recipeBook');
+  }, []);
+
   const handleGoHome = useCallback(() => {
     setScreen('home');
   }, []);
@@ -361,6 +401,7 @@ export default function App() {
         levelIndexRef.current,
         completedLevelsRef.current,
         seenTutorialsRef.current,
+        unlockedRecipeCardsRef.current,
         { lives: newLives },
         livesLastRegenAtRef.current
       )
@@ -385,6 +426,7 @@ export default function App() {
         levelIndexRef.current,
         completedLevelsRef.current,
         updated,
+        unlockedRecipeCardsRef.current,
         { lives: livesRef.current },
         livesLastRegenAtRef.current
       )
@@ -434,10 +476,19 @@ export default function App() {
           <Home
             config={skinConfig}
             spriteAssets={spriteRegistry}
-            completedLevels={completedLevels}
             nextLevel={nextLevelSummary}
+            unlockedRecipeCardCount={unlockedRecipeCards.length}
+            totalRecipeCardCount={skinConfig.recipeCards.length}
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
+            onOpenRecipeBook={handleOpenRecipeBook}
+          />
+        ) : screen === 'recipeBook' ? (
+          <RecipeBook
+            config={skinConfig}
+            spriteAssets={spriteRegistry}
+            unlockedCardIds={unlockedRecipeCards}
+            onBack={handleGoHome}
           />
         ) : screen === 'levels' ? (
           <AllLevels
@@ -484,6 +535,7 @@ export default function App() {
             onOutOfLives={() => setScreen('outOfLives')}
             seenTutorials={seenTutorials}
             onTutorialSeen={handleTutorialSeen}
+            unlockedRecipeCard={revealedRecipeCard}
           />
         )}
       </SafeAreaView>

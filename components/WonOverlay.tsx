@@ -2,10 +2,11 @@ import React, { useEffect } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Objective } from '../engine/gameState';
-import { SkinConfig } from './skinConfig';
+import { RecipeCard, SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
+import { RecipeCardReveal } from './RecipeCardReveal';
 
 export interface WonOverlayProps {
   objectives: Objective[];
@@ -29,6 +30,15 @@ export interface WonOverlayProps {
   // detour, not a third competing action — see PausedOverlay.tsx's
   // matching "Exit to Kitchen" link for the sibling treatment.
   onOpenDashboard: () => void;
+  // The recipe card this exact win just unlocked for the first time — null
+  // for an ordinary win (not a milestone level, or a milestone already
+  // unlocked by an earlier attempt at this same level). App.tsx computes
+  // this once, at the same win transition completedLevels already updates
+  // from (see handleBoardStateChange), and threads it down through
+  // Board.tsx unchanged. Non-null swaps the usual plated-dish illustration
+  // and subtext for RecipeCardReveal — see that component for why this is
+  // a distinct calmer treatment, not layered on top of the existing one.
+  unlockedRecipeCard: RecipeCard | null;
 }
 
 // Fixed brand accents from the design brief, not skin-configurable data —
@@ -86,6 +96,7 @@ export function WonOverlay({
   onPlayAgain,
   onNext,
   onOpenDashboard,
+  unlockedRecipeCard,
 }: WonOverlayProps) {
   // The plated-dish illustration only has room for one icon — it stays
   // pinned to the first objective regardless of how many there are, the
@@ -97,50 +108,58 @@ export function WonOverlay({
   return (
     <View style={styles.backdrop}>
       <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
-        <View style={styles.illustration}>
-          <SteamWisp left="38%" delayMs={0} />
-          <SteamWisp left="50%" delayMs={500} />
-          <SteamWisp left="62%" delayMs={1000} />
-          <Sparkle style={{ left: '16%', top: '14%' }} color={YOLK} delayMs={0} />
-          <Sparkle style={{ right: '14%', top: '20%' }} color={FLAME} delayMs={550} />
+        {unlockedRecipeCard ? (
+          <RecipeCardReveal card={unlockedRecipeCard} config={config} spriteAssets={spriteAssets} />
+        ) : (
+          <View style={styles.illustration}>
+            <SteamWisp left="38%" delayMs={0} />
+            <SteamWisp left="50%" delayMs={500} />
+            <SteamWisp left="62%" delayMs={1000} />
+            <Sparkle style={{ left: '16%', top: '14%' }} color={YOLK} delayMs={0} />
+            <Sparkle style={{ right: '14%', top: '20%' }} color={FLAME} delayMs={550} />
 
-          <View style={[styles.plateRim, { backgroundColor: border }]} />
-          <View style={[styles.plateFace, { backgroundColor: panel, borderColor: border }]}>
-            <SpriteIcon sprite={sprite} size={44} labelColor={accent} />
+            <View style={[styles.plateRim, { backgroundColor: border }]} />
+            <View style={[styles.plateFace, { backgroundColor: panel, borderColor: border }]}>
+              <SpriteIcon sprite={sprite} size={44} labelColor={accent} />
+            </View>
           </View>
-        </View>
+        )}
 
         <Text style={[styles.levelLabel, { color: accent }]}>LEVEL {levelIndex}</Text>
         <Text style={[styles.headline, { color: text }]}>Order&apos;s Up!</Text>
-        <Text style={[styles.subtext, { color: mutedText }]}>Plated with moves to spare — nicely done.</Text>
+        <Text style={[styles.subtext, { color: mutedText }]}>
+          {unlockedRecipeCard ? 'A recipe was added to your cookbook.' : 'Plated with moves to spare — nicely done.'}
+        </Text>
 
-        <View style={styles.chipRow}>
-          {objectives.map((objective) => {
-            const chipSprite = resolveSpriteAsset(
-              getSpriteForMatchType(objective.targetMatchType, config),
-              spriteAssets
-            );
-            return (
-              <View
-                key={objective.targetMatchType}
-                style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}
-              >
-                <SpriteIcon sprite={chipSprite} size={22} labelColor={secondaryAccent} />
-                <View>
-                  {/* Reads each objective's real counts directly, so an
-                      overshoot cascade (currentCount > targetCount) always
-                      shows the true numbers rather than clamping to the
-                      target — unchanged per-objective, just now repeated
-                      once per entry instead of assumed singular. */}
-                  <Text style={[styles.chipAmount, { color: text }]}>
-                    {objective.currentCount} / {objective.targetCount}
-                  </Text>
-                  <Text style={[styles.chipLabel, { color: secondaryAccent }]}>COLLECTED</Text>
+        {!unlockedRecipeCard && (
+          <View style={styles.chipRow}>
+            {objectives.map((objective) => {
+              const chipSprite = resolveSpriteAsset(
+                getSpriteForMatchType(objective.targetMatchType, config),
+                spriteAssets
+              );
+              return (
+                <View
+                  key={objective.targetMatchType}
+                  style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}
+                >
+                  <SpriteIcon sprite={chipSprite} size={22} labelColor={secondaryAccent} />
+                  <View>
+                    {/* Reads each objective's real counts directly, so an
+                        overshoot cascade (currentCount > targetCount) always
+                        shows the true numbers rather than clamping to the
+                        target — unchanged per-objective, just now repeated
+                        once per entry instead of assumed singular. */}
+                    <Text style={[styles.chipAmount, { color: text }]}>
+                      {objective.currentCount} / {objective.targetCount}
+                    </Text>
+                    <Text style={[styles.chipLabel, { color: secondaryAccent }]}>COLLECTED</Text>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
-        </View>
+              );
+            })}
+          </View>
+        )}
 
         <Pressable style={[styles.primaryButton, { backgroundColor: accent }]} onPress={onNext}>
           <Text style={styles.primaryButtonLabel}>Next Recipe</Text>

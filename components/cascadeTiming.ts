@@ -5,9 +5,17 @@ import { CascadeFallSpeed } from './skinConfig';
 // value for Reanimated. The specific numbers are a rendering-layer judgment
 // call (not specified anywhere in the build spec), documented in
 // components/NOTES.md rather than guessed silently.
+//
+// `medium` was retuned from 350 to 480 (and lalas-kitchen's own
+// matchDurationMs from 220 to 300 alongside it, in config.json) so a
+// cascade chain resolves slowly enough for a player to actually see what
+// cleared and why, rather than the pieces just vanishing in a blur — a
+// direct read on CLAUDE.md's "calm, not frantic" pacing constraint.
+// `swapDurationMs` (140) is untouched: that duration is the direct response
+// to a player's own tap, not a passive animation they're just watching.
 const CASCADE_FALL_DURATIONS_MS: Record<CascadeFallSpeed, number> = {
   slow: 500,
-  medium: 350,
+  medium: 480,
   fast: 220,
 };
 
@@ -21,7 +29,7 @@ export function cascadeFallDurationMs(cascadeFallSpeed: CascadeFallSpeed): numbe
 // gap, not an engine bug). Tile.tsx plays this brief highlight pulse on a
 // clearing blocker before its normal pop-and-shrink, so the disappearance
 // reads as "something hit this" rather than an unexplained glitch. Kept
-// short and proportionate to matchDurationMs's 220ms default per CLAUDE.md's
+// short and proportionate to matchDurationMs's 300ms default per CLAUDE.md's
 // calm-not-frantic constraint — a glow pulse, not a shake, since this
 // player's phone plays with sound off and doesn't need a jarring cue.
 export const BLOCKER_CLEAR_HIGHLIGHT_MS = 200;

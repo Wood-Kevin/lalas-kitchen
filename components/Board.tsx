@@ -9,7 +9,7 @@ import {
   grantBonusMoves,
 } from '../engine/gameState';
 import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
-import { SkinConfig } from './skinConfig';
+import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
@@ -19,6 +19,7 @@ import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { PausedOverlay } from './PausedOverlay';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
+import { ComboStreakBanner } from './ComboStreakBanner';
 
 export interface BoardProps {
   levelConfig: LevelConfig;
@@ -79,6 +80,13 @@ export interface BoardProps {
   // handleTutorialSeen), the same "must survive an app close" reasoning as
   // handleGrantLife's explicit save.
   onTutorialSeen: (id: string) => void;
+  // The recipe card this exact win unlocked for the first time, or null —
+  // computed by App.tsx at the same win transition completedLevels updates
+  // from (see App.tsx's handleBoardStateChange), threaded straight through
+  // to WonOverlay unchanged. Board has no opinion about milestone mapping
+  // or the persisted unlocked-cards list; it only renders whatever App.tsx
+  // resolves.
+  unlockedRecipeCard: RecipeCard | null;
 }
 
 interface ExitingEntry {
@@ -117,6 +125,7 @@ export function Board({
   levelIndex,
   seenTutorials,
   onTutorialSeen,
+  unlockedRecipeCard,
 }: BoardProps) {
   const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
   // Computed once at mount, from this level's initial board only — not
@@ -133,6 +142,12 @@ export function Board({
   const [spawnedIds, setSpawnedIds] = useState<Set<string>>(new Set());
   const [swapDurationIds, setSwapDurationIds] = useState<Set<string>>(new Set());
   const [snapBack, setSnapBack] = useState<{ a: Position; b: Position } | null>(null);
+  // A unique key per combo_streak event (see engine/gameState.ts), not just
+  // a boolean — ComboStreakBanner is keyed by this so back-to-back combos
+  // each mount a fresh instance and replay the fade from the start, rather
+  // than a second event landing mid-fade doing nothing because the banner
+  // was already mounted.
+  const [comboKey, setComboKey] = useState<string | null>(null);
   // Measured via onLayout rather than Dimensions.get('window'), since the
   // board area's actual available space is whatever's left after the HUD
   // and safe-area insets are applied — Dimensions.get('window') only knows
@@ -217,6 +232,14 @@ export function Board({
       gameState.board[posB.row][posB.col].id,
     ]);
 
+    // result.events surfaces combo_streak the same way diff surfaces
+    // cleared/spawned pieces — both are derived from the same applyMove
+    // call, just read for a different purpose (a transient acknowledgment
+    // vs. the actual tile animations).
+    if (result.events.some((event) => event.type === 'combo_streak')) {
+      setComboKey(`combo-${gameState.movesRemaining}`);
+    }
+
     setSwapDurationIds(tappedIds);
     setSpawnedIds(new Set(diff.spawned.map((s) => s.piece.id)));
     setExiting(
@@ -267,6 +290,7 @@ export function Board({
     setSpawnedIds(new Set());
     setSwapDurationIds(new Set());
     setSnapBack(null);
+    setComboKey(null);
   }
 
   return (
@@ -356,6 +380,14 @@ export function Board({
                 onExited={() => removeExiting(entry.key)}
               />
             ))}
+            {comboKey && (
+              <ComboStreakBanner
+                key={comboKey}
+                accentColor={skinConfig.palette.accent}
+                panelColor={skinConfig.palette.panel}
+                onDone={() => setComboKey(null)}
+              />
+            )}
           </View>
         )}
       </View>
@@ -387,6 +419,7 @@ export function Board({
           onPlayAgain={handlePlayAgain}
           onNext={onNextLevel}
           onOpenDashboard={onOpenDashboard}
+          unlockedRecipeCard={unlockedRecipeCard}
         />
       )}
     </View>

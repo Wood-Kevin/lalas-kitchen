@@ -128,13 +128,18 @@ immediately.
 
 `config.animationProfile.cascadeFallSpeed` is a qualitative string
 (`'slow' | 'medium' | 'fast'`), not a duration. `cascadeTiming.ts` maps
-these to `{ slow: 500, medium: 350, fast: 220 }` — picked to feel roughly
-proportionate to `lalas-kitchen`'s own `matchDurationMs: 220` and
-`swapDurationMs: 140` values, and to read as calm rather than snappy per
-CLAUDE.md's "calm and satisfying, not frantic" constraint (a faster,
-gamier cascade would undercut that). These specific numbers aren't
-specified anywhere in the build spec — a judgment call, easy to retune
-since every duration flows through this one function.
+these to `{ slow: 500, medium: 480, fast: 220 }` — `medium` was retuned up
+from its original 350 (and `lalas-kitchen`'s own `matchDurationMs` from 220
+to 300 alongside it, in `config.json`) so a cascade chain resolves slowly
+enough for a player to actually follow what's clearing and why as a chain
+unfolds, rather than reading as a blur. `swapDurationMs` (140) was
+deliberately left alone — that duration is a direct response to the
+player's own tap, not a passive animation they're just watching, so it
+stays snappy. Reads as calm rather than snappy per CLAUDE.md's "calm and
+satisfying, not frantic" constraint (a faster, gamier cascade would
+undercut that). These specific numbers aren't specified anywhere in the
+build spec — a judgment call, easy to retune since every duration flows
+through this one function.
 
 ## `swapDurationMs` is reserved for the tapped pair; everything else uses cascade timing
 

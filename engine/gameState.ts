@@ -358,6 +358,12 @@ export interface SaveData {
   // pre-existing-save-file reason as completedLevels above; readers fall
   // back to [] themselves.
   seenTutorials?: string[];
+  // IDs of recipe cards (skinConfig.recipeCards) the player has unlocked by
+  // winning that card's milestone level at least once — same plain-list,
+  // optional-for-pre-existing-saves shape as seenTutorials above, not a
+  // richer "unlocked at timestamp X" record, since nothing reads anything
+  // beyond membership (see appPersistence.ts's unlockRecipeCard).
+  unlockedRecipeCards?: string[];
 }
 
 // Small interface matching @react-native-async-storage/async-storage's

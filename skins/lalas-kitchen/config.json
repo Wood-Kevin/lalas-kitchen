@@ -16,7 +16,7 @@
   "lives": { "max": 5, "regenMinutes": 30, "icon": "flame.webp" },
   "animationProfile": {
     "matchStyle": "popAndShrink",
-    "matchDurationMs": 220,
+    "matchDurationMs": 300,
     "cascadeFallSpeed": "medium",
     "swapDurationMs": 140
   },
@@ -28,5 +28,16 @@
     "mutedText": "#6E5C49",
     "border": "#D9C79E",
     "text": "#2B211A"
-  }
+  },
+  "recipeCards": [
+    { "id": "tomato_stew", "title": "Sunday Tomato Stew", "flavorText": "Simmered slow, just like Sunday mornings.", "milestoneLevel": 1, "sprite": "recipe_tomato_stew.webp" },
+    { "id": "herb_garden_salad", "title": "Herb Garden Salad", "flavorText": "A handful of green, fresh off the sill.", "milestoneLevel": 3, "sprite": "recipe_herb_garden_salad.webp" },
+    { "id": "lemon_roast_chicken", "title": "Lemon Roast Chicken", "flavorText": "Bright, golden, and worth the wait.", "milestoneLevel": 6, "sprite": "recipe_lemon_roast_chicken.webp" },
+    { "id": "garlic_bread_basket", "title": "Garlic Bread Basket", "flavorText": "Warm enough to fog up the window.", "milestoneLevel": 10, "sprite": "recipe_garlic_bread_basket.webp" },
+    { "id": "hearty_chili_pot", "title": "Hearty Chili Pot", "flavorText": "The kind that simmers all afternoon.", "milestoneLevel": 15, "sprite": "recipe_hearty_chili_pot.webp" },
+    { "id": "wooden_spoon_pancakes", "title": "Wooden Spoon Pancakes", "flavorText": "Stacked high on a slow Saturday.", "milestoneLevel": 21, "sprite": "recipe_wooden_spoon_pancakes.webp" },
+    { "id": "chili_lemon_soup", "title": "Chili Lemon Soup", "flavorText": "A little heat, a little brightness.", "milestoneLevel": 28, "sprite": "recipe_chili_lemon_soup.webp" },
+    { "id": "garlic_herb_roast", "title": "Garlic Herb Roast", "flavorText": "Sunday dinner, any day of the week.", "milestoneLevel": 36, "sprite": "recipe_garlic_herb_roast.webp" },
+    { "id": "grandmas_recipe_box", "title": "Grandma's Recipe Box", "flavorText": "The one that started it all.", "milestoneLevel": 45, "sprite": "recipe_grandmas_recipe_box.webp" }
+  ]
 }
