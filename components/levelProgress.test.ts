@@ -1,7 +1,6 @@
 import {
   buildLevelSummary,
   buildProgressCopy,
-  buildProgressDots,
   resolveLevelDisplayName,
   resolveLevelStatus,
   resolveNextUnplayedLevel,
@@ -87,34 +86,30 @@ describe('buildLevelSummary', () => {
 });
 
 describe('buildProgressCopy', () => {
+  // Single-argument signature is itself part of the fix: there is no
+  // `totalCount` parameter for a ceiling to be computed from, since
+  // generator-driven levels continue indefinitely past the hand-built set
+  // (see components/NOTES.md).
   test('a fresh recipe book with nothing cooked yet', () => {
-    expect(buildProgressCopy(0, 24)).toBe('A fresh recipe book, ready when you are.');
+    expect(buildProgressCopy(0)).toBe('A fresh recipe book, ready when you are.');
   });
 
-  test('mid-progress uses the real counts, singular recipe wording at 1', () => {
-    expect(buildProgressCopy(1, 24)).toBe('1 recipe cooked, 23 still waiting on the shelf. No hurry.');
-    expect(buildProgressCopy(11, 24)).toBe('11 recipes cooked, 13 still waiting on the shelf. No hurry.');
+  test('reads naturally at a low count — singular wording at exactly 1', () => {
+    expect(buildProgressCopy(1)).toBe('1 recipe cooked so far.');
   });
 
-  test('every real level completed reads as fully caught up', () => {
-    expect(buildProgressCopy(24, 24)).toBe('Every recipe cooked. The kitchen smells wonderful.');
+  test('reads naturally at a low count — plural wording at 2', () => {
+    expect(buildProgressCopy(2)).toBe('2 recipes cooked so far.');
   });
 
-  test('a zero total (no hand-built levels at all) does not divide or go negative', () => {
-    expect(buildProgressCopy(0, 0)).toBe('A fresh recipe book, ready when you are.');
-  });
-});
-
-describe('buildProgressDots', () => {
-  test('marks exactly the completed count as filled, in order', () => {
-    expect(buildProgressDots(2, 5)).toEqual([true, true, false, false, false]);
+  test('a high count still reports the same open running total, no ceiling implied', () => {
+    expect(buildProgressCopy(47)).toBe('47 recipes cooked so far.');
   });
 
-  test('all empty when nothing is completed', () => {
-    expect(buildProgressDots(0, 3)).toEqual([false, false, false]);
-  });
-
-  test('all filled when completedCount meets totalCount', () => {
-    expect(buildProgressDots(4, 4)).toEqual([true, true, true, true]);
+  test('never mentions a remaining/waiting count or a "fully caught up" state', () => {
+    for (const count of [0, 1, 2, 11, 47]) {
+      const copy = buildProgressCopy(count);
+      expect(copy).not.toMatch(/waiting|remaining|left|of \d|fully|every/i);
+    }
   });
 });

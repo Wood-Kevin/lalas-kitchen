@@ -1,23 +1,42 @@
 import { createGameState, applyMove, createInMemoryStorage, loadSave, saveProgress } from './engine/gameState';
-import { Position } from './engine/matrix';
+import { Board, Piece, Position } from './engine/matrix';
 import {
   applyLivesRegen,
+  BLOCKER_TUTORIAL_ID,
   buildGeneratedLevelConfig,
   buildSaveData,
   canStartLevel,
   didLevelJustEnd,
+  eligibleBlockerIds,
+  findBlockerMatchType,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedPieceTypeCount,
   generatedTargetCount,
+  grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
+  markTutorialSeen,
+  msUntilNextLifeRegen,
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
+  shouldShowBlockerTutorial,
   shouldSpendLifeOnLoss,
   startingLives,
 } from './appPersistence';
+
+function piece(id: string, matchType: string): Piece {
+  return { id, type: 'normal', matchType };
+}
+
+function blockerPiece(id: string, matchType: string): Piece {
+  return { id, type: 'blocker', matchType, hitsRemaining: 1 };
+}
+
+function boardOf(rows: Piece[][]): Board {
+  return rows;
+}
 
 // Exercises the actual call sites App.tsx wires together (loadSave ->
 // startingLives -> createGameState -> applyMove -> didLevelJustEnd ->
@@ -103,7 +122,7 @@ describe('save/load wiring — real call sites, end to end', () => {
     expect(justEnded).toBe(true);
 
     if (justEnded) {
-      await saveProgress(skinId, buildSaveData(skinId, 1, [], state), storage);
+      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], state), storage);
     }
 
     // --- "App reopened" ---
@@ -300,6 +319,64 @@ describe('buildGeneratedLevelConfig', () => {
     const b = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(a).toEqual(b);
   });
+
+  const ALL_BLOCKERS = [
+    { id: 'cling', hitsToClear: 1 },
+    { id: 'dish_stack', hitsToClear: 1 },
+    { id: 'pot_lid', hitsToClear: 2 },
+  ];
+  const PIECE_TYPES = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const HAND_BUILT_COUNT = 3; // mirrors App.tsx's LEVEL_QUEUE.length
+
+  test('never places pot_lid below its difficulty threshold, even once blockers start appearing at all', () => {
+    // levelIndex 4..9 -> generated level number 1..6, all below
+    // BLOCKER_MIN_LEVEL_NUMBER.pot_lid (7) but at/past generatedBlockerCount's
+    // own INTRODUCE_AT_LEVEL (3), so blockers are genuinely being placed
+    // here — just never pot_lid specifically.
+    for (let levelIndex = 4; levelIndex <= 9; levelIndex++) {
+      const config = buildGeneratedLevelConfig(levelIndex, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
+      expect(config.blockerMatchType).not.toBe('pot_lid');
+    }
+  });
+
+  test('can place pot_lid once past its difficulty threshold', () => {
+    // levelIndex 10.. -> generated level number 7.. (>= BLOCKER_MIN_LEVEL_NUMBER.pot_lid).
+    // Rotation through the eligible pool means not every level in range
+    // picks pot_lid, but scanning enough of them must surface it at least
+    // once — otherwise the threshold would be silently unreachable.
+    const chosen = new Set<string | undefined>();
+    for (let levelIndex = 10; levelIndex <= 21; levelIndex++) {
+      const config = buildGeneratedLevelConfig(levelIndex, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
+      chosen.add(config.blockerMatchType);
+    }
+    expect(chosen.has('pot_lid')).toBe(true);
+  });
+
+  test('a blocker-less skin (empty blockers array) never places any blocker, at any level', () => {
+    for (const levelIndex of [4, 10, 21]) {
+      const config = buildGeneratedLevelConfig(levelIndex, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
+      expect(config.blockerMatchType).toBeUndefined();
+      expect(config.blockerCount).toBeUndefined();
+    }
+  });
+});
+
+describe('eligibleBlockerIds', () => {
+  const ids = ['cling', 'dish_stack', 'pot_lid'];
+
+  test('excludes pot_lid below its threshold, keeping ids with no gate eligible from level 1', () => {
+    expect(eligibleBlockerIds(1, ids)).toEqual(['cling', 'dish_stack']);
+    expect(eligibleBlockerIds(6, ids)).toEqual(['cling', 'dish_stack']);
+  });
+
+  test('includes pot_lid from its threshold level onward', () => {
+    expect(eligibleBlockerIds(7, ids)).toEqual(['cling', 'dish_stack', 'pot_lid']);
+    expect(eligibleBlockerIds(50, ids)).toEqual(['cling', 'dish_stack', 'pot_lid']);
+  });
+
+  test('an id with no configured gate is eligible at level 1', () => {
+    expect(eligibleBlockerIds(1, ['cling'])).toEqual(['cling']);
+  });
 });
 
 describe('canStartLevel', () => {
@@ -398,17 +475,108 @@ describe('applyLivesRegen', () => {
   });
 });
 
+describe('msUntilNextLifeRegen', () => {
+  const MAX = 5;
+  const REGEN_MINUTES = 30;
+  const REGEN_MS = REGEN_MINUTES * 60 * 1000;
+
+  test('counts down the full interval right after the anchor is set', () => {
+    const start = 1000;
+    expect(msUntilNextLifeRegen(0, start, MAX, REGEN_MINUTES, start)).toBe(REGEN_MS);
+  });
+
+  test('reflects elapsed time as it passes, without a separate tracked value', () => {
+    const start = 1000;
+    const elapsed = REGEN_MS / 3;
+    expect(msUntilNextLifeRegen(0, start, MAX, REGEN_MINUTES, start + elapsed)).toBe(REGEN_MS - elapsed);
+  });
+
+  test('bottoms out at zero once the interval has fully elapsed, never goes negative', () => {
+    const start = 1000;
+    expect(msUntilNextLifeRegen(0, start, MAX, REGEN_MINUTES, start + REGEN_MS)).toBe(0);
+    expect(msUntilNextLifeRegen(0, start, MAX, REGEN_MINUTES, start + REGEN_MS * 5)).toBe(0);
+  });
+
+  test('is zero when already at max — nothing left to count down to', () => {
+    const start = 1000;
+    expect(msUntilNextLifeRegen(MAX, start, MAX, REGEN_MINUTES, start)).toBe(0);
+  });
+});
+
+describe('grantInstantLife', () => {
+  test('adds exactly one life', () => {
+    expect(grantInstantLife(0, 5)).toBe(1);
+    expect(grantInstantLife(2, 5)).toBe(3);
+  });
+
+  test('respects the max cap instead of exceeding it', () => {
+    expect(grantInstantLife(4, 5)).toBe(5);
+    expect(grantInstantLife(5, 5)).toBe(5);
+  });
+});
+
 describe('buildSaveData — regen anchor', () => {
   test('writes the explicitly-passed livesLastRegenAt instead of always stamping "now"', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], { lives: 3 }, 1234567, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], { lives: 3 }, 1234567, fixedNow);
     expect(data.livesLastRegenAt).toBe(1234567);
     expect(data.lives).toBe(3);
   });
 
   test('falls back to now() when no explicit anchor is given, unchanged from before regen math existed', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], { lives: 3 }, undefined, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], { lives: 3 }, undefined, fixedNow);
     expect(data.livesLastRegenAt).toBe(9999999);
+  });
+
+  test('writes the seenTutorials list passed in', () => {
+    const data = buildSaveData('skin', 1, [], ['blocker'], { lives: 3 });
+    expect(data.seenTutorials).toEqual(['blocker']);
+  });
+});
+
+describe('findBlockerMatchType', () => {
+  test('finds the first blocker piece\'s matchType, scanning row-major', () => {
+    const board = boardOf([
+      [piece('a', 'tomato'), piece('b', 'lemon')],
+      [piece('c', 'herb'), blockerPiece('d', 'cling')],
+    ]);
+    expect(findBlockerMatchType(board)).toBe('cling');
+  });
+
+  test('is undefined when the board has no blocker at all', () => {
+    const board = boardOf([[piece('a', 'tomato'), piece('b', 'lemon')]]);
+    expect(findBlockerMatchType(board)).toBeUndefined();
+  });
+});
+
+describe('shouldShowBlockerTutorial', () => {
+  test('true when the board has a blocker and the tutorial has never been seen', () => {
+    const board = boardOf([[blockerPiece('a', 'cling')]]);
+    expect(shouldShowBlockerTutorial(board, [])).toBe(true);
+  });
+
+  test('false when the board has a blocker but the tutorial was already dismissed', () => {
+    const board = boardOf([[blockerPiece('a', 'cling')]]);
+    expect(shouldShowBlockerTutorial(board, [BLOCKER_TUTORIAL_ID])).toBe(false);
+  });
+
+  test('false when the board has no blocker at all, regardless of seenTutorials', () => {
+    const board = boardOf([[piece('a', 'tomato')]]);
+    expect(shouldShowBlockerTutorial(board, [])).toBe(false);
+  });
+});
+
+describe('markTutorialSeen', () => {
+  test('adds a new tutorial id', () => {
+    expect(markTutorialSeen([], BLOCKER_TUTORIAL_ID)).toEqual([BLOCKER_TUTORIAL_ID]);
+  });
+
+  test('is idempotent — dismissing an already-seen tutorial does not duplicate it', () => {
+    expect(markTutorialSeen([BLOCKER_TUTORIAL_ID], BLOCKER_TUTORIAL_ID)).toEqual([BLOCKER_TUTORIAL_ID]);
+  });
+
+  test('preserves existing entries when adding a different id', () => {
+    expect(markTutorialSeen([BLOCKER_TUTORIAL_ID], 'powerup')).toEqual([BLOCKER_TUTORIAL_ID, 'powerup']);
   });
 });

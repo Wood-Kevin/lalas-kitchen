@@ -1,7 +1,14 @@
 import React, { useEffect } from 'react';
 import { Image, Pressable, StyleSheet, Text } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { ResolvedSprite } from './spriteAsset';
+import { BLOCKER_CLEAR_HIGHLIGHT_MS } from './cascadeTiming';
 
 export interface TileProps {
   pieceId: string;
@@ -88,6 +95,12 @@ export interface ExitingTileProps {
   accentColor: string;
   panelColor: string;
   durationMs: number;
+  // True when this piece is a blocker cleared by adjacent-match damage
+  // (engine/matrix.ts's applyAdjacentDamage) rather than a direct match —
+  // set by Board.tsx purely from diffBoards' existing `cleared` list
+  // filtered by piece.type, no new engine data. See
+  // BLOCKER_CLEAR_HIGHLIGHT_MS's comment for why this needs its own beat.
+  isBlockerClear?: boolean;
   onExited: () => void;
 }
 
@@ -104,17 +117,40 @@ export function ExitingTile({
   accentColor,
   panelColor,
   durationMs,
+  isBlockerClear,
   onExited,
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
+  // Only ever animates for a blocker clear; stays at 0 (invisible) otherwise.
+  const highlightOpacity = useSharedValue(0);
 
   useEffect(() => {
+    if (isBlockerClear) {
+      const halfPulse = BLOCKER_CLEAR_HIGHLIGHT_MS / 2;
+      // A brief glow-and-pop draws the eye here first, then the same
+      // pop-and-shrink every other cleared tile gets — so a blocker cleared
+      // several cascade steps from the player's tap still reads as "this
+      // just got hit" instead of vanishing with no explanation.
+      highlightOpacity.value = withSequence(
+        withTiming(0.35, { duration: halfPulse }),
+        withTiming(0, { duration: halfPulse })
+      );
+      scale.value = withSequence(
+        withTiming(1.18, { duration: halfPulse }),
+        withTiming(1, { duration: halfPulse }),
+        withTiming(0, { duration: durationMs })
+      );
+      opacity.value = withDelay(BLOCKER_CLEAR_HIGHLIGHT_MS, withTiming(0, { duration: durationMs }));
+      const timeout = setTimeout(onExited, BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
+      return () => clearTimeout(timeout);
+    }
     opacity.value = withTiming(0, { duration: durationMs });
     scale.value = withTiming(0, { duration: durationMs });
     const timeout = setTimeout(onExited, durationMs);
     return () => clearTimeout(timeout);
-    // Runs once on mount — an exiting tile never changes position or duration.
+    // Runs once on mount — an exiting tile never changes position, duration,
+    // or its blocker-clear flag.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -128,10 +164,20 @@ export function ExitingTile({
     transform: [{ scale: scale.value }],
   }));
 
+  const highlightStyle = useAnimatedStyle(() => ({
+    opacity: highlightOpacity.value,
+  }));
+
   return (
     <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
       <Animated.View style={[styles.tile, { backgroundColor: panelColor, borderColor: accentColor }]}>
         <SpriteContent sprite={sprite} accentColor={accentColor} />
+        {isBlockerClear && (
+          <Animated.View
+            style={[styles.blockerHighlight, { backgroundColor: accentColor }, highlightStyle]}
+            testID={`blocker-highlight-${pieceId}`}
+          />
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -154,6 +200,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Soft color wash over the whole tile, faded in/out by highlightOpacity —
+  // deliberately a plain overlay (no ring/border/particle shape) to stay
+  // inside CLAUDE.md's "calm, not frantic" constraint.
+  blockerHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
   },
   label: {
     fontSize: 20,

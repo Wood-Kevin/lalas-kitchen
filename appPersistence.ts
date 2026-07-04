@@ -1,4 +1,4 @@
-import { GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
+import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
 
 // Pure decision logic behind App.tsx's save/load wiring, split out the same
 // way pauseActions.ts sits beside PausedOverlay.tsx — so the actual rules
@@ -52,6 +52,7 @@ export function buildSaveData(
   skinId: string,
   currentLevel: number,
   completedLevels: number[],
+  seenTutorials: string[],
   state: Pick<GameState, 'lives'>,
   livesLastRegenAt?: number,
   now: () => number = Date.now
@@ -64,6 +65,7 @@ export function buildSaveData(
     itemsCollected: {},
     powerUpCounts: {},
     completedLevels,
+    seenTutorials,
   };
 }
 
@@ -151,6 +153,50 @@ export function applyLivesRegen(
   return { lives: newLives, livesLastRegenAt: newLivesLastRegenAt };
 }
 
+// How long until the next passive regen tick, purely for display (the
+// OutOfLives screen's countdown) — derived from the exact same
+// anchor/max/regenMinutes accounting `applyLivesRegen` already trusts, not
+// a separately-tracked countdown value. Returns 0 once lives are already
+// at max (nothing to count down to). Deliberately does not project past
+// the *next* tick: if a player leaves this screen open long enough for
+// more than one interval to elapse, the extra intervals are credited for
+// real the next time `applyLivesRegen` actually runs (the next
+// handlePlayLevel/handleNextLevel/app-foreground call in App.tsx) rather
+// than being guessed at here — this function only ever answers "how long
+// until the next one", so this screen never displays a lives count that
+// disagrees with the account's real persisted value.
+export function msUntilNextLifeRegen(
+  lives: number,
+  livesLastRegenAt: number,
+  max: number,
+  regenMinutes: number,
+  now: number
+): number {
+  if (lives >= max) return 0;
+  const regenMs = regenMinutes * 60 * 1000;
+  const elapsedMs = Math.max(0, now - livesLastRegenAt);
+  return Math.max(0, regenMs - elapsedMs);
+}
+
+// An instant, one-off +1 to the account's persisted lives count — the
+// "watch a video for a life" bonus on the OutOfLives screen (blocking a
+// *new* level from starting). Distinct in kind from the old
+// grantBonusMoves/grantBonusLife mid-level pause mechanic (see
+// engine/gameState.ts's PauseReason comment on why the latter was
+// deleted): those mutated a live GameState in progress, this mutates the
+// account-level `lives` value App.tsx already owns, the same value
+// `applyLivesRegen`/`livesAfterLoss` operate on. Deliberately does not
+// touch `livesLastRegenAt` — the passive regen clock keeps counting down
+// on its own schedule regardless of this bonus, exactly like a loss only
+// resets the anchor when lives were previously at cap (see
+// `applyLivesRegen`'s own comment) rather than whenever lives change at
+// all. Capped at `max` for the same reason `applyLivesRegen` caps: this
+// screen only ever appears at zero lives in practice, but the function
+// itself should stay honestly capped rather than trusting the call site.
+export function grantInstantLife(lives: number, max: number): number {
+  return Math.min(lives + 1, max);
+}
+
 // Adds levelIndex to the completed set if it isn't already there, kept
 // sorted for the dashboard's display order. A level can be won more than
 // once (see "Play again" replaying an already-won level), so this must
@@ -159,6 +205,45 @@ export function markLevelCompleted(completedLevels: number[], levelIndex: number
   return completedLevels.includes(levelIndex)
     ? completedLevels
     : [...completedLevels, levelIndex].sort((a, b) => a - b);
+}
+
+// The one-time blocker tutorial's id in `SaveData.seenTutorials` — a plain
+// constant, not re-typed as a string literal at every call site, so
+// Board.tsx/App.tsx/tests all agree on the exact same id.
+export const BLOCKER_TUTORIAL_ID = 'blocker';
+
+// The matchType of the first blocker piece found on a board, scanned in
+// row-major order — used both to decide whether a blocker tutorial is
+// relevant (see shouldShowBlockerTutorial below) and, by the overlay
+// itself, to resolve the real sprite to show (via the same
+// getSpriteForMatchType lookup Board.tsx already uses for every tile).
+// Undefined when the board has no blocker at all.
+export function findBlockerMatchType(board: Board): string | undefined {
+  for (const row of board) {
+    for (const piece of row) {
+      if (piece.type === 'blocker') return piece.matchType;
+    }
+  }
+  return undefined;
+}
+
+// The blocker tutorial should show exactly once ever: the first time a
+// level's starting board actually contains a blocker, and only if the
+// player hasn't already dismissed it. Deliberately checked against the
+// level's initial board (see Board.tsx's mount-time useState initializer),
+// not re-checked on every subsequent render as blockers get cleared mid-
+// level — this is a one-time "here's what this is" popup, not a status
+// that should reappear once the last blocker on screen is gone.
+export function shouldShowBlockerTutorial(board: Board, seenTutorials: string[]): boolean {
+  return findBlockerMatchType(board) !== undefined && !seenTutorials.includes(BLOCKER_TUTORIAL_ID);
+}
+
+// Adds a tutorial id to the seen list if it isn't already there — same
+// idempotent-add shape as markLevelCompleted above (dismissing an
+// already-seen tutorial, if that ever became reachable, must not grow the
+// list with duplicates).
+export function markTutorialSeen(seenTutorials: string[], id: string): string[] {
+  return seenTutorials.includes(id) ? seenTutorials : [...seenTutorials, id];
 }
 
 // The hand-built queue (App.tsx's LEVEL_QUEUE) is no longer the end of the
@@ -267,6 +352,31 @@ export function generatedBlockerCount(levelNumber: number): number {
   return Math.min(MAX_BLOCKERS, 1 + step);
 }
 
+// Per-blocker-id entry into the eligible pool, keyed by id rather than a
+// positional index so a skin's blockers array can be reordered without
+// silently shifting which id this gate applies to. An id with no entry here
+// is eligible from whenever blockers start appearing at all —
+// generatedBlockerCount's own INTRODUCE_AT_LEVEL gate already covers that
+// baseline, so most blockers need nothing added below.
+//
+// pot_lid (hitsToClear: 2, see skins/lalas-kitchen/config.json) is the one
+// exception: a double-hit blocker is meaningfully tougher than the 1-hit
+// cling/dish_stack pair, so it stays out of the pool until level 7 — four
+// generated levels after blockers first appear at all (level 3), by which
+// point generatedBlockerCount has already ramped past its first step (2
+// blockers/board, see the level-5 case) and a player has had a real chance
+// to learn the easier 1-hit blockers before a tougher one enters the mix.
+const BLOCKER_MIN_LEVEL_NUMBER: Record<string, number> = {
+  pot_lid: 7,
+};
+
+// Which of a skin's blocker ids are allowed to appear at all at this
+// generated-level-number — id order preserved from the input array so
+// buildGeneratedLevelConfig's own rotation stays deterministic per level.
+export function eligibleBlockerIds(levelNumber: number, blockerIds: string[]): string[] {
+  return blockerIds.filter((id) => levelNumber >= (BLOCKER_MIN_LEVEL_NUMBER[id] ?? 1));
+}
+
 // Builds a full generator-driven LevelConfig (minus `lives`, same as
 // LEVEL_QUEUE's own entries — App.tsx's buildLevelConfig adds that back)
 // for any levelIndex past the hand-built queue. Board dimensions stay fixed
@@ -274,25 +384,39 @@ export function generatedBlockerCount(levelNumber: number): number {
 // sizing is tuned against that grid, and board size was never asked for as
 // a difficulty axis here, only piece-type count and move limit.
 //
-// blockerMatchType/blockerHitsToClear are optional and passed straight
-// through from the skin's own blocker config (App.tsx reads
-// skinConfig.blockers[0]) — if a skin defines no blockers at all, omitting
-// blockerMatchType here means generatedBlockerCount is never even consulted,
-// so a blocker-less skin sees no behavior change.
+// `blockers` is the skin's full blocker pool (App.tsx passes
+// skinConfig.blockers directly — only `id`/`hitsToClear` are read here, so
+// a skin's own SkinBlocker shape, sprite field included, satisfies this
+// structurally). One generated level still only ever places a single
+// blocker *type* (generateLevel's own GeneratorConfig takes one
+// blockerMatchType/blockerHitsToClear pair — see engine/generator.ts —
+// mixing types within one board was never asked for and isn't built here),
+// chosen deterministically per level: filter to whichever ids are eligible
+// at this levelNumber (see eligibleBlockerIds above), then rotate through
+// just that eligible subset by levelNumber so which type shows up shifts
+// level to level instead of always being the pool's first entry. Empty
+// `blockers` (a blocker-less skin) means no eligible ids ever, so
+// generatedBlockerCount is never even consulted — unchanged behavior from
+// before this pool existed.
 export function buildGeneratedLevelConfig(
   levelIndex: number,
   handBuiltLevelCount: number,
   allPieceTypeIds: string[],
   rows: number,
   cols: number,
-  blockerMatchType?: string,
-  blockerHitsToClear?: number
+  blockers: Array<{ id: string; hitsToClear: number }> = []
 ): Omit<LevelConfig, 'lives'> {
   const levelNumber = generatedLevelNumber(levelIndex, handBuiltLevelCount);
   const typeCount = generatedPieceTypeCount(levelNumber, allPieceTypeIds.length);
   const pieceTypeIds = allPieceTypeIds.slice(0, typeCount);
   const targetMatchType = pieceTypeIds[(levelNumber - 1) % pieceTypeIds.length];
-  const blockerCount = blockerMatchType ? generatedBlockerCount(levelNumber) : 0;
+
+  const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
+  const chosenBlocker =
+    eligibleIds.length > 0
+      ? blockers.find((b) => b.id === eligibleIds[(levelNumber - 1) % eligibleIds.length])
+      : undefined;
+  const blockerCount = chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
 
   return {
     seed: generatedLevelSeed(levelIndex),
@@ -301,6 +425,8 @@ export function buildGeneratedLevelConfig(
     pieceTypeIds,
     movesLimit: generatedMovesLimit(levelNumber),
     objective: { targetMatchType, targetCount: generatedTargetCount(levelNumber) },
-    ...(blockerCount > 0 ? { blockerCount, blockerMatchType, blockerHitsToClear: blockerHitsToClear ?? 1 } : {}),
+    ...(blockerCount > 0 && chosenBlocker
+      ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
+      : {}),
   };
 }

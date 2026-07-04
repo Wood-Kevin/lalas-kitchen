@@ -8,13 +8,14 @@ import {
   createGameState,
   grantBonusMoves,
 } from '../engine/gameState';
-import { canStartLevel } from '../appPersistence';
+import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
 import { SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs } from './cascadeTiming';
 import { Hud } from './Hud';
+import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { PausedOverlay } from './PausedOverlay';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
@@ -62,6 +63,22 @@ export interface BoardProps {
   // level-start entry point that lives entirely inside Board and never
   // otherwise calls back into App.tsx.
   onOutOfLives: () => void;
+  // Display-only — App.tsx already keys Board by this value to force a
+  // remount per level, so threading it through as a prop too is just
+  // exposing existing data to WonOverlay/PausedOverlay for their "LEVEL N"
+  // label, not new state.
+  levelIndex: number;
+  // The account's persisted one-time-tutorial-seen list (App.tsx's
+  // seenTutorials, loaded from SaveData) — read once at mount to decide
+  // whether the blocker tutorial should show (see appPersistence.ts's
+  // shouldShowBlockerTutorial), same "real prop, not hardcoded" reasoning
+  // as `lives`/`seenTutorials` elsewhere in this file.
+  seenTutorials: string[];
+  // Fired once, when the blocker tutorial is dismissed — App.tsx adds the
+  // id to its own seenTutorials and persists immediately (see App.tsx's
+  // handleTutorialSeen), the same "must survive an app close" reasoning as
+  // handleGrantLife's explicit save.
+  onTutorialSeen: (id: string) => void;
 }
 
 interface ExitingEntry {
@@ -70,6 +87,11 @@ interface ExitingEntry {
   matchType: string | undefined;
   row: number;
   col: number;
+  // From diff.cleared's own piece.type — a blocker cleared by adjacent
+  // damage rather than a direct match gets its own highlight beat (see
+  // Tile.tsx's ExitingTile). Reusing data diffBoards already computes, not
+  // a new engine field.
+  isBlockerClear: boolean;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -92,8 +114,20 @@ export function Board({
   onExit,
   lives,
   onOutOfLives,
+  levelIndex,
+  seenTutorials,
+  onTutorialSeen,
 }: BoardProps) {
   const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
+  // Computed once at mount, from this level's initial board only — not
+  // re-derived on every render as blockers get cleared mid-level (see
+  // appPersistence.ts's shouldShowBlockerTutorial for why). Surviving a
+  // "Play again" restart mid-session correctly stays false here even
+  // though that regenerates `gameState` with a new seed/board, since this
+  // is independent state, not something re-derived from `gameState`.
+  const [showBlockerTutorial, setShowBlockerTutorial] = useState(() =>
+    shouldShowBlockerTutorial(gameState.board, seenTutorials)
+  );
   const [selected, setSelected] = useState<Position | null>(null);
   const [exiting, setExiting] = useState<ExitingEntry[]>([]);
   const [spawnedIds, setSpawnedIds] = useState<Set<string>>(new Set());
@@ -146,7 +180,7 @@ export function Board({
   const transitionWindowMs = Math.max(cascadeDurationMs, swapDurationMs);
 
   function handleTilePress(pos: Position) {
-    if (gameState.status !== 'in_progress' || snapBack) return;
+    if (gameState.status !== 'in_progress' || snapBack || showBlockerTutorial) return;
 
     if (!selected) {
       setSelected(pos);
@@ -192,6 +226,7 @@ export function Board({
         matchType: piece.matchType,
         row: from.row,
         col: from.col,
+        isBlockerClear: piece.type === 'blocker',
       }))
     );
     setGameState(result.state);
@@ -204,6 +239,11 @@ export function Board({
 
   function handleGrant(amount: number) {
     setGameState((current) => grantBonusMoves(current, amount));
+  }
+
+  function handleDismissBlockerTutorial() {
+    setShowBlockerTutorial(false);
+    onTutorialSeen(BLOCKER_TUTORIAL_ID);
   }
 
   function removeExiting(key: string) {
@@ -312,15 +352,26 @@ export function Board({
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 durationMs={matchDurationMs}
+                isBlockerClear={entry.isBlockerClear}
                 onExited={() => removeExiting(entry.key)}
               />
             ))}
           </View>
         )}
       </View>
+      {showBlockerTutorial && (
+        <BlockerTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          blockerMatchType={findBlockerMatchType(gameState.board)}
+          onDismiss={handleDismissBlockerTutorial}
+        />
+      )}
       {gameState.status === 'paused_awaiting_input' && (
         <PausedOverlay
           reason={gameState.pauseReason}
+          movesRemaining={gameState.movesRemaining}
+          levelIndex={levelIndex}
           config={skinConfig}
           onGrant={handleGrant}
           onPlayAgain={handlePlayAgain}
@@ -330,7 +381,9 @@ export function Board({
       {gameState.status === 'won' && (
         <WonOverlay
           objective={gameState.objective}
+          levelIndex={levelIndex}
           config={skinConfig}
+          spriteAssets={spriteAssets}
           onPlayAgain={handlePlayAgain}
           onNext={onNextLevel}
           onOpenDashboard={onOpenDashboard}

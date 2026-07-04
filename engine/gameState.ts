@@ -12,11 +12,12 @@ import {
 } from './matrix';
 import { generateLevel } from './generator';
 
-// Re-exported so components/ can depend on gameState.ts alone for the
-// engine-facing types it needs, instead of also reaching into matrix.ts
-// directly — gameState.ts is already the presentation layer's boundary
-// for GameState, LevelConfig, etc., so Position belongs on that same seam.
-export type { Position };
+// Re-exported so components/ (and appPersistence.ts) can depend on
+// gameState.ts alone for the engine-facing types they need, instead of
+// also reaching into matrix.ts directly — gameState.ts is already the
+// presentation layer's boundary for GameState, LevelConfig, etc., so
+// Position/Board belong on that same seam.
+export type { Position, Board };
 
 export type ObjectiveType = 'collect';
 
@@ -339,6 +340,13 @@ export interface SaveData {
   // above. Every new write (see appPersistence.ts's buildSaveData) always
   // populates it; readers fall back to [] themselves.
   completedLevels?: number[];
+  // IDs of one-time tutorial popups the player has already dismissed (e.g.
+  // 'blocker') — a plain string list, not a bespoke boolean per tutorial,
+  // so a later power-up tutorial is one more entry here rather than a
+  // second bespoke flag and a second bespoke check. Optional for the same
+  // pre-existing-save-file reason as completedLevels above; readers fall
+  // back to [] themselves.
+  seenTutorials?: string[];
 }
 
 // Small interface matching @react-native-async-storage/async-storage's

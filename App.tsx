@@ -13,8 +13,10 @@ import {
   buildSaveData,
   canStartLevel,
   didLevelJustEnd,
+  grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
+  markTutorialSeen,
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
@@ -80,8 +82,7 @@ function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {
           skinConfig.pieceTypes.map((pieceType) => pieceType.id),
           LEVEL_QUEUE[0].rows,
           LEVEL_QUEUE[0].cols,
-          skinConfig.blockers[0]?.id,
-          skinConfig.blockers[0]?.hitsToClear
+          skinConfig.blockers
         );
   return { ...base, lives };
 }
@@ -95,6 +96,10 @@ export default function App() {
   const [levelIndex, setLevelIndex] = useState(1);
   const [levelConfig, setLevelConfig] = useState<LevelConfig | null>(null);
   const [completedLevels, setCompletedLevels] = useState<number[]>([]);
+  // IDs of one-time tutorial popups already dismissed (e.g. 'blocker') —
+  // see engine/gameState.ts's SaveData.seenTutorials comment on why this
+  // is a plain string list rather than a bespoke boolean per tutorial.
+  const [seenTutorials, setSeenTutorials] = useState<string[]>([]);
 
   // Mirrors Board's current GameState so the AppState background handler
   // (below) has something to persist even mid-level, without lifting the
@@ -108,6 +113,7 @@ export default function App() {
   // current when that listener closure was created.
   const levelIndexRef = useRef(levelIndex);
   const completedLevelsRef = useRef(completedLevels);
+  const seenTutorialsRef = useRef(seenTutorials);
   // The account's persisted lives count — the single source of truth for
   // every level-start gate (Home's "Start cooking", an All Levels row, and
   // Board's internal "Play again") and the value that actually decrements
@@ -133,6 +139,7 @@ export default function App() {
       if (cancelled) return;
       const startLevelIndex = resolveStartLevelIndex(save);
       const initialCompleted = save?.completedLevels ?? [];
+      const initialSeenTutorials = save?.seenTutorials ?? [];
 
       // Regen is computed once here from whatever the save last recorded —
       // a session could have been closed for hours or days, and this is
@@ -151,11 +158,13 @@ export default function App() {
 
       levelIndexRef.current = startLevelIndex;
       completedLevelsRef.current = initialCompleted;
+      seenTutorialsRef.current = initialSeenTutorials;
       livesRef.current = regenerated.lives;
       livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
       setLives(regenerated.lives);
       setLevelIndex(startLevelIndex);
       setCompletedLevels(initialCompleted);
+      setSeenTutorials(initialSeenTutorials);
       // levelConfig stays null here — every session now opens on Home (see
       // resolveStartScreen), not straight into a board, so there's nothing
       // to preload until the player actually taps into a level.
@@ -186,6 +195,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        seenTutorialsRef.current,
         { lives: livesRef.current },
         livesLastRegenAtRef.current
       )
@@ -323,6 +333,62 @@ export default function App() {
     setScreen('game');
   }, []);
 
+  // OutOfLives' "Watch a video for a life" action — the instant-grant
+  // mechanism this session's investigation confirmed didn't exist yet for
+  // this context (see appPersistence.ts's grantInstantLife comment on how
+  // this differs from the deleted mid-level grantBonusMoves/grantBonusLife
+  // pair). Deliberately does not touch livesLastRegenAtRef — the passive
+  // regen clock keeps counting down on its own schedule regardless of this
+  // bonus, same reasoning as grantInstantLife's own comment.
+  //
+  // Persists immediately, unlike every other lives change in this file —
+  // persistLatestState (used everywhere else) reads latestStateRef, which
+  // is only ever populated once a level has actually been played this
+  // session, and OutOfLives can be reached (fresh boot, blocked at Home)
+  // before that ref is ever set. Without an explicit save here, a granted
+  // life would show correctly on screen and then silently vanish if the
+  // player backgrounds the app before starting a level.
+  const handleGrantLife = useCallback(() => {
+    const newLives = grantInstantLife(livesRef.current, skinConfig.lives.max);
+    livesRef.current = newLives;
+    setLives(newLives);
+    saveProgress(
+      skinConfig.skinId,
+      buildSaveData(
+        skinConfig.skinId,
+        levelIndexRef.current,
+        completedLevelsRef.current,
+        seenTutorialsRef.current,
+        { lives: newLives },
+        livesLastRegenAtRef.current
+      )
+    );
+  }, []);
+
+  // Board's blocker tutorial dismiss action — persists immediately for the
+  // exact same reason handleGrantLife does above: a level in progress
+  // doesn't "end" just because the tutorial was dismissed, so waiting for
+  // persistLatestState's usual didLevelJustEnd/background triggers would
+  // leave the dismissal unsaved if the player backgrounds the app mid-level.
+  // Requirement was that this survive a real app close/reopen, not just
+  // this session's in-memory state.
+  const handleTutorialSeen = useCallback((id: string) => {
+    const updated = markTutorialSeen(seenTutorialsRef.current, id);
+    seenTutorialsRef.current = updated;
+    setSeenTutorials(updated);
+    saveProgress(
+      skinConfig.skinId,
+      buildSaveData(
+        skinConfig.skinId,
+        levelIndexRef.current,
+        completedLevelsRef.current,
+        updated,
+        { lives: livesRef.current },
+        livesLastRegenAtRef.current
+      )
+    );
+  }, []);
+
   useEffect(() => {
     // Expo's web target has no reliable "app is closing" hook — a browser
     // tab can be closed with no guarantee an async callback finishes (see
@@ -366,7 +432,6 @@ export default function App() {
           <Home
             config={skinConfig}
             spriteAssets={spriteRegistry}
-            handBuiltLevelCount={LEVEL_QUEUE.length}
             completedLevels={completedLevels}
             nextLevel={nextLevelSummary}
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
@@ -382,7 +447,14 @@ export default function App() {
             onPlayLevel={handlePlayLevel}
           />
         ) : screen === 'outOfLives' ? (
-          <OutOfLives config={skinConfig} onBack={handleGoHome} />
+          <OutOfLives
+            config={skinConfig}
+            spriteAssets={spriteRegistry}
+            lives={lives}
+            livesLastRegenAt={livesLastRegenAtRef.current}
+            onGrantLife={handleGrantLife}
+            onBack={handleGoHome}
+          />
         ) : (
           <Board
             // Keyed by levelIndex so advancing to a new level fully remounts
@@ -391,6 +463,7 @@ export default function App() {
             // resets its internal moves/objective/board state instead of
             // replaying the level just won.
             key={levelIndex}
+            levelIndex={levelIndex}
             levelConfig={levelConfig as LevelConfig}
             skinConfig={skinConfig}
             spriteAssets={spriteRegistry}
@@ -407,6 +480,8 @@ export default function App() {
             // this, not its frozen levelConfig.lives (see Board.tsx).
             lives={lives}
             onOutOfLives={() => setScreen('outOfLives')}
+            seenTutorials={seenTutorials}
+            onTutorialSeen={handleTutorialSeen}
           />
         )}
       </SafeAreaView>

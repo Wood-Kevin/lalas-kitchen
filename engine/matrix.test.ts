@@ -319,4 +319,27 @@ describe('applyAdjacentDamage', () => {
     );
     expect(result.newlyClearedBlockers).toEqual([]);
   });
+
+  // hitsToClear: 2 (pot_lid's config value) genuinely needs two separate
+  // match events, not one — the first pass only decrements, and the second
+  // pass must be applied against the board the first pass actually
+  // returned (not the original board) for the clear to be genuine rather
+  // than an artifact of re-damaging the same starting hitsRemaining twice.
+  test('a hitsToClear:2 blocker survives one adjacent match and only clears on a second, separate one', () => {
+    const board = boardWithBlockerAt(2);
+
+    const firstHit = applyAdjacentDamage(board, [{ row: 0, col: 1 }]);
+    expect(firstHit.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 1 })
+    );
+    expect(firstHit.newlyClearedBlockers).toEqual([]);
+
+    // A second match, elsewhere adjacent to the same blocker, applied
+    // against firstHit.board (the post-first-hit state) — not the original.
+    const secondHit = applyAdjacentDamage(firstHit.board, [{ row: 1, col: 2 }]);
+    expect(secondHit.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', hitsRemaining: 0 })
+    );
+    expect(secondHit.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
+  });
 });

@@ -70,27 +70,18 @@ export function buildLevelSummary(
   };
 }
 
-// The recipe book's progress copy — three distinct registers (nothing
-// cooked yet, mid-progress, fully caught up) rather than one templated
-// string, so each reads like something a calm narrator would actually say
-// per CLAUDE.md's "calm and satisfying, not frantic" constraint. No
-// percentage, no urgency language, matching the Home screen's explicit
-// design requirement.
-export function buildProgressCopy(completedCount: number, totalCount: number): string {
-  if (totalCount <= 0 || completedCount <= 0) {
+// The recipe book's progress copy — an open running count, never a ratio
+// against some "total". Generator-driven levels continue indefinitely past
+// the hand-built set (see appPersistence.ts's buildGeneratedLevelConfig),
+// so there is no real ceiling to measure against or ever "finish" — a
+// denominator here would just be resolveVisibleLevelIndices' current
+// visible-row count smuggled back in as a fake total, which is exactly the
+// bug this rewrite removes (see components/NOTES.md). No percentage, no
+// urgency language, matching the Home screen's explicit design requirement.
+export function buildProgressCopy(completedCount: number): string {
+  if (completedCount <= 0) {
     return 'A fresh recipe book, ready when you are.';
   }
-  if (completedCount >= totalCount) {
-    return 'Every recipe cooked. The kitchen smells wonderful.';
-  }
-  const remaining = totalCount - completedCount;
   const recipeWord = completedCount === 1 ? 'recipe' : 'recipes';
-  return `${completedCount} ${recipeWord} cooked, ${remaining} still waiting on the shelf. No hurry.`;
-}
-
-// One boolean per dot in the progress row (true = filled/completed) — kept
-// separate from the copy above since the dot row and the sentence are two
-// different renderings of the same two numbers.
-export function buildProgressDots(completedCount: number, totalCount: number): boolean[] {
-  return Array.from({ length: totalCount }, (_, i) => i < completedCount);
+  return `${completedCount} ${recipeWord} cooked so far.`;
 }

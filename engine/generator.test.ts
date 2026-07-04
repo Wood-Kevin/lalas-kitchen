@@ -104,4 +104,24 @@ describe('generateLevel — blocker placement', () => {
     });
     expect(board.flat().some((p) => p.type === 'blocker')).toBe(false);
   });
+
+  // blockerHitsToClear is plain passthrough data to placeBlockers (see
+  // generator.ts) — this proves it genuinely isn't hardcoded to 1 anywhere
+  // in the placement path, using pot_lid's real config value (2).
+  test('a blockerHitsToClear of 2 (pot_lid) is placed with hitsRemaining 2, not hardcoded to 1', () => {
+    const board = generateLevel(1, {
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      blockerCount: 4,
+      blockerMatchType: 'pot_lid',
+      blockerHitsToClear: 2,
+    });
+    const blockers = board.flat().filter((p) => p.type === 'blocker');
+    expect(blockers).toHaveLength(4);
+    for (const blocker of blockers) {
+      expect(blocker.matchType).toBe('pot_lid');
+      expect(blocker.hitsRemaining).toBe(2);
+    }
+  });
 });

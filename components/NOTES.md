@@ -221,3 +221,24 @@ session's verification pass), not a functional bug. Logged to
 overflow or capping `enterFromRow` at 0, deferred since it doesn't affect
 correctness and this session's scope was about getting a real, working
 interaction loop rather than final animation polish.
+
+## Home.tsx's recipe-book progress had an implied ceiling that doesn't exist
+
+`buildProgressCopy`/`buildProgressDots` used to take a `totalCount` derived
+from `resolveVisibleLevelIndices(handBuiltLevelCount, completedLevels).length`
+— the hand-built count plus however many generated levels happen to be
+completed so far. Since generated levels continue indefinitely, that
+"total" isn't a real ceiling at all: it's just today's visible-row count,
+which grows by exactly one every time a generated level is completed — so
+`completedCount` almost always equals it except for a brief in-progress
+moment, making the "X of Y" header, the "Every recipe cooked" copy branch,
+and the dot row all claim a false "you've finished everything" state that
+silently resets and repeats forever. `buildProgressCopy` now takes only
+`completedCount` and reports an open running count ("N recipes cooked so
+far") with no denominator and no "fully caught up" branch — there is
+nothing to be fully caught up on. `buildProgressDots` was removed outright
+rather than reworked: a row of dots is a total by shape (a bounded row
+that visually "completes" is the same ceiling as a numeric denominator,
+just drawn differently), so there was no version of it that wasn't the
+same lie. `handBuiltLevelCount` came out of `HomeProps` entirely — its
+only caller was the now-deleted `totalCount` line.

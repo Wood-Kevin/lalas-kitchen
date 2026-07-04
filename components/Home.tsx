@@ -4,17 +4,11 @@ import { SkinConfig } from './skinConfig';
 import { SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
-import {
-  LevelSummary,
-  buildProgressCopy,
-  buildProgressDots,
-  resolveVisibleLevelIndices,
-} from './levelProgress';
+import { LevelSummary, buildProgressCopy } from './levelProgress';
 
 export interface HomeProps {
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
-  handBuiltLevelCount: number;
   completedLevels: number[];
   // The real next-unplayed level (see App.tsx's use of
   // resolveNextUnplayedLevel + buildLevelSummary) — never the mockup's
@@ -34,16 +28,13 @@ const HERO_HEIGHT = 260;
 export function Home({
   config,
   spriteAssets,
-  handBuiltLevelCount,
   completedLevels,
   nextLevel,
   onStartNext,
   onBrowseAllLevels,
 }: HomeProps) {
-  const totalCount = resolveVisibleLevelIndices(handBuiltLevelCount, completedLevels).length;
   const completedCount = completedLevels.length;
-  const progressCopy = buildProgressCopy(completedCount, totalCount);
-  const dots = buildProgressDots(completedCount, totalCount);
+  const progressCopy = buildProgressCopy(completedCount);
 
   const heroSprite = resolveSpriteAsset('home-hero-500h-crop.webp', spriteAssets);
   const nextIconSprite = resolveSpriteAsset(
@@ -90,27 +81,8 @@ export function Home({
         ]}
       >
         <View style={styles.cardPadding}>
-          <View style={styles.progressHeaderRow}>
-            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
-            <Text style={[styles.progressCount, { color: config.palette.secondaryAccent }]}>
-              {completedCount} of {totalCount}
-            </Text>
-          </View>
+          <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
           <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{progressCopy}</Text>
-          <View style={styles.dotsRow}>
-            {dots.map((filled, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  {
-                    backgroundColor: filled ? config.palette.secondaryAccent : 'transparent',
-                    borderColor: filled ? config.palette.secondaryAccent : config.palette.border,
-                  },
-                ]}
-              />
-            ))}
-          </View>
         </View>
       </View>
 
@@ -211,33 +183,13 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 12,
   },
-  progressHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-  },
   cardTitle: {
     fontSize: 19,
-    fontWeight: '700',
-  },
-  progressCount: {
-    fontSize: 13,
     fontWeight: '700',
   },
   progressLine: {
     fontSize: 14,
     lineHeight: 20,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
-  },
-  dot: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    borderWidth: 1.5,
   },
   nextRow: {
     flexDirection: 'row',
