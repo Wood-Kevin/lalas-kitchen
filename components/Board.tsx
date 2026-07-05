@@ -16,10 +16,11 @@ import { resolveDragTarget } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
 import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
-import { cascadeFallDurationMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
+import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { PausedOverlay } from './PausedOverlay';
+import { canGrantBonusMoves, nextBonusGrantsUsed } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
@@ -169,6 +170,14 @@ export function Board({
   // than a second event landing mid-fade doing nothing because the banner
   // was already mounted.
   const [comboKey, setComboKey] = useState<string | null>(null);
+  // How many "watch a video for more moves" grants this attempt has taken.
+  // Per-attempt state, on purpose: it starts at 0 on every fresh mount (a
+  // brand-new entry from Home / All Levels remounts Board, see App.tsx's
+  // key={levelIndex} and its game-screen conditional) and is reset to 0 in
+  // handlePlayAgain, so the cap is a fresh-chances-this-round limit, never a
+  // lifetime or daily one. canGrantBonusMoves(bonusGrantsUsed) is what decides
+  // whether PausedOverlay still offers the video CTA (see pauseActions.ts).
+  const [bonusGrantsUsed, setBonusGrantsUsed] = useState(0);
   // Measured via onLayout rather than Dimensions.get('window'), since the
   // board area's actual available space is whatever's left after the HUD
   // and safe-area insets are applied — Dimensions.get('window') only knows
@@ -186,6 +195,17 @@ export function Board({
   // than the whole chain resolving at once. Null whenever nothing is
   // mid-animation, in which case the live gameState.board is shown directly.
   const [displayBoard, setDisplayBoard] = useState<BoardMatrix | null>(null);
+  // Gates the terminal (Won / Paused) overlays so they appear only once the
+  // final cascade pass has genuinely finished playing, not the instant
+  // gameState commits `won`/`paused` at the *start* of that pass (see
+  // animateCascade's final branch). Without this the winning move's last
+  // cascade — the chain reaction the player most wants to watch — is cut off by
+  // the overlay popping over a still-resolving board. Kept separate from
+  // gameState.status: the status (and therefore App-level persistence, recipe
+  // unlocks, input lockout) still commits with the data on the final pass; only
+  // this visual reveal waits the extra beat. Set false at the start of every
+  // move so a fresh terminal move always re-gates.
+  const [terminalOverlayReady, setTerminalOverlayReady] = useState(false);
   // Synchronous input lock: gameState isn't committed until the cascade
   // finishes animating (so the win/paused overlay doesn't pop mid-chain), so
   // without this a tap during the animation would call applyMove against the
@@ -243,6 +263,10 @@ export function Board({
   // whole chain — each pass gets the same calm, legible pacing a single
   // cascade already has (see CLAUDE.md's calm-not-frantic constraint).
   const cascadeStepIntervalMs = cascadeDurationMs;
+  // How long after the final cascade pass commits before the terminal overlay
+  // is revealed — one full between-pass beat, so the last pass gets the same
+  // play time every earlier pass already got (see cascadeTiming.ts).
+  const terminalOverlayHold = terminalOverlayHoldMs(cascadeStepIntervalMs);
 
   useEffect(() => {
     // Clear any in-flight cascade timers if this Board unmounts mid-animation
@@ -371,6 +395,10 @@ export function Board({
     hasCombo: boolean
   ) {
     animatingRef.current = true;
+    // Re-gate the terminal overlay for this move: even if a prior move left it
+    // revealed, the win/pause for THIS move must wait for THIS move's final
+    // pass to finish animating.
+    setTerminalOverlayReady(false);
     const moveId = moveCounterRef.current++;
     let previous = fromBoard;
 
@@ -419,6 +447,17 @@ export function Board({
         setGameState(finalState);
         setDisplayBoard(null);
         animatingRef.current = false;
+        // A won/paused move commits its terminal status right here, but this
+        // final pass's clears are only just *starting* to animate. Hold the
+        // overlay one more beat so the player watches this last pass resolve
+        // before it appears — the overlay is driven by animation completion,
+        // not by the data landing. Non-terminal moves never schedule this, so
+        // the flag simply stays false and gates nothing (status is in_progress).
+        if (finalState.status === 'won' || finalState.status === 'paused_awaiting_input') {
+          stepTimersRef.current.push(
+            setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold)
+          );
+        }
         stepTimersRef.current.push(
           setTimeout(() => {
             setSwapDurationIds(new Set());
@@ -432,6 +471,11 @@ export function Board({
   }
 
   function handleGrant(amount: number) {
+    // Count the grant before applying it. PausedOverlay only ever surfaces the
+    // grant button while canGrantBonusMoves is true, but incrementing here (not
+    // relying on the button being hidden) keeps the cap honest even if the
+    // overlay is re-entered before this render settles.
+    setBonusGrantsUsed((used) => nextBonusGrantsUsed(used, 'grant'));
     setGameState((current) => grantBonusMoves(current, amount));
   }
 
@@ -463,6 +507,7 @@ export function Board({
     // comment above).
     setGameState(createGameState({ ...levelConfig, seed, lives }));
     setDisplayBoard(null);
+    setTerminalOverlayReady(false);
     setSelected(null);
     setDragTarget(null);
     setExiting([]);
@@ -470,6 +515,10 @@ export function Board({
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
+    // A restart is a brand-new attempt, so the bonus-moves cap starts over —
+    // same reasoning as a fresh mount, just without the remount (Play Again
+    // keeps this Board instance and rebuilds its state in place).
+    setBonusGrantsUsed((used) => nextBonusGrantsUsed(used, 'restart'));
   }
 
   return (
@@ -610,18 +659,19 @@ export function Board({
           onDismiss={handleDismissBlockerTutorial}
         />
       )}
-      {gameState.status === 'paused_awaiting_input' && (
+      {gameState.status === 'paused_awaiting_input' && terminalOverlayReady && (
         <PausedOverlay
           reason={gameState.pauseReason}
           movesRemaining={gameState.movesRemaining}
           levelIndex={levelIndex}
           config={skinConfig}
+          canGrant={canGrantBonusMoves(bonusGrantsUsed)}
           onGrant={handleGrant}
           onPlayAgain={handlePlayAgain}
           onExit={onExit}
         />
       )}
-      {gameState.status === 'won' && (
+      {gameState.status === 'won' && terminalOverlayReady && (
         <WonOverlay
           objectives={gameState.objectives}
           levelIndex={levelIndex}

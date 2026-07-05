@@ -27,3 +27,33 @@ export function getPauseAction(pauseReason: PauseReason): PauseAction | null {
   }
   return null;
 }
+
+// How many times a single level attempt may take the "watch a video for more
+// moves" grant. A per-attempt cap, not a lifetime or daily one: the counter it
+// gates lives in Board's per-attempt state and resets to zero on every fresh
+// start or restart (see Board.tsx's handlePlayAgain and its mount-time
+// useState). Two feels like a genuine second chance without turning a stuck
+// board into an unlimited stall — matching the calm, low-pressure tone the rest
+// of this screen keeps (see PausedOverlay.tsx).
+export const MOVE_GRANTS_PER_ATTEMPT = 2;
+
+// Pure decision for whether the bonus-moves grant should still be offered,
+// given how many grants this attempt has already used. Kept here beside
+// getPauseAction — "should we show the grant button" is the same kind of
+// presentation choice as "which grant button" — so it's testable without
+// mounting PausedOverlay. Once this returns false the overlay drops the video
+// CTA and leaves Play Again / Exit as the way forward.
+export function canGrantBonusMoves(grantsUsed: number): boolean {
+  return grantsUsed < MOVE_GRANTS_PER_ATTEMPT;
+}
+
+// The two things that move the per-attempt grant counter: taking a grant
+// ('grant', +1) and starting the attempt over ('restart', back to zero — Play
+// Again, or a re-entry that remounts Board). Pure so Board's cap wiring —
+// including the crucial "a fresh attempt resets the count" behaviour — is
+// testable without mounting the overlay, the same reason getPauseAction lives
+// out here. A brand-new mount trivially starts at zero and doesn't need this.
+export type GrantEvent = 'grant' | 'restart';
+export function nextBonusGrantsUsed(grantsUsed: number, event: GrantEvent): number {
+  return event === 'restart' ? 0 : grantsUsed + 1;
+}

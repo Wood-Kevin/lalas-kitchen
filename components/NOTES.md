@@ -177,6 +177,26 @@ grant — out of scope here per CLAUDE.md's explicit list). Kept in one
 small pure function so retuning or wiring up a real reward-amount source
 later is a one-line change, not a hunt through JSX.
 
+## Bonus-moves grant is capped per level attempt
+
+The video-for-moves grant used to be unlimited — a player could keep taking
+`+5` forever on the same board. It's now capped at `MOVE_GRANTS_PER_ATTEMPT`
+(2), a **per-attempt** limit, not a lifetime or daily one. The counter lives in
+`Board.tsx`'s `bonusGrantsUsed` state, right alongside the other per-attempt
+state `handlePlayAgain` resets: it starts at 0 on every fresh mount (entering a
+level from Home / All Levels remounts Board — see `App.tsx`'s `key={levelIndex}`
+plus its `screen === 'game'` conditional) and is reset to 0 in `handlePlayAgain`,
+so restarting *or* re-entering the level gives a clean two grants again. The
+transition itself (`nextBonusGrantsUsed`) and the "is a grant still on offer"
+decision (`canGrantBonusMoves`) are pure functions in `pauseActions.ts` — beside
+`getPauseAction` for the same "testable without mounting the overlay" reason,
+and unit-tested in `pauseActions.test.ts` (first two land, third blocked, a
+restart resets). Once capped, `PausedOverlay` drops the flame video CTA entirely
+and promotes **Play Again** to the primary slot (in `secondaryAccent`, not the
+reserved flame or brand red), with calmer "that's the last of the extra moves
+this round" copy — running out of grants stays a status, not a failure. Verified
+live in `docs/verification/moves-grant-cap/`.
+
 ## No "won" overlay this session
 
 Only `paused_awaiting_input` got an explicit visible-state requirement this

@@ -18,8 +18,15 @@ export interface PausedOverlayProps {
   // Display-only "LEVEL N" label — see Board.tsx's levelIndex prop comment.
   levelIndex: number;
   config: SkinConfig;
+  // Whether the "watch a video for more moves" grant should still be offered.
+  // False once this attempt has hit its per-attempt grant cap (see
+  // Board.tsx's bonusGrantsUsed + pauseActions.ts's canGrantBonusMoves). When
+  // false the video CTA is dropped entirely and Play Again becomes the primary
+  // action — running out of grants stays a calm "start fresh" moment, never a
+  // failure screen.
+  canGrant: boolean;
   // Only 'moves' is grantable now — see pauseActions.ts's comment on why
-  // the 'lives' branch was removed.
+  // the 'lives' branch was removed. Only called while canGrant is true.
   onGrant: (amount: number) => void;
   // The exact same function Board.tsx passes to WonOverlay's onPlayAgain —
   // not a second implementation. Restarts this level fresh (new seed) so a
@@ -43,7 +50,7 @@ const FLAME = '#F2793A';
 // running out is a status, not an error, per CLAUDE.md's "calm, not
 // frantic" constraint and this session's explicit "avoid harsh failure
 // language" requirement.
-export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onGrant, onPlayAgain, onExit }: PausedOverlayProps) {
+export function PausedOverlay({ reason, movesRemaining, levelIndex, config, canGrant, onGrant, onPlayAgain, onExit }: PausedOverlayProps) {
   const action = getPauseAction(reason);
   const flameScale = useSharedValue(1);
 
@@ -86,14 +93,37 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onGr
         </View>
 
         <Text style={[styles.headline, { color: text }]}>The Pot&apos;s Still Warming</Text>
-        <Text style={[styles.subtext, { color: mutedText }]}>Out of moves for this round — no rush, it happens.</Text>
+        {/* Calm copy either way — once the grant cap is reached the subtext
+            gently closes the ad path rather than announcing a limit, keeping
+            with this screen's "running out is a status, not an error" tone. */}
+        <Text style={[styles.subtext, { color: mutedText }]}>
+          {canGrant
+            ? 'Out of moves for this round — no rush, it happens.'
+            : 'That’s the last of the extra moves this round — start fresh whenever you’re ready.'}
+        </Text>
 
-        <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={() => onGrant(action.bonusAmount)}>
-          <Text style={styles.primaryButtonLabel}>Watch a video for {action.bonusAmount} more moves</Text>
-        </Pressable>
-        <Pressable style={styles.secondaryLink} onPress={onPlayAgain}>
-          <Text style={[styles.secondaryLinkLabel, { color: text }]}>Play Again</Text>
-        </Pressable>
+        {canGrant ? (
+          // The reserved warm-flame CTA — only shown while a grant is still on
+          // offer. When it's gone, Play Again takes over as the primary action
+          // below so the screen always has one clear way forward.
+          <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={() => onGrant(action.bonusAmount)}>
+            <Text style={styles.primaryButtonLabel}>Watch a video for {action.bonusAmount} more moves</Text>
+          </Pressable>
+        ) : (
+          // Play Again promoted to the primary slot. Uses secondaryAccent (the
+          // warm pot brown), not FLAME (reserved for the ad path) and not the
+          // brand-red accent (no red anywhere on this screen, per above).
+          <Pressable style={[styles.primaryButton, { backgroundColor: secondaryAccent }]} onPress={onPlayAgain}>
+            <Text style={styles.primaryButtonLabel}>Play Again</Text>
+          </Pressable>
+        )}
+        {/* Play Again stays a quiet secondary link only while the video CTA
+            owns the primary slot; once it's promoted above, this row drops. */}
+        {canGrant && (
+          <Pressable style={styles.secondaryLink} onPress={onPlayAgain}>
+            <Text style={[styles.secondaryLinkLabel, { color: text }]}>Play Again</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.secondaryLink} onPress={onExit}>
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Exit to Kitchen</Text>
         </Pressable>
