@@ -51,6 +51,79 @@ demo uses a 2×2 `cling` cluster (the blocker the generator rotates in at level
 - Panel 3: **5** blockers; the frontier cell is now `type === 'blocker'`; **0**
   warnings; `denialSpread.movesUnaddressed` reset to 0.
 
+## Live-motion captures (the two gaps the static filmstrip couldn't close)
+
+`denial-spread-filmstrip.png` above is a **settled-board** filmstrip: it proves
+the engine's outcomes at rest, but it can't show *motion* — neither the defuse
+happening nor the warning breathing. Two follow-up captures close that, both
+driven through the **real running Expo-web app in Windows Chrome over CDP** (the
+same rig the striped-sweep and drag-timing verifications used), not a mock or a
+`--screenshot` of virtual time. The throwaway render harness mounts the **real
+`Tile`** (hence the real `SpreadWarningOverlay` + real Reanimated) and calls the
+**real `applyMove`** in the page; every number in the images is baked into the
+pixels from the live `GameState` (`performance.now()` in the corner), so the
+artifact can't overstate a broken run.
+
+### 1 · The defuse path — `defuse-filmstrip.png`
+
+The gap: the static strip only ever showed the *unaddressed* path (the zone
+spreading). This shows the **addressed** path — a player matching the warned cell
+*before* it spreads — as a real live transition.
+
+- **Warned** (`t≈5044ms`): the 2×2 covered-dish denial zone, its frontier cell
+  (0,2) lit with the crack + dimming warning. Live readout: `clock:4/5`,
+  `warnings:1`, `blockerHealth:8`.
+- One real swap forms a 3-run through the warned cell (0,2). `window.__defuse()`
+  runs the **real `applyMove`**; React re-renders from the returned `GameState`.
+- **Defused** (`t≈5909ms`): warning **gone**, clock **reset 4/5 → 0/5**, blocker
+  health **8 → 6** (both dishes took a hit → the move is "addressed"), one move
+  spent (19 → 18). The zone did not spread.
+
+A 6-frame burst captured immediately after `__defuse()` confirmed the warning's
+DOM element (`[data-testid="spread-warning"]`) was **absent on the very first
+post-move frame** and stayed absent, with `warnings:0 clock:0 health:6` on every
+frame — the visual clear and the clock reset land together on the committed move.
+
+**Proven:** the warning visually clears and the clock genuinely resets on a real
+addressed move, through the real engine → real render path.
+**Honestly not claimed here:** this harness renders the committed board directly;
+it does not replay `applyMove`'s intermediate cascade `steps` frame-by-frame
+(the per-cascade animation staging is Board's job and a separate, already-built
+concern). What's shown is the before/after of one real committed move, not the
+mid-cascade in-betweens.
+
+### 2 · The warning breath — `warning-breath.png` + `warning-breath-samples.json`
+
+The gap: does the 900 ms `SPREAD_WARNING_PULSE_MS` glow actually read as a *calm,
+gradual* breath rather than an abrupt blink? That's a wall-clock motion question,
+so it needs frame sampling, not a still. The glow's opacity was read every
+animation frame straight off the live DOM element
+(`getComputedStyle(glow).opacity`) over 2.4 s of the real animation — **145
+frames at ~60 fps** (`warning-breath-samples.json` is the raw trace).
+
+Measured against the spec:
+
+- **Half-cycle = 901 ms** peak → trough (spec `SPREAD_WARNING_PULSE_MS = 900`).
+- **Opacity 0.180 → 0.500** across the breath (spec 0.18 ↔ 0.50).
+- **Max per-frame step 0.012** (mean 0.006) over a 0.32 range — a hard flash
+  would jump ~0.32 in a single frame; this is ~1/27th of that. The plotted curve
+  **eases in and out at each extreme** (Reanimated's default easing), slowest
+  exactly where it turns around — the signature of a slow breath, not a blink.
+
+The two stills (trough ≈0.18, peak ≈0.50) look **only subtly different** on
+purpose: per `SpreadWarningOverlay`'s own comment, the dark dimming wash and the
+crack are **steady, not opacity-animated**, so the warning reads unambiguously at
+any phase; only the accent glow breathes on top. So the still-to-still delta being
+gentle is itself the calm brief holding — and the per-frame trace is the honest
+motion proof, not the pair of stills.
+
+**Proven:** the breath's cadence (901 ms), range (0.18–0.50), and smooth eased
+shape, on real Reanimated motion sampled on the real clock.
+**Honest caveat (same as drag-timing's):** Reanimated runs on the JS thread on
+web, so this is web-thread motion, not a native-device UI-thread capture; the
+timing curve itself is identical (it's a plain `withTiming`/`withRepeat`), but a
+native frame grab was not done.
+
 ## Where the logic and tests live
 
 - `engine/matrix.ts` — the `spreadWarning` field on `Piece`; `findSpreadTarget`
