@@ -2063,3 +2063,74 @@ can't render a two-button dialog; RN `Alert` on device).
 the "[DEV] Reset all saved progress?" confirm, and on accept the localStorage
 save key became `null` and Home returned to fresh ("UP NEXT · LEVEL 1"). See
 `docs/verification/dev-reset/`.
+
+## Ad/monetization abstraction: one platform-selected `AdService` interface, both providers still stubs
+
+Two "watch a video" reward flows already existed (`Board.tsx`'s bonus-moves
+grant, `App.tsx`'s refill-lives grant), both calling their grant function
+directly and instantly, with no real ad SDK anywhere in the repo. Before
+wiring in either real SDK (AdMob on mobile, CrazyGames on web), this session
+built the seam: a new `services/` directory — a new architectural concern,
+distinct from `engine/` (must stay pure/no I/O), `skins/` (config data), and
+`components/` (presentation) — holding one `AdService` interface
+(`requestRewardedAd(): Promise<boolean>`, `requestBannerAd(): Promise<boolean>`,
+the latter stubbed and unwired since no banner-ad UI exists yet, kept for
+symmetry per the architect's explicit ask) that the rest of the game calls
+without knowing which provider answers it.
+
+**Why `defaultAdService.ts` is split out from `adService.ts`, not folded in.**
+The obvious design — one file with an interface, two adapters, and a
+`Platform.OS`-driven default — was rejected after an empirical check:
+`node -e "require('react-native')"` throws on Flow syntax in this repo's own
+`node_modules`, and this project's `jest.config.js` is plain `ts-jest` with
+`testEnvironment: "node"` — no `jest-expo`/React Native preset, so Jest never
+transforms `node_modules` the way Metro does. Any test whose module graph
+reaches a runtime `import ... from 'react-native'` crashes. So `services/adService.ts`
+(the interface + a pure `selectAdService(platformOS: string): AdService`,
+parameterized by a plain string rather than reading `Platform.OS` itself) stays
+fully unit-testable, and `services/defaultAdService.ts` — the **only** file
+that does `import { Platform } from 'react-native'` — is never imported by any
+test, only by `Board.tsx`/`App.tsx`. This isn't a novel workaround: it's the
+same shape `engine/gameState.ts`'s `AsyncStorageLike` DI precedent uses
+(interface + swappable implementation + a real module-level default), but it
+is **not** a case of reusing that precedent's safety — investigation found
+`AsyncStorageLike`'s `defaultStorage = AsyncStorage` only works under this
+Jest config because `@react-native-async-storage/async-storage`'s package
+resolves to a `localStorage`-backed JS file under plain `require()`, never
+actually touching the `react-native` package itself; that's a coincidence of
+that one package's own layout, not a guarantee `services/` could lean on for
+two arbitrary ad SDKs. Hence the explicit split here, confirmed by a passing
+`services/adService.test.ts` that never touches `defaultAdService.ts`.
+
+**Both adapters (`adMobAdService.ts`, `crazyGamesAdService.ts`) are still
+stubs** — `requestRewardedAd()`/`requestBannerAd()` instantly resolve `true`,
+matching the exact behavior the two real flows had before this abstraction
+existed. `services/adService.ts` statically imports both; this is deliberately
+not split into Metro-resolved `adService.native.ts`/`adService.web.ts` files
+yet, since neither adapter has a real SDK import today and doing so now would
+sacrifice `selectAdService`'s plain-string testability for a bundle-safety
+problem that doesn't exist yet (see `DEFERRED_COMPLEXITY.md` for when to
+revisit this).
+
+**Call sites** (`Board.tsx`'s `handleGrant`, `App.tsx`'s `handleGrantLife`)
+now `await adService.requestRewardedAd()` before granting, importing the real
+singleton from `services/defaultAdService.ts`; a `false` result (ad dismissed
+early) leaves the pre-existing state untouched — no grant, no cap spent, no
+save write. Both handlers became `async`, which needed no prop-type changes
+anywhere: a `Promise<void>`-returning function is assignable to a
+`() => void`-typed prop (`PausedOverlay`'s `onGrant`, `OutOfLives`'
+`onGrantLife`) under TypeScript's existing void-return covariance rule.
+Neither handler was previously covered by a test (`Board.tsx`/`App.tsx` have
+no dedicated test files in this repo), so nothing broke; `grantBonusMoves`
+(`engine/gameState.ts`) and `grantInstantLife` (`appPersistence.ts`) — the
+actual grant logic — are untouched, still covered by their existing tests.
+
+Verified live via `expo start --web` (the CrazyGames stub path,
+`Platform.OS === 'web'` in-browser): both "watch a video" flows still
+instantly grant exactly as before — the moves-grant flow was reached via a
+temporary `?harness=paused-grant` gate in `Board.tsx` (reverted after
+capture), and the lives-grant flow via a direct `localStorage` save patch,
+with the real persisted save read back afterward as proof (`lives: 0` →
+`lives: 5`). See `docs/verification/ad-service/`. The AdMob/native path has no
+simulator available in this environment to drive live; it's covered by
+`selectAdService('ios'|'android')`'s unit test and direct code reading only.

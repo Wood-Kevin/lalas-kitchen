@@ -27,6 +27,8 @@ If yes, it belongs in `skins/`, not `engine/`. The engine should never contain a
     /sprites
 /components
   Board.tsx         reads engine output + active skin config, renders, never hardcodes piece names
+/services
+  adService.ts      AdService interface + selectAdService(platform) — the ad/monetization seam, platform-selected, no real SDK wired in yet
 ```
 
 **Architect / runner boundary:** I own architecture, sequencing, and verification. Claude Code owns implementation. If a prompt seems to require an architectural decision that isn't already answered in this file, stop and ask rather than guessing.
@@ -95,6 +97,7 @@ Do not build these yet, even if they seem like a natural extension mid-session:
 - Cloud asset delivery or per-skin CDN loading (irrelevant until skin number two is real)
 - Score-threshold objectives (v1 is move limit plus one-or-more collection targets — see the Data Model Notes above for the now-built multi-objective array; a numeric score threshold, distinct from counting matched pieces, is still unbuilt)
 - Any App Store "distinct product" layout variation (matters only once a second skin ships)
+- Real ad SDK integration (AdMob, CrazyGames). The platform-selected `AdService` abstraction the two existing "watch a video" grant flows now call through was brought into scope and built this session (see `services/adService.ts` and `engine/DECISIONS.md`'s ad-service entry) — but both concrete implementations remain stubs that instantly resolve the reward, matching the flows' pre-abstraction behavior. Wiring in either real SDK is still unbuilt.
 
 If a build session surfaces a good idea that falls in this list, log it rather than building it. Add it to `DEFERRED_COMPLEXITY.md` at the repo root (create it if it doesn't exist yet) with a one-line note on why it was deferred.
 
@@ -104,7 +107,7 @@ Docs move with the code. If a session changes the engine's shape, the config sch
 
 ## Definition of Done for V1
 
-A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have progress saved on close. Winning one of the 9 curated milestone levels reveals a recipe card into a real, persisted collection, viewable from Home. No power-ups, no ads wired in. Just a real, playable, saved match-3 level, themed, calm, and built for the one person it's actually for.
+A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have progress saved on close. Winning one of the 9 curated milestone levels reveals a recipe card into a real, persisted collection, viewable from Home. No power-ups, no real ads wired in — the two "watch a video" grant flows (bonus moves, refill lives) route through `services/adService.ts`'s platform-selected `AdService` interface (see the Architecture map above and `engine/DECISIONS.md`'s ad-service entry), but both concrete implementations (AdMob for native, CrazyGames for web) are still stubs that instantly grant, exactly as the flows behaved before the abstraction existed. Just a real, playable, saved match-3 level, themed, calm, and built for the one person it's actually for.
 
 ## Playtest Feedback Protocol
 

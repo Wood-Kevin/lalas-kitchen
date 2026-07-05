@@ -28,6 +28,7 @@ import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } f
 import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { SpecialTutorialOverlay } from './SpecialTutorialOverlay';
+import { adService } from '../services/defaultAdService';
 import { PausedOverlay } from './PausedOverlay';
 import { canGrantBonusMoves, nextBonusGrantsUsed } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
@@ -487,7 +488,14 @@ export function Board({
     runStep(0);
   }
 
-  function handleGrant(amount: number) {
+  async function handleGrant(amount: number) {
+    // Watch the rewarded ad first — services/adService.ts resolves to
+    // whichever real provider (or, today, stub) this platform uses, and the
+    // grant only proceeds if it resolves true (reward earned). A dismissed-
+    // early ad (false) leaves the pause screen exactly as it was: no grant,
+    // no cap spent.
+    const completed = await adService.requestRewardedAd();
+    if (!completed) return;
     // Count the grant before applying it. PausedOverlay only ever surfaces the
     // grant button while canGrantBonusMoves is true, but incrementing here (not
     // relying on the button being hidden) keeps the cap honest even if the

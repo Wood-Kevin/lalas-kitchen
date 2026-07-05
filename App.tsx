@@ -48,6 +48,7 @@ import {
 } from './components/levelProgress';
 import skinConfigJson from './skins/lalas-kitchen/config.json';
 import { spriteRegistry } from './skins/lalas-kitchen/spriteRegistry';
+import { adService } from './services/defaultAdService';
 
 const skinConfig = skinConfigJson as SkinConfig;
 
@@ -475,7 +476,12 @@ export default function App() {
   // before that ref is ever set. Without an explicit save here, a granted
   // life would show correctly on screen and then silently vanish if the
   // player backgrounds the app before starting a level.
-  const handleGrantLife = useCallback(() => {
+  const handleGrantLife = useCallback(async () => {
+    // Watch the rewarded ad first — services/adService.ts resolves to
+    // whichever real provider (or, today, stub) this platform uses. A
+    // dismissed-early ad (false) leaves lives untouched, nothing saved.
+    const completed = await adService.requestRewardedAd();
+    if (!completed) return;
     const newLives = grantInstantLife(skinConfig.lives.max);
     livesRef.current = newLives;
     setLives(newLives);
