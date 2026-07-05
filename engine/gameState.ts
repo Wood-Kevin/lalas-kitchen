@@ -194,6 +194,14 @@ export interface LevelConfig {
   // built before this mechanic. createGameState turns this flag into the
   // concrete DenialSpreadState (interval scaled to movesLimit).
   denialSpread?: boolean;
+  // Optional board-shape holes — the cells that make this level
+  // non-rectangular (a plus, a ring, an irregular outline). Passed straight
+  // through to generateLevel, which turns each into a fixed 'void' piece (see
+  // matrix.ts's Piece doc and generator.ts). Omitted/empty means a plain
+  // rows×cols rectangle, the default for every level built before board-shape
+  // support. Hand-authored today; generator-driven shapes are deferred (see
+  // DEFERRED_COMPLEXITY.md).
+  voidCells?: Position[];
 }
 
 // What fraction of a level's move budget an untouched denial zone is allowed to
@@ -215,6 +223,7 @@ export function createGameState(config: LevelConfig): GameState {
     blockerCount: config.blockerCount,
     blockerMatchType: config.blockerMatchType,
     blockerHitsToClear: config.blockerHitsToClear,
+    voidCells: config.voidCells,
   });
 
   return {
@@ -298,6 +307,118 @@ function areaBlastPositions(rows: number, cols: number, pos: Position): Position
   return out;
 }
 
+// The board's single most common matchType — the color a color bomb detonates
+// when it's CAUGHT in another effect's clear set (a chain), where there's no
+// swap partner to name a target color the way an ordinary bomb swap has one.
+// Counts every non-blocker piece carrying a matchType (ordinary AND striped
+// pieces — a striped piece still has a color; color/area bombs are colorless, so
+// they carry none and never count). Ties resolve toward the first matchType seen
+// in row-major order (strict > keeps the earlier one), so the pick is fully
+// deterministic — same board always chains the same way. Returns undefined only
+// when no colored piece exists at all (a board of nothing but specials/blockers),
+// in which case a caught color bomb just clears itself with no detonation.
+function mostCommonMatchType(board: Board): string | undefined {
+  const counts = new Map<string, number>();
+  for (const row of board) {
+    for (const cell of row) {
+      if (cell.type === 'blocker' || cell.matchType === undefined) continue;
+      counts.set(cell.matchType, (counts.get(cell.matchType) ?? 0) + 1);
+    }
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [matchType, count] of counts) {
+    if (count > bestCount) {
+      best = matchType;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+// Chain reaction — the deferred behavior finally built: a special piece caught in
+// ANOTHER special's clear effect fires its OWN effect too, rather than just
+// vanishing as ordinary content. Given a seed set of cells some effect is about
+// to clear, this expands it to include the clear set of every other special the
+// seed catches, repeating until no further special is reached. It's the one
+// shared place chaining lives, called from resolveClearSet (so every
+// swap-triggered effect chains: solo color bomb, area bomb, striped+striped,
+// striped+bomb) AND from resolveMatchEffects (so an in-match striped sweep chains
+// too) — so a special reacts identically however it was caught.
+//
+// `originKeys` are the special pieces the CALLING effect already fired or consumed
+// itself: the swapped bomb, the two swapped stripeds, the supercombo's converted
+// pieces, the in-match striped triggers. They sit in the seed (so they still
+// clear) but must never re-fire — a chain is only the OTHER specials an effect
+// catches, never the ones the effect already IS. Without this, e.g. a solo color
+// bomb would re-detonate itself on the most-common color, and a striped+striped
+// cross would fire each trigger's own line on top of the cross it defines.
+//
+// Each caught special contributes its own geometry:
+//   - striped    → its full row or column, per its own `direction`
+//   - area_bomb  → the 3x3 block centered on it
+//   - color_bomb → every piece of the board's most common matchType (a caught
+//                  bomb has no swap partner — see mostCommonMatchType)
+//
+// Blockers are never added (they only ever take adjacent damage — the one rule
+// every caller already enforces on its own seed). It ALWAYS terminates: the board
+// has finitely many cells, each cell enters `cleared` at most once, and only a
+// freshly-cleared non-origin special is ever enqueued — so the chain must run dry
+// the moment it stops reaching new specials, or once the whole board is cleared.
+// Pure: reads the board, returns the fully-expanded position list.
+function expandChainClears(board: Board, seed: Position[], originKeys: Set<string>): Position[] {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const keyOf = (r: number, c: number): string => `${r},${c}`;
+  const cleared = new Set<string>();
+  const queue: Position[] = [];
+
+  const add = (r: number, c: number): void => {
+    if (r < 0 || r >= rows || c < 0 || c >= cols) return;
+    if (board[r][c].type === 'blocker') return;
+    const key = keyOf(r, c);
+    if (cleared.has(key)) return;
+    cleared.add(key);
+    // A special the calling effect didn't already fire is a chain source. Origins
+    // still clear (added above) but are never enqueued, so they don't re-fire.
+    const type = board[r][c].type;
+    if (
+      (type === 'striped' || type === 'area_bomb' || type === 'color_bomb') &&
+      !originKeys.has(key)
+    ) {
+      queue.push({ row: r, col: c });
+    }
+  };
+
+  for (const p of seed) add(p.row, p.col);
+
+  while (queue.length > 0) {
+    const pos = queue.shift() as Position;
+    const piece = board[pos.row][pos.col];
+    if (piece.type === 'striped') {
+      const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
+      for (const q of sweepLinePositions(rows, cols, pos, direction)) add(q.row, q.col);
+    } else if (piece.type === 'area_bomb') {
+      for (const q of areaBlastPositions(rows, cols, pos)) add(q.row, q.col);
+    } else if (piece.type === 'color_bomb') {
+      const target = mostCommonMatchType(board);
+      if (target !== undefined) {
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const cell = board[r][c];
+            if (cell.type !== 'blocker' && cell.matchType === target) add(r, c);
+          }
+        }
+      }
+    }
+  }
+
+  return [...cleared].map((k) => {
+    const [r, c] = k.split(',').map(Number);
+    return { row: r, col: c };
+  });
+}
+
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
 // colorless — see matrix.ts's Piece comment); an area bomb is now also colorless
@@ -314,11 +435,13 @@ type AnchorSpec =
 // the one place the special-piece spawn rules live:
 //  - a run that CONTAINS a live striped piece triggers it: the striped piece
 //    sweeps its whole row or column (per its `direction`) into the clear set,
-//    and the ordinary run cells clear too. A striped piece caught in another's
-//    sweep this pass just clears — it does NOT recursively fire (chaining
-//    deferred, see DEFERRED_COMPLEXITY.md). Area bombs are NOT handled here: a
-//    colorless, swap-activated area bomb can never sit inside a run (see
-//    resolveAreaBomb and applyMove for its swap trigger);
+//    and the ordinary run cells clear too. A DIFFERENT special caught on that
+//    swept line (another striped, a color bomb, an area bomb) now chains — fires
+//    its own effect too — via expandChainClears at the tail of this function
+//    (chaining is built; see that helper). Area bombs are NOT triggered by the
+//    run itself: a colorless, swap-activated area bomb can never sit inside a run
+//    (see resolveAreaBomb and applyMove for its swap trigger) — but one caught in
+//    a striped sweep here does chain;
 //  - a fresh 4-long run of ordinary pieces CONVERTS one cell into a striped
 //    piece carrying the run's orientation as its clear direction, and clears
 //    the other three;
@@ -348,6 +471,10 @@ function resolveMatchEffects(
   const keyOf = (r: number, c: number): string => `${r},${c}`;
   const clearedKeys = new Set<string>();
   const anchorByKey = new Map<string, AnchorSpec>();
+  // The striped pieces that fire their own sweep in the loop below — the pass's
+  // own triggers. Passed to expandChainClears as origins so they aren't treated
+  // as caught specials and re-swept; only OTHER specials on their lines chain.
+  const stripedTriggerKeys = new Set<string>();
 
   const addClear = (r: number, c: number): void => {
     if (board[r][c].type !== 'blocker') clearedKeys.add(keyOf(r, c));
@@ -372,6 +499,7 @@ function resolveMatchEffects(
 
     if (striped.length > 0) {
       for (const p of striped) {
+        stripedTriggerKeys.add(keyOf(p.row, p.col));
         const piece = board[p.row][p.col];
         const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
         for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
@@ -404,8 +532,27 @@ function resolveMatchEffects(
     }
   }
 
+  // Chain reaction: any OTHER special the pass's clears catch — a striped piece,
+  // color bomb, or area bomb lying on a swept line — fires its own effect too,
+  // to fixpoint (see expandChainClears). The pass's own striped triggers are
+  // excluded as origins so they don't re-sweep. Expansion reads the pre-pass
+  // `board`, so a cell being converted into a special THIS pass (an anchor, still
+  // ordinary on `board`) is never a chain source — a freshly-spawned special
+  // never fires the same pass it's born. Run before the anchor-delete below so an
+  // anchor cell a chain happens to sweep is still restored to a special, not
+  // gapped.
+  const seedPositions = [...clearedKeys].map((k) => {
+    const [r, c] = k.split(',').map(Number);
+    return { row: r, col: c };
+  });
+  clearedKeys.clear();
+  for (const p of expandChainClears(board, seedPositions, stripedTriggerKeys)) {
+    clearedKeys.add(keyOf(p.row, p.col));
+  }
+
   // A cell chosen to become a special piece is never also gapped, even if an
-  // overlapping match added it to the clear set — the special piece wins.
+  // overlapping match (or a chain sweep above) added it to the clear set — the
+  // special piece wins.
   for (const k of anchorByKey.keys()) clearedKeys.delete(k);
 
   const parseKey = (k: string): Position => {
@@ -540,7 +687,16 @@ function resolveColorBomb(
     }
   }
 
-  return resolveClearSet(board, clearedPositions, spawnPiece);
+  // The swapped bomb and its partner are THIS effect's own triggers — they clear
+  // but don't chain (the bomb mustn't re-detonate on the most-common color; a
+  // bomb partner in a whole-board swap mustn't either). Any OTHER special the
+  // detonation catches — e.g. a striped piece of the target color elsewhere — is
+  // not an origin, so it chains and fires its sweep.
+  const originKeys = new Set<string>([
+    `${bombPos.row},${bombPos.col}`,
+    `${otherPos.row},${otherPos.col}`,
+  ]);
+  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys);
 }
 
 // Activates an area-bomb swap — the same swap-triggered camp as the color bomb,
@@ -566,7 +722,11 @@ function resolveAreaBomb(
   const clearedPositions = areaBlastPositions(rows, cols, bombPos).filter(
     (p) => board[p.row][p.col].type !== 'blocker'
   );
-  return resolveClearSet(board, clearedPositions, spawnPiece);
+  // The area bomb itself is this effect's own trigger (it clears but doesn't
+  // chain — its blast IS the seed). Any OTHER special caught in the 3x3 is not an
+  // origin, so it chains and fires its own effect.
+  const originKeys = new Set<string>([`${bombPos.row},${bombPos.col}`]);
+  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys);
 }
 
 // The shared "clear exactly these cells, then let the board settle" pipeline —
@@ -583,12 +743,21 @@ function resolveAreaBomb(
 function resolveClearSet(
   board: Board,
   clearedPositions: Position[],
-  spawnPiece: () => Piece
+  spawnPiece: () => Piece,
+  originKeys: Set<string>
 ): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
-  const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, clearedPositions);
+  // Chain reaction first: fold in the clear set of every other special this
+  // effect's cells catch (see expandChainClears). originKeys are the specials
+  // THIS effect already fired (its bomb, its swapped stripeds, its converted
+  // pieces) — they clear but never re-fire. Everything below counts and gaps the
+  // fully-expanded set, so a chained sweep/blast credits its own cells to
+  // objectives exactly like a first-order clear does.
+  const expanded = expandChainClears(board, clearedPositions, originKeys);
+
+  const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, expanded);
 
   const clearedByMatchType: Record<string, number> = {};
-  for (const pos of clearedPositions) {
+  for (const pos of expanded) {
     const key = board[pos.row][pos.col].matchType ?? 'unknown';
     clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
   }
@@ -597,7 +766,7 @@ function resolveClearSet(
     clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
   }
 
-  const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
+  const withGaps = cloneBoardWithGaps(damagedBoard, [...expanded, ...newlyClearedBlockers]);
   const firstBoard = calculateCascades(withGaps, spawnPiece);
 
   // The detonation itself is the first beat; any matches its refill creates
@@ -638,7 +807,11 @@ function resolveStripedCross(
   for (const p of sweepLinePositions(rows, cols, posA, 'row')) keys.add(`${p.row},${p.col}`);
   for (const p of sweepLinePositions(rows, cols, posA, 'col')) keys.add(`${p.row},${p.col}`);
   const cleared = keysToClearablePositions(keys, board);
-  return resolveClearSet(board, cleared, spawnPiece);
+  // Both swapped stripeds are this combo's own triggers — the cross overrides
+  // their individual directions, so neither re-fires its own line as a chain.
+  // A THIRD striped (or a bomb) lying on the cross is not an origin and chains.
+  const originKeys = new Set<string>([`${posA.row},${posA.col}`, `${posB.row},${posB.col}`]);
+  return resolveClearSet(board, cleared, spawnPiece, originKeys);
 }
 
 // Combo 2: a striped piece swapped directly with a color bomb — the supercombo.
@@ -664,6 +837,13 @@ function resolveStripedBombCombo(
   const targetMatchType = board[stripedPos.row][stripedPos.col].matchType;
   const keys = new Set<string>();
   keys.add(`${bombPos.row},${bombPos.col}`); // the bomb consumes itself
+  // The bomb and every piece this combo converts-and-fires are its own triggers —
+  // they clear but never chain. This matters because a matching cell may ALREADY
+  // be a striped piece on the board: without it here, expandChainClears would
+  // re-sweep that piece along its ORIGINAL direction on top of the alternating
+  // one the combo assigned, over-clearing beyond the defined supercombo. A
+  // DIFFERENT-colored special the sweeps catch is not in here, so it still chains.
+  const originKeys = new Set<string>([`${bombPos.row},${bombPos.col}`]);
   let converted = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -671,6 +851,7 @@ function resolveStripedBombCombo(
       if (piece.type === 'blocker' || piece.type === 'color_bomb') continue;
       if (targetMatchType === undefined || piece.matchType !== targetMatchType) continue;
       // Convert this matching piece to a striped piece and fire it immediately.
+      originKeys.add(`${r},${c}`);
       const direction: StripeDirection = converted % 2 === 0 ? 'row' : 'col';
       converted += 1;
       for (const p of sweepLinePositions(rows, cols, { row: r, col: c }, direction)) {
@@ -679,7 +860,7 @@ function resolveStripedBombCombo(
     }
   }
   const cleared = keysToClearablePositions(keys, board);
-  return resolveClearSet(board, cleared, spawnPiece);
+  return resolveClearSet(board, cleared, spawnPiece, originKeys);
 }
 
 // Turns a set of "r,c" cell keys into the Position list resolveClearSet wants,
@@ -800,6 +981,16 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
+    return { state, events: [], steps: [] };
+  }
+
+  // Void cells are holes in the board's shape, never pieces — a swap into or
+  // out of one can't happen. Rejected exactly like a blocker/no-match swap: no
+  // move spent, no state change. This is the safety net for a drag from a cell
+  // on the board's edge toward a neighbouring void (dragDirection only
+  // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
+  // too, so a board is never wrongly judged stuck because of one.
+  if (pieceA.type === 'void' || pieceB.type === 'void') {
     return { state, events: [], steps: [] };
   }
 

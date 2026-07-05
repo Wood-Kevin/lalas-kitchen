@@ -11,7 +11,7 @@ import { AllLevels, AllLevelsRow } from './components/AllLevels';
 import { OutOfLives } from './components/OutOfLives';
 import { RecipeCard, SkinConfig } from './components/skinConfig';
 import { RecipeBook } from './components/RecipeBook';
-import { GameState, GameStatus, LevelConfig, loadSave, saveProgress } from './engine/gameState';
+import { GameState, GameStatus, LevelConfig, Position, loadSave, saveProgress } from './engine/gameState';
 import {
   applyLivesRegen,
   backfillUnlockedRecipeCards,
@@ -50,6 +50,15 @@ const skinConfig = skinConfigJson as SkinConfig;
 // dead-ending — a real level-authoring pipeline for more curated content is
 // still out of scope for now, but "out of curated levels" no longer means
 // "out of game."
+// The showcase non-rectangular level's shape: a bold plus on a 7x7 grid — the
+// four 2x2 corner blocks are carved out as void cells, leaving a plus of 33
+// playable cells. Hand-authored to prove board-shape variety end-to-end (see
+// engine/DECISIONS.md's void-cell entry); generator-driven shapes are a
+// deliberately separate later step (DEFERRED_COMPLEXITY.md).
+const PLUS_SHOWCASE_VOIDS: Position[] = ([0, 1, 5, 6] as const).flatMap((row) =>
+  ([0, 1, 5, 6] as const).map((col) => ({ row, col }))
+);
+
 const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
     seed: 1,
@@ -77,6 +86,20 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     movesLimit: 24,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 20 }],
     displayName: 'Herb Garden',
+  },
+  {
+    // First non-rectangular level: a plus-shaped 7x7 board (the corners are
+    // carved out as voids). A calm, generous showcase — the shape is the star,
+    // not the difficulty. Fewer piece types than a full board so the shorter
+    // arms still offer matches. See PLUS_SHOWCASE_VOIDS above.
+    seed: 314,
+    rows: 7,
+    cols: 7,
+    voidCells: PLUS_SHOWCASE_VOIDS,
+    pieceTypeIds: skinConfig.pieceTypes.slice(0, 5).map((pieceType) => pieceType.id),
+    movesLimit: 25,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[3].id, targetCount: 18 }],
+    displayName: 'Cutting Board',
   },
 ];
 

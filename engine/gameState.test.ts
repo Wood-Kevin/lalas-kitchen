@@ -18,6 +18,14 @@ function buildBoard(letters: string[][]): Board {
   return letters.map((row, r) => row.map((matchType, c) => piece(matchType, `${r}-${c}`)));
 }
 
+// A board whose shape is drawn with '.' for a fixed void cell (a hole in a
+// non-rectangular board) and any other letter for an ordinary piece.
+function buildShapedBoard(letters: string[][]): Board {
+  return letters.map((row, r) =>
+    row.map((ch, c) => (ch === '.' ? { id: `${r}-${c}`, type: 'void' as const } : piece(ch, `${r}-${c}`)))
+  );
+}
+
 function queueSpawnPiece(queue: string[]): () => Piece {
   let counter = 0;
   return (): Piece => {
@@ -892,6 +900,164 @@ describe('applyMove — special piece combos', () => {
   });
 });
 
+describe('applyMove — special piece chaining', () => {
+  // A special caught in ANOTHER special's clear set fires its own effect too,
+  // instead of vanishing silently (the deferred chaining behavior, now built —
+  // see gameState.ts's expandChainClears). Same wholly-distinct grid style as the
+  // combos/area-bomb blocks: every base cell is a unique 'cRC' so nothing matches
+  // or squares by accident, and each chain is set up explicitly on top.
+  const distinctBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`c${r}${c}`, `${r}-${c}`))
+    );
+  const distinctSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 60 }, (_, i) => `z${i}`));
+  const hasId = (board: Board, id: string): boolean => board.flat().some((p) => p.id === id);
+  const countType = (board: Board, type: string): number => board.flat().filter((p) => p.type === type).length;
+  const countMatchType = (board: Board, matchType: string): number =>
+    board.flat().filter((p) => p.matchType === matchType).length;
+
+  const stateWith = (board: Board, targetMatchType: string): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType, targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: distinctSpawns(),
+  });
+
+  test("a color bomb's detonation catches a striped piece, which fires its own sweep too", () => {
+    const board = distinctBoard(5, 5);
+    // A color bomb at (0,0), swapped with an ordinary 'A' at (0,1): it detonates
+    // every 'A' on the board. One of those A's is a COLUMN-clearing striped piece
+    // at (2,2). Chaining means that caught striped fires its own column sweep;
+    // without it, the striped would just vanish and column 2 would survive.
+    board[0][0] = { id: board[0][0].id, type: 'color_bomb' };
+    board[0][1] = piece('A', '0-1');
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'A', direction: 'col' };
+    board[4][4] = piece('A', '4-4');
+
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // The striped piece's column (col 2) is fully cleared — the decisive proof the
+    // caught striped fired rather than silently clearing. These cells are NOT 'A'
+    // (so the bomb alone would never touch them) and NOT on any other effect.
+    for (const id of ['0-2', '1-2', '2-2', '3-2', '4-2']) {
+      expect(hasId(result.state.board, id)).toBe(false);
+    }
+    // Every 'A' is gone; the bomb and the striped both consumed themselves.
+    expect(countMatchType(result.state.board, 'A')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    // Objective credit for 'A' is exactly the three A cells (partner + striped +
+    // plain); the bomb is colorless and the swept column-2 cells credit their own
+    // (non-'A') types, not 'A'.
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a single move drives a chain of three triggered effects in sequence', () => {
+    const board = distinctBoard(6, 6);
+    // Origin: an area bomb at (1,1), swapped with the ordinary piece at (1,0), so
+    // its 3x3 blast (rows 0-2, cols 0-2) fires. The chain then runs three links:
+    //   link 1 — the blast catches a ROW-striped piece at (2,2) → it sweeps row 2
+    //   link 2 — row 2 catches a second area bomb at (2,5) → its 3x3 (rows 1-3,
+    //            cols 4-5) fires
+    //   link 3 — that blast catches a color bomb at (3,5) → it detonates the
+    //            board's most-common color, 'Q'
+    board[1][1] = { id: board[1][1].id, type: 'area_bomb' };
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'S', direction: 'row' };
+    board[2][5] = { id: board[2][5].id, type: 'area_bomb' };
+    board[3][5] = { id: board[3][5].id, type: 'color_bomb' };
+    // Four 'Q' pieces, scattered so none forms a run and none sits in ANY blast or
+    // sweep above — the only thing that can clear them is the color bomb at the end
+    // of the chain. Four of them makes 'Q' the board's most-common color (every
+    // other colored cell is unique), so mostCommonMatchType picks 'Q'.
+    board[5][0] = piece('Q', 'q0');
+    board[5][2] = piece('Q', 'q1');
+    board[5][4] = piece('Q', 'q2');
+    board[0][5] = piece('Q', 'q3');
+
+    const result = applyMove(stateWith(board, 'Q'), { row: 1, col: 1 }, { row: 1, col: 0 });
+
+    // Link 1 fired: (2,3) lies on row 2 but in NO blast (cols 0-2 / cols 4-5) and
+    // isn't 'Q' — it clears only if the striped swept its row.
+    expect(hasId(result.state.board, '2-3')).toBe(false);
+    // Link 2 fired: (1,4) is inside the SECOND area bomb's 3x3 but off row 2 and
+    // not 'Q' — it clears only if that second bomb detonated.
+    expect(hasId(result.state.board, '1-4')).toBe(false);
+    // Link 3 fired: every 'Q' is gone — reachable only through the color bomb at
+    // the tail of the chain.
+    expect(countMatchType(result.state.board, 'Q')).toBe(0);
+    // All three chained specials consumed themselves along with the origin bomb.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+    // The whole chain is one committed move — a chain is a free bonus, never an
+    // extra move spent.
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('every effect in a chain credits its own cleared cells to the objective', () => {
+    const board = distinctBoard(5, 5);
+    // A color bomb at (0,0) swapped with ordinary 'A' at (0,1) detonates all A's.
+    // A caught row-striped 'A' at (2,0) then sweeps row 2, which clears two 'B'
+    // pieces at (2,1) and (2,3). The objective targets 'B' — a type the ORIGIN
+    // (the bomb, which only clears A's) never touches. So any 'B' credit at all
+    // can only have come from the CHAINED sweep crediting its own cells.
+    board[0][0] = { id: board[0][0].id, type: 'color_bomb' };
+    board[0][1] = piece('A', '0-1');
+    board[2][0] = { id: board[2][0].id, type: 'striped', matchType: 'A', direction: 'row' };
+    board[4][4] = piece('A', '4-4');
+    board[2][1] = piece('B', '2-1');
+    board[2][3] = piece('B', '2-3');
+
+    const result = applyMove(stateWith(board, 'B'), { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // The chained row sweep cleared both B's → the 'B' objective credits exactly 2,
+    // proving chained clears feed objectives (it would be 0 without chaining).
+    expect(result.state.objectives[0].currentCount).toBe(2);
+    // And the sweep really did clear them.
+    expect(countMatchType(result.state.board, 'B')).toBe(0);
+    // The origin's own type is still credited independently: three A's cleared
+    // (partner + striped + plain), tracked in totalCleared alongside the two B's.
+    expect(result.state.totalCleared.A).toBe(3);
+    expect(result.state.totalCleared.B).toBe(2);
+  });
+
+  test('chaining also fires through the in-match striped sweep path, not just swap-triggered effects', () => {
+    const board = distinctBoard(5, 5);
+    // This chain starts from an ORDINARY match (resolveMatchEffects), not a
+    // swap-triggered special — the second wiring site for chaining. A column-
+    // striped 'A' sits at (0,0); swapping the ordinary 'A' up from (1,2) into
+    // (0,2) completes a 3-in-a-row of A's across row 0 that INCLUDES the striped
+    // piece, triggering its column sweep. Column 0 holds a color bomb at (3,0);
+    // the sweep catches it and it chains, detonating the most-common color 'Q'.
+    board[0][0] = { id: board[0][0].id, type: 'striped', matchType: 'A', direction: 'col' };
+    board[0][1] = piece('A', '0-1');
+    board[1][2] = piece('A', '1-2'); // swaps up into (0,2) to complete the row-0 run
+    board[3][0] = { id: board[3][0].id, type: 'color_bomb' };
+    // Four scattered 'Q' — most-common color, reachable only via the color bomb.
+    board[4][1] = piece('Q', 'q0');
+    board[4][3] = piece('Q', 'q1');
+    board[2][1] = piece('Q', 'q2');
+    board[2][3] = piece('Q', 'q3');
+    // Pre-move sanity: no run exists until the swap forms the row-0 A-run.
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'Q'), { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // A legal, committed ordinary move (it formed a run).
+    expect(result.state.movesRemaining).toBe(9);
+    // The color bomb on the swept column chained: every 'Q' is gone and the bomb
+    // consumed itself — proving the in-match sweep path chains too.
+    expect(countMatchType(result.state.board, 'Q')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+  });
+});
+
 describe('applyMove — mid-play stuck board recovery', () => {
   // Reproduces a genuine mid-play stuck board (confirmed via real mobile
   // playtesting, not a visual miscount): a cascade can settle into a board
@@ -1637,5 +1803,89 @@ describe('applyMove — dynamic denial-zone spread', () => {
     expect(result.state.denialSpread?.movesUnaddressed).toBe(0);
     expect(countBlockers(result.state.board)).toBe(1);
     expect(countWarnings(result.state.board)).toBe(0);
+  });
+});
+
+describe('applyMove — non-rectangular (void) board', () => {
+  // A thin plus on a 5x5 board: only column 2 (the vertical arm) and row 2
+  // (the horizontal arm) are playable; every other cell is a void.
+  //   . . M . .
+  //   . . N . .
+  //   A A B A C
+  //   . . O . .
+  //   . . P . .
+  function plusState(overrides: Partial<GameState> = {}): GameState {
+    const board = buildShapedBoard([
+      ['.', '.', 'M', '.', '.'],
+      ['.', '.', 'N', '.', '.'],
+      ['A', 'A', 'B', 'A', 'C'],
+      ['.', '.', 'O', '.', '.'],
+      ['.', '.', 'P', '.', '.'],
+    ]);
+    return {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 3, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'X']),
+      ...overrides,
+    };
+  }
+
+  const voidPositions: Position[] = [];
+  for (const r of [0, 1, 3, 4]) {
+    for (const c of [0, 1, 3, 4]) {
+      voidPositions.push({ row: r, col: c });
+    }
+  }
+
+  test('a swap that targets a void cell snaps back — no move spent, no state change', () => {
+    const state = plusState();
+    // (2,0) is a real 'A'; (1,0) directly above it is a void.
+    const result = applyMove(state, { row: 2, col: 0 }, { row: 1, col: 0 });
+    expect(result.state).toEqual(state);
+    expect(result.events).toEqual([]);
+    expect(result.steps).toEqual([]);
+  });
+
+  test('a legal swap resolves normally on a shaped board: objective credited, move spent, win fires', () => {
+    const state = plusState();
+    // Swap (2,2)B <-> (2,3)A → row 2 becomes A,A,A,B,C: a 3-run of A at cols 0-2.
+    const result = applyMove(state, { row: 2, col: 2 }, { row: 2, col: 3 });
+
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.status).toBe('won');
+  });
+
+  test('gravity and refill never disturb the board shape — every void stays a void, nothing spawns into one', () => {
+    const state = plusState();
+    const result = applyMove(state, { row: 2, col: 2 }, { row: 2, col: 3 });
+
+    for (const pos of voidPositions) {
+      const cell = result.state.board[pos.row][pos.col];
+      expect(cell.type).toBe('void');
+    }
+    // And no cell that should be playable turned into a void.
+    const voidCount = result.state.board.flat().filter((p) => p.type === 'void').length;
+    expect(voidCount).toBe(voidPositions.length);
+    // The whole board is still legal to keep playing (or already won).
+    expect(hasLegalMoves(result.state.board) || result.state.status === 'won').toBe(true);
+  });
+
+  test('running out of moves on a shaped board pauses exactly like a rectangle', () => {
+    // One move left, an unreachable objective: the legal swap spends the last
+    // move and the level pauses on moves rather than winning.
+    const state = plusState({
+      movesRemaining: 1,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 99, currentCount: 0 }],
+    });
+    const result = applyMove(state, { row: 2, col: 2 }, { row: 2, col: 3 });
+    expect(result.state.movesRemaining).toBe(0);
+    expect(result.state.status).toBe('paused_awaiting_input');
+    expect(result.state.pauseReason).toBe('moves');
   });
 });

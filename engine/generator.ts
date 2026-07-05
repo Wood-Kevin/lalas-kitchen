@@ -4,6 +4,13 @@ export interface GeneratorConfig {
   rows: number;
   cols: number;
   pieceTypeIds: string[];
+  // Optional board-shape holes — the cells that make a level non-rectangular
+  // (a plus, a ring, an irregular outline). Each listed position becomes a
+  // fixed 'void' piece: never filled with content, never matched, never moved
+  // (see matrix.ts's Piece doc). Omitted/empty means a plain full rectangle,
+  // identical to every board generated before board-shape support. Positions
+  // outside the rows×cols bounds are ignored.
+  voidCells?: Position[];
   // Optional blocker placement. Omitted or 0 means no blockers — identical
   // output to every board this generator produced before blockers existed
   // (no extra rng calls happen in that case, so existing seeded-determinism
@@ -132,6 +139,10 @@ function placeBlockers(
   const allPositions: Position[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      // A void is a hole in the board shape, not a placeable cell — a blocker
+      // must never land on one (it would resurrect a cell the level meant to
+      // remove), so voids are excluded from the candidate pool.
+      if (board[r][c].type === 'void') continue;
       allPositions.push({ row: r, col: c });
     }
   }
@@ -148,7 +159,7 @@ function placeBlockers(
 }
 
 export function generateLevel(seed: number, config: GeneratorConfig): Board {
-  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear } = config;
+  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear, voidCells } = config;
 
   if (pieceTypeIds.length < 2) {
     throw new Error('generateLevel: pieceTypeIds must contain at least 2 distinct types.');
@@ -157,8 +168,24 @@ export function generateLevel(seed: number, config: GeneratorConfig): Board {
   const rng = mulberry32(seed);
   const board: Board = Array.from({ length: rows }, () => new Array(cols));
 
+  const voidSet = new Set<string>();
+  for (const pos of voidCells ?? []) {
+    if (pos.row >= 0 && pos.row < rows && pos.col >= 0 && pos.col < cols) {
+      voidSet.add(`${pos.row},${pos.col}`);
+    }
+  }
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      // Void cells are carved first and skipped by the fill: they hold a fixed
+      // 'void' piece, not content. forbiddenTypesAt reads neighbours, but a
+      // void carries no matchType so its `matchType !== undefined` guard means
+      // a void neighbour never contributes a forbidden type — the run-avoidance
+      // heuristic simply doesn't see it, which is correct (a void breaks runs).
+      if (voidSet.has(`${r},${c}`)) {
+        board[r][c] = { id: `void-${r}-${c}`, type: 'void' };
+        continue;
+      }
       const forbidden = forbiddenTypesAt(board, r, c);
       const allowed = pieceTypeIds.filter((t) => !forbidden.has(t));
       const pool = allowed.length > 0 ? allowed : pieceTypeIds;

@@ -565,3 +565,158 @@ describe('findSpreadTarget (denial-zone spread frontier)', () => {
     expect(findSpreadTarget(board)).toBeNull();
   });
 });
+
+// Void cells make a board non-rectangular (a plus, a ring, an irregular
+// outline). Every rule below is the "this cell doesn't exist" contract: a void
+// is never matched, never a square corner, never swapped, never moved by
+// gravity or shuffle, and never spawned into.
+function voidPiece(id: string): Piece {
+  return { id, type: 'void' };
+}
+
+// Like buildBoard, but the letter '.' places a fixed void cell instead of an
+// ordinary piece — so a board's shape reads as ASCII art in the test.
+function buildShapedBoard(letters: string[][]): Board {
+  return letters.map((row, r) =>
+    row.map((ch, c) => (ch === '.' ? voidPiece(`${r}-${c}`) : piece(ch, `${r}-${c}`)))
+  );
+}
+
+describe('void cells — matching', () => {
+  test('a void breaks a run: three matching pieces split by a void do not match', () => {
+    const board = buildShapedBoard([['A', 'A', '.', 'A', 'A']]);
+    expect(checkMatches(board)).toEqual([]);
+  });
+
+  test('a run on one side of a void is still detected', () => {
+    const board = buildShapedBoard([['A', 'A', 'A', '.', 'B']]);
+    const matches = checkMatches(board);
+    expect(matches).toHaveLength(1);
+    expect(sortPositions(matches[0]).map((p) => p.col)).toEqual([0, 1, 2]);
+  });
+
+  test('a void corner prevents a 2x2 square', () => {
+    const board = buildShapedBoard([
+      ['A', 'A'],
+      ['A', '.'],
+    ]);
+    expect(checkSquares(board)).toEqual([]);
+  });
+});
+
+describe('void cells — gravity (calculateCascades)', () => {
+  test('a piece rests on top of a void instead of falling through it', () => {
+    const topX = piece('X', 'x');
+    const belowY = piece('Y', 'y');
+    // Column, top→bottom: X, (cleared), VOID, Y. X must fall to rest ON the
+    // void (row 1), never past it into row 3; Y below the void is untouched.
+    const board: Array<Array<Piece | null>> = [[topX], [null], [voidPiece('v')], [belowY]];
+
+    const spawnQueue = [piece('S', 'spawn-top')];
+    const spawnPiece = () => {
+      const next = spawnQueue.shift();
+      if (!next) throw new Error('spawnPiece called more times than expected');
+      return next;
+    };
+
+    const result = calculateCascades(board, spawnPiece);
+
+    expect(result[0][0].id).toBe('spawn-top'); // refill enters at segment top
+    expect(result[1][0].id).toBe('x'); // X fell one row, rests on the void
+    expect(result[2][0].type).toBe('void'); // void fixed in place
+    expect(result[2][0].id).toBe('v'); // same object/id — never moved
+    expect(result[3][0].id).toBe('y'); // below-void segment untouched
+    expect(spawnQueue).toHaveLength(0); // exactly one spawn — never into the void
+  });
+
+  test('an enclosed segment refills from its own top, not the board top', () => {
+    const survivorX = piece('X', 'x');
+    const survivorY = piece('Y', 'y');
+    // Column: VOID, X, (cleared), Y, VOID. The playable segment is rows 1-3,
+    // walled by voids above and below. Its one refill must appear at row 1
+    // (the segment's own top), never at row 0 (which is a void).
+    const board: Array<Array<Piece | null>> = [
+      [voidPiece('v-top')],
+      [survivorX],
+      [null],
+      [survivorY],
+      [voidPiece('v-bot')],
+    ];
+
+    const spawnQueue = [piece('S', 'spawn-mid')];
+    const spawnPiece = () => {
+      const next = spawnQueue.shift();
+      if (!next) throw new Error('spawnPiece called more times than expected');
+      return next;
+    };
+
+    const result = calculateCascades(board, spawnPiece);
+
+    expect(result[0][0].type).toBe('void');
+    expect(result[1][0].id).toBe('spawn-mid'); // refill at the segment's top
+    expect(result[2][0].id).toBe('x');
+    expect(result[3][0].id).toBe('y');
+    expect(result[4][0].type).toBe('void');
+    expect(spawnQueue).toHaveLength(0);
+  });
+
+  test('a void-free column is unchanged by the segmented logic', () => {
+    // Regression guard: with no voids, gravity must behave exactly as before —
+    // survivors compact to the bottom, refills at the very top.
+    const survivorX = piece('X', 'x');
+    const survivorY = piece('Y', 'y');
+    const board: Array<Array<Piece | null>> = [[null], [survivorX], [null], [survivorY]];
+    const spawnQueue = [piece('S1', 's1'), piece('S2', 's2')];
+    const spawnPiece = () => spawnQueue.shift() as Piece;
+
+    const result = calculateCascades(board, spawnPiece);
+
+    expect(result.map((row) => row[0].id)).toEqual(['s1', 's2', 'x', 'y']);
+  });
+});
+
+describe('void cells — hasLegalMoves', () => {
+  test('a legal ordinary swap is still found when voids are present elsewhere', () => {
+    // Swapping (2,0) and (2,1) makes column 0 = A,A,A. Voids fill column 2 and
+    // must not hide that move.
+    const board = buildShapedBoard([
+      ['A', 'B', '.'],
+      ['A', 'C', '.'],
+      ['B', 'A', '.'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+
+  test('a void is never counted as a swap partner, so a shape with no real move is stuck', () => {
+    // The only two pieces are diagonal (not adjacent); every orthogonal
+    // neighbour is a void, which can never be swapped. No legal move exists.
+    const board = buildShapedBoard([
+      ['A', '.'],
+      ['.', 'A'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(false);
+  });
+});
+
+describe('void cells — shuffle keeps the board shape fixed', () => {
+  test('voids stay at their exact positions after a reshuffle', () => {
+    const board = buildShapedBoard([
+      ['A', 'B', '.'],
+      ['C', '.', 'D'],
+      ['.', 'E', 'F'],
+    ]);
+    const shuffled = shuffle(board, seededRng(3));
+
+    // Every void cell is still a void at the same coordinate, with the same id.
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r].length; c++) {
+        if (board[r][c].type === 'void') {
+          expect(shuffled[r][c].type).toBe('void');
+          expect(shuffled[r][c].id).toBe(board[r][c].id);
+        } else {
+          expect(shuffled[r][c].type).not.toBe('void');
+        }
+      }
+    }
+  });
+});

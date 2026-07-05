@@ -1,5 +1,5 @@
 import { generateLevel, GeneratorConfig } from './generator';
-import { checkMatches, hasLegalMoves } from './matrix';
+import { checkMatches, checkSquares, hasLegalMoves, Position } from './matrix';
 
 function matchTypeGrid(board: ReturnType<typeof generateLevel>): (string | undefined)[][] {
   return board.map((row) => row.map((p) => p.matchType));
@@ -123,5 +123,74 @@ describe('generateLevel — blocker placement', () => {
       expect(blocker.matchType).toBe('pot_lid');
       expect(blocker.hitsRemaining).toBe(2);
     }
+  });
+});
+
+describe('generateLevel — non-rectangular (void) board shape', () => {
+  // A plus on a 7x7 board: the four 2x2 corner blocks are voids, leaving a
+  // fat plus of playable cells (the same shape the hand-built showcase level
+  // uses).
+  const plusVoids: Position[] = [];
+  for (const r of [0, 1, 5, 6]) {
+    for (const c of [0, 1, 5, 6]) {
+      plusVoids.push({ row: r, col: c });
+    }
+  }
+  const isVoidCell = (r: number, c: number): boolean =>
+    plusVoids.some((p) => p.row === r && p.col === c);
+
+  const plusConfig: GeneratorConfig = {
+    rows: 7,
+    cols: 7,
+    pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+    voidCells: plusVoids,
+  };
+
+  test('void cells are placed exactly where requested and nowhere else', () => {
+    const board = generateLevel(42, plusConfig);
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        if (isVoidCell(r, c)) {
+          expect(board[r][c].type).toBe('void');
+          expect(board[r][c].matchType).toBeUndefined();
+        } else {
+          expect(board[r][c].type).toBe('normal');
+          expect(board[r][c].matchType).toBeDefined();
+        }
+      }
+    }
+  });
+
+  test('a piece is never generated into a void cell (voids hold no content)', () => {
+    for (const seed of [1, 2, 3, 42, 999]) {
+      const board = generateLevel(seed, plusConfig);
+      for (const pos of plusVoids) {
+        expect(board[pos.row][pos.col].type).toBe('void');
+      }
+    }
+  });
+
+  test('a shaped board is match-free and playable on creation, same guarantee as a rectangle', () => {
+    for (const seed of [1, 2, 3, 42, 999, 123456]) {
+      const board = generateLevel(seed, plusConfig);
+      expect(checkMatches(board)).toEqual([]);
+      expect(checkSquares(board)).toEqual([]);
+      expect(hasLegalMoves(board)).toBe(true);
+    }
+  });
+
+  test('the same seed reproduces an identical shaped board', () => {
+    expect(generateLevel(7, plusConfig)).toEqual(generateLevel(7, plusConfig));
+  });
+
+  test('blockers on a shaped board never land on a void cell', () => {
+    const board = generateLevel(3, { ...plusConfig, blockerCount: 6, blockerMatchType: 'cling', blockerHitsToClear: 1 });
+    const blockers = board.flat().filter((p) => p.type === 'blocker');
+    expect(blockers.length).toBeGreaterThan(0);
+    board.forEach((row, r) =>
+      row.forEach((p, c) => {
+        if (p.type === 'blocker') expect(isVoidCell(r, c)).toBe(false);
+      })
+    );
   });
 });

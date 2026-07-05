@@ -1,4 +1,4 @@
-export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb' | 'area_bomb';
+export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb' | 'area_bomb' | 'void';
 
 // Which line a striped piece clears when it's matched (see gameState.ts's
 // resolveCascades). A separate 'row'/'col' field rather than two piece types
@@ -47,6 +47,20 @@ export interface Piece {
   spreadWarning?: boolean;
 }
 
+// A 'void' piece is not content — it's a hole in the board's SHAPE, the cell
+// that lets a level be non-rectangular (a plus, a ring, an irregular outline).
+// It carries no matchType, so piecesMatch already rejects it; it's excluded
+// explicitly everywhere a blocker is (matching, squares, legal moves, swaps) so
+// the "this cell doesn't exist" contract holds even if code changes around it.
+// It is FIXED: gravity treats it as a floor (calculateCascades never moves,
+// clears, or refills it — pieces can't fall through it), the generator never
+// fills it, shuffle never relocates it, and components/Board.tsx renders
+// nothing there (the board background shows through as the cutout). It was made
+// a sentinel piece type — the same shape 'blocker' uses — rather than a nullable
+// board cell precisely so `Board = Piece[][]` stays non-null and every existing
+// consumer keeps a real object at every index. See engine/DECISIONS.md's
+// board-shape / void-cell entry.
+
 export type Board = Piece[][];
 
 export interface Position {
@@ -94,6 +108,12 @@ function piecesMatch(a: Piece, b: Piece): boolean {
   if (a.type === 'blocker' || b.type === 'blocker') return false;
   if (a.type === 'color_bomb' || b.type === 'color_bomb') return false;
   if (a.type === 'area_bomb' || b.type === 'area_bomb') return false;
+  // A void is a hole, not a piece — it can never participate in a run, so it
+  // breaks any line it sits in (a run scan stops at it and resumes after it).
+  // It carries no matchType so the final check already rejects it, but the
+  // explicit guard keeps the "void is never content" invariant local and
+  // obvious, exactly like the sentinels above.
+  if (a.type === 'void' || b.type === 'void') return false;
   return a.matchType !== undefined && a.matchType === b.matchType;
 }
 
@@ -199,6 +219,17 @@ export function swapPieces(board: Board, posA: Position, posB: Position): Board 
 // pieces come from an injected spawnPiece callback rather than Math.random
 // directly, so matrix.ts stays free of any RNG dependency — Phase 2's
 // seeded generator supplies a deterministic spawnPiece when it lands.
+//
+// Void cells (a hole in a non-rectangular board's shape) are FIXED floors: a
+// column is walked as a series of maximal non-void SEGMENTS separated by voids,
+// and gravity acts within each segment independently. Survivors in a segment
+// compact to the bottom of THAT segment (they can't fall through the void
+// below), and refills spawn at the top of THAT segment (they can't fall in past
+// the void above) — so an enclosed pocket, like the middle-row cells of a plus's
+// side arm, still refills from its own local top rather than draining forever.
+// A void-free column is exactly one full-height segment, so a plain rectangular
+// board behaves identically to before (the pre-void single-loop code was the
+// special case where every column is one segment).
 export function calculateCascades(
   board: Array<Array<Piece | null>>,
   spawnPiece: () => Piece
@@ -207,20 +238,39 @@ export function calculateCascades(
   const cols = rows > 0 ? board[0].length : 0;
   const result: Board = Array.from({ length: rows }, () => new Array(cols));
 
+  const isVoid = (cell: Piece | null): boolean => cell !== null && cell.type === 'void';
+
   for (let c = 0; c < cols; c++) {
-    const surviving: Piece[] = [];
-    for (let r = 0; r < rows; r++) {
-      const cell = board[r][c];
-      if (cell !== null) surviving.push(cell);
-    }
+    let r = 0;
+    while (r < rows) {
+      if (isVoid(board[r][c])) {
+        // A void stays exactly where it is — it's board shape, never moved,
+        // cleared, or refilled.
+        result[r][c] = board[r][c] as Piece;
+        r++;
+        continue;
+      }
+      // Start of a playable segment [segStart, segEnd): every non-void cell up
+      // to the next void or the board floor.
+      const segStart = r;
+      while (r < rows && !isVoid(board[r][c])) r++;
+      const segEnd = r;
+      const segLen = segEnd - segStart;
 
-    const missing = rows - surviving.length;
-    const spawned: Piece[] = [];
-    for (let i = 0; i < missing; i++) spawned.push(spawnPiece());
+      const surviving: Piece[] = [];
+      for (let rr = segStart; rr < segEnd; rr++) {
+        const cell = board[rr][c];
+        if (cell !== null) surviving.push(cell); // non-void by construction
+      }
 
-    const fullColumn = [...spawned, ...surviving];
-    for (let r = 0; r < rows; r++) {
-      result[r][c] = fullColumn[r];
+      const missing = segLen - surviving.length;
+      const spawned: Piece[] = [];
+      for (let i = 0; i < missing; i++) spawned.push(spawnPiece());
+
+      const filledSegment = [...spawned, ...surviving];
+      for (let rr = segStart; rr < segEnd; rr++) {
+        result[rr][c] = filledSegment[rr - segStart];
+      }
     }
   }
 
@@ -334,15 +384,29 @@ function fisherYates<T>(items: T[], rng: () => number): T[] {
 export function shuffle(board: Board, rng: () => number = Math.random): Board {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
-  const flatPieces = board.flat();
   const maxAttempts = 100;
+
+  // Void cells are the board's fixed shape — they must never be relocated by a
+  // reshuffle. Only the non-void pieces are redistributed, and only across the
+  // non-void positions, so a plus stays a plus. A void-free board reduces to
+  // "every position is movable," identical to the pre-void flat shuffle.
+  const movablePositions: Position[] = [];
+  const movablePieces: Piece[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (board[r][c].type === 'void') continue;
+      movablePositions.push({ row: r, col: c });
+      movablePieces.push(board[r][c]);
+    }
+  }
 
   let candidate: Board = board;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const shuffledPieces = fisherYates(flatPieces, rng);
-    candidate = Array.from({ length: rows }, (_, r) =>
-      Array.from({ length: cols }, (_, c) => shuffledPieces[r * cols + c])
-    );
+    const shuffledPieces = fisherYates(movablePieces, rng);
+    candidate = board.map((row) => row.slice());
+    movablePositions.forEach((pos, i) => {
+      candidate[pos.row][pos.col] = shuffledPieces[i];
+    });
     // A freshly shuffled board must be free of BOTH straight runs and 2x2
     // squares — a latent square would auto-spawn an area bomb on the player's
     // next move without them having formed it, so it counts as "already
@@ -362,7 +426,9 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // left out of match runs — a swap that moves a blocker out of its cell
 // would itself be an illegal move (see gameState.ts's applyMove), so a
 // pair involving one must never be reported as "legal" here even if the
-// resulting board would otherwise contain a run.
+// resulting board would otherwise contain a run. Void cells (board-shape
+// holes) are excluded the same way and for the same reason — they can never
+// be swapped (see the `swappable` guard in the loop below).
 //
 // A color bomb is the opposite: a swap involving one is ALWAYS legal, because
 // it activates on the swap itself regardless of whether a run forms (see
@@ -412,14 +478,19 @@ export function hasLegalMoves(board: Board): boolean {
     return checkMatches(swapped).length > 0 || checkSquares(swapped).length > 0;
   };
 
+  // A void cell is a hole in the board shape, never swappable — it's excluded
+  // as both source and neighbour exactly like a blocker, so a board is never
+  // judged stuck (or legal) on the basis of a swap that can't happen.
+  const swappable = (piece: Piece): boolean => piece.type !== 'blocker' && piece.type !== 'void';
+
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (board[r][c].type === 'blocker') continue;
-      if (c + 1 < cols && board[r][c + 1].type !== 'blocker') {
+      if (!swappable(board[r][c])) continue;
+      if (c + 1 < cols && swappable(board[r][c + 1])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r, col: c + 1 });
         if (legalPair(board[r][c], board[r][c + 1], swapped)) return true;
       }
-      if (r + 1 < rows && board[r + 1][c].type !== 'blocker') {
+      if (r + 1 < rows && swappable(board[r + 1][c])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r + 1, col: c });
         if (legalPair(board[r][c], board[r + 1][c], swapped)) return true;
       }

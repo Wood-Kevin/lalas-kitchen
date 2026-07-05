@@ -537,6 +537,13 @@ export function Board({
           <View style={[styles.board, { width: boardWidth, height: rows * tileSize }]}>
             {renderBoard.flatMap((rowPieces, r) =>
               rowPieces.map((piece, c) => {
+                // A void is a hole in the board's shape — render nothing, so the
+                // board background shows through as the cutout. Every tile is
+                // absolutely positioned by row/col, so skipping one just leaves
+                // an empty cell; no layout shifts. A void has no tap/drag
+                // handlers either (there's no Tile), and the engine rejects any
+                // swap that would target one (see gameState.ts's applyMove).
+                if (piece.type === 'void') return null;
                 let displayRow = r;
                 let displayCol = c;
                 if (snapBack) {

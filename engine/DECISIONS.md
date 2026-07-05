@@ -1687,3 +1687,159 @@ chain or merge zones beyond becoming one more ordinary blocker; and clustered
 scattered by `fisherYates`) is not built — a static zone's contiguity is a
 hand-authored-level concern today, and the dynamic layer naturally grows
 contiguity on its own. None were asked for.
+
+## Special-piece chaining: one shared `expandChainClears`, gated by `originKeys`
+
+Chaining — a special piece caught in another special's clear effect firing its
+OWN effect too — had been deferred since the striped piece first shipped, carried
+through the color bomb, the combos, and the area bomb. Now that three special
+tiers exist it was built, and the investigation confirmed the shape the earlier
+work had already set up for it: **`resolveClearSet` is the single shared funnel**
+every swap-triggered effect passes through (`resolveColorBomb`, `resolveAreaBomb`,
+`resolveStripedCross`, `resolveStripedBombCombo` all end by calling it). So
+chaining is added **once**, as a pure `expandChainClears(board, seed, originKeys)`
+helper, and wired in at exactly two sites: `resolveClearSet` (covering all four
+swap-triggered effects at a stroke) **and** `resolveMatchEffects`'s in-match
+striped sweep (the one clear path that does NOT route through `resolveClearSet` —
+a striped piece included in an ordinary run clears directly via `resolveCascades`).
+Wiring both was an architect call (confirmed up front): the most common way a
+player fires a striped piece is swapping it into a match, which takes the in-match
+path, so chaining only in `resolveClearSet` would have left a visible
+inconsistency. One helper, two call sites, no duplication.
+
+**`originKeys` is the load-bearing subtlety.** A chain must fire the specials an
+effect *catches*, never the ones it *is*. Without a guard, a solo color bomb would
+re-detonate itself on the most-common colour, and a striped+striped cross would
+fire each trigger's own line on top of the cross it already defines. So each
+caller passes the keys of the specials it already fired/consumed — the swapped
+bomb (+ its partner, so a bomb+bomb whole-board swap doesn't re-chain the partner),
+the two swapped stripeds, the supercombo's every converted piece, the in-match
+striped triggers. Those cells still *clear* (they're in the seed) but are never
+enqueued as chain sources. Everything else in the (growing) clear set that's a
+special does chain. This is why "a color bomb detonation catches a striped piece
+of the target colour" fires the striped (it's in the seed but not an origin),
+while the bomb itself doesn't re-fire.
+
+**A caught color bomb has no swap partner**, so there's no partner matchType to
+name its target the way an ordinary bomb swap has one. Rather than make it a no-op
+(inconsistent — it *is* listed as a chainable special) or clear the whole board
+(a huge, swingy result from an incidental catch, against the calm brief), a caught
+color bomb detonates the board's **most common matchType** (`mostCommonMatchType`,
+deterministic with a row-major tie-break) — architect-chosen. Those clears can
+themselves chain.
+
+**Termination** is by construction, not by a depth cap: the board has finitely
+many cells, each enters the cleared set at most once, and only a freshly-cleared
+non-origin special is ever enqueued — so a chain runs dry the moment it stops
+reaching new specials, or once the whole board clears. **Objective credit** flows
+for free: `resolveClearSet` and `resolveCascades` already count every cleared cell
+by matchType, and they now count the fully-expanded set, so each triggered effect
+credits its own cells.
+
+The engine folds the whole chain into a **single committed clear set** (one move,
+one beat) — the per-link sequential animation staging is a presentation nicety,
+deferred exactly like the supercombo's convert-to-striped flash. Verified live
+(real `applyMove`, real sprite path) in `docs/verification/special-piece-chaining/`.
+Still deferred: that per-link animation flash, and chaining a special caught by
+the *dynamic denial-zone spread* (unrelated — the spread only ever consumes
+ordinary cells). Both in `DEFERRED_COMPLEXITY.md`.
+
+---
+
+# Board shape / void cells — non-rectangular boards (a plus, a ring, an irregular outline)
+
+## The claim that motivated this didn't hold — nothing was pre-built
+
+The build spec's "board shape is a source of variety across levels"
+(`lalas-kitchen-build-spec.md`) meant only **per-level rectangular `rows`/`cols`
+dimensions** — it was never cutout/non-rectangular support. Before this work
+`Board = Piece[][]` held a real piece at every index, `generateLevel` filled
+every cell, `calculateCascades` refilled every column to full height, and
+`Board.tsx` rendered every cell. There was no field, sentinel, mask, or config
+key for "this cell doesn't exist" anywhere. So this was built from scratch as a
+real engine feature, not switched on. (Investigation confirmed by a full-codebase
+sweep before any code changed.)
+
+## A void is a sentinel piece type, not a nullable cell (architect-chosen)
+
+A void cell is `type: 'void'` — the same shape `'blocker'` uses: a real object at
+every board index, special-cased by `type` wherever "is this ordinary content?"
+matters. The rejected alternative was making `Board` permanently
+`Array<Array<Piece | null>>` with `null` = void: `null` already means
+"transiently cleared, awaiting refill" inside `calculateCascades`, so overloading
+it would conflate two opposite meanings (one is refilled immediately, one is never
+refilled) and churn every consumer that currently assumes a non-null `Piece[][]`.
+The sentinel keeps `Board = Piece[][]` intact and every existing reader keeps a
+real object at every index. A void carries no `matchType`, so `piecesMatch`
+already rejects it; the explicit `type === 'void'` guards added alongside the
+blocker/bomb ones keep the "void is never content" invariant local and obvious.
+
+## Gravity is segmented per column — a void is a fixed floor, not a pass-through
+
+The one genuinely new algorithm. `calculateCascades` used to compact all
+survivors in a column to the bottom and refill the top. With voids that's wrong
+twice over: a piece must not fall *through* a void, and a refill must not fall
+*past* one. So a column is now walked as a series of maximal **non-void
+segments** separated by voids; gravity acts within each segment independently —
+survivors compact to the bottom of their own segment (resting on the void below
+or the floor), refills spawn at the **top of that segment** (never past the void
+above). A void-free column is exactly one full-height segment, so a plain
+rectangle behaves byte-for-byte as before (the old single-loop code was that
+special case).
+
+**Why segmented and not "flow" gravity:** both natural showcase shapes — a plus
+and a ring-with-missing-center — create *enclosed* playable cells with a void
+directly above them (a plus's side arm, a ring's side). Pure top-spawn gravity
+can never refill those (nothing can pass the void), so they'd drain to empty and
+break the always-full invariant. Segmented gravity refills each enclosed pocket
+from its own local top — a piece "appears" mid-board, which is common in match-3
+games with holes and is deterministic, calm, and pure. The far more complex
+"pieces slide diagonally around obstacles" flow model was rejected as overkill
+for this calm game and this engine's pure-function ethos.
+
+## Every "is this a match / a legal move / a shuffle" gate is void-aware, once each
+
+- **`piecesMatch`** excludes voids (a void breaks any run it sits in; runs on
+  either side are found independently, since `runsInLine` already segments on a
+  non-matching neighbour). **`checkSquares`** already required all four corners
+  to be `'normal'`, so voids can't seed a 2×2 — no change needed there.
+- **`hasLegalMoves`** excludes voids as both swap source and neighbour (a
+  `swappable` guard beside the existing blocker exclusion), so a board is never
+  judged legal *or* stuck on the basis of a swap that can't happen.
+- **`shuffle`** holds voids fixed — it only permutes the non-void pieces across
+  the non-void positions, so a plus stays a plus. (A void-free board reduces to
+  "every position is movable," identical to the pre-void flat shuffle.)
+- **`applyMove`** rejects any swap touching a void, right beside the blocker
+  rejection — the safety net for a drag from a board-edge cell toward a
+  neighbouring void (`dragDirection` only bounds-checks the rectangle, not the
+  shape).
+- **`generateLevel`** carves voids first (a fixed `void` piece) and fills only
+  the rest; `forbiddenTypesAt`'s `matchType !== undefined` guard means a void
+  neighbour never contributes a false constraint, and the existing match-free +
+  `hasLegalMoves → shuffle` guarantees now hold for a shaped board exactly as for
+  a rectangle. `placeBlockers` excludes voids from its candidate pool, so a
+  blocker never resurrects a cell the shape removed.
+- **`Board.tsx`** renders nothing for a void (`return null` in the tile map) —
+  every tile is absolutely positioned by row/col, so a skipped cell just leaves
+  the board background showing through as the cutout; no layout shift, no
+  placeholder, no tap/drag handler.
+
+## Config plumbing and the showcase level
+
+`LevelConfig.voidCells?: Position[]` (and the mirror `GeneratorConfig.voidCells`)
+is the one new field — optional, so every existing rectangular level is
+byte-identical. `createGameState` passes it straight through. The first
+non-rectangular level, **Level 4 · "Cutting Board"** (App.tsx's `LEVEL_QUEUE`),
+is a plus on a 7×7 board (the four 2×2 corner blocks voided → 33 playable cells),
+hand-authored and calm (generous moves, fewer piece types so the shorter arms
+still offer matches). Verified live in `docs/verification/board-shape/`.
+
+## Deliberately deferred (see `DEFERRED_COMPLEXITY.md`)
+
+Generator-*driven* shapes (the generator still only carves the `voidCells` it's
+handed — it never invents a shape), and any interaction between voids and the
+specials/denial-spread systems beyond "a void is an inert fixed hole" (a spread
+already only eats ordinary cells; a blast/sweep that reaches a void simply
+doesn't clear it). Hand-authored shapes first, generator integration as its own
+later step — the same prove-it-with-real-content sequencing every other feature
+here followed.
