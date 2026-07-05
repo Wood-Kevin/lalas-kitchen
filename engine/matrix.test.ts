@@ -1,5 +1,6 @@
 import {
   checkMatches,
+  checkSquares,
   swapPieces,
   calculateCascades,
   shuffle,
@@ -401,5 +402,87 @@ describe('applyAdjacentDamage', () => {
       expect.objectContaining({ type: 'blocker', hitsRemaining: 0 })
     );
     expect(secondHit.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
+  });
+});
+
+describe('checkSquares — 2x2 block detection', () => {
+  test('finds a 2x2 block of one matchType and returns its four cells top-left first', () => {
+    // A B A       A pure 2x2 of 'A' at the top-left corner, and NO 3-in-a-row of
+    // A B A       A anywhere (column 0/1 are broken up), so this is the shape the
+    // C C D       run scanner alone would miss entirely.
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['A', 'A', 'Y'],
+      ['C', 'D', 'E'],
+    ]);
+    // Sanity: no straight run exists, only the square.
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const squares = checkSquares(board);
+    expect(squares).toHaveLength(1);
+    expect(squares[0].matchType).toBe('A');
+    // positions[0] is the top-left anchor (the cell that becomes the area bomb).
+    expect(squares[0].positions[0]).toEqual({ row: 0, col: 0 });
+    expect(sortPositions(squares[0])).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 0 },
+      { row: 1, col: 1 },
+    ]);
+  });
+
+  test('a 2x2 that includes a non-normal piece (blocker/special) is not a square', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['A', 'A', 'Y'],
+      ['C', 'D', 'E'],
+    ]);
+    // Turn one of the four into a blocker of the same matchType — piecesMatch
+    // would still reject it, but checkSquares also requires all four to be plain
+    // 'normal' cells, so a special/blocker in a 2x2 never seeds an area bomb.
+    board[1][1] = blockerPiece('A', '1-1', 2);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    board[1][1] = { id: '1-1', type: 'striped', matchType: 'A', direction: 'row' };
+    expect(checkSquares(board)).toHaveLength(0);
+  });
+
+  test('four cells of one type in an L (not a filled square) are not a square', () => {
+    // (0,0)(0,1)(1,0) are A but (1,1) is not — three of a 2x2, not four.
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['A', 'B', 'Y'],
+      ['C', 'D', 'E'],
+    ]);
+    expect(checkSquares(board)).toHaveLength(0);
+  });
+
+  test('hasLegalMoves treats a square-forming swap as legal even when no run would result', () => {
+    // A distinct board is otherwise stuck, but one swap makes a pure 2x2 of A.
+    const board = buildBoard([
+      ['A', 'A', 'p'],
+      ['A', 'z', 'A'],
+      ['q', 'r', 's'],
+    ]);
+    // Swapping (1,1)<->(1,2) puts A at (1,1), completing the 2x2 at the corner —
+    // and forms no 3-in-a-row. Without square-awareness this board reads stuck.
+    expect(hasLegalMoves(board)).toBe(true);
+    const swapped = swapPieces(board, { row: 1, col: 1 }, { row: 1, col: 2 });
+    expect(checkMatches(swapped)).toHaveLength(0);
+    expect(checkSquares(swapped)).toHaveLength(1);
+  });
+
+  test('shuffle returns a board free of both runs and 2x2 squares', () => {
+    // A board saturated with one type would trivially form squares if shuffled
+    // carelessly; assert the settled result is clean on both axes.
+    const board = buildBoard([
+      ['A', 'A', 'B', 'B'],
+      ['A', 'A', 'B', 'C'],
+      ['B', 'C', 'A', 'A'],
+      ['C', 'B', 'A', 'C'],
+    ]);
+    const shuffled = shuffle(board, seededRng(7));
+    expect(checkMatches(shuffled)).toHaveLength(0);
+    expect(checkSquares(shuffled)).toHaveLength(0);
   });
 });

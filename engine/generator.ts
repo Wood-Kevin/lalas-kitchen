@@ -1,4 +1,4 @@
-import { Board, Position, checkMatches, hasLegalMoves, shuffle } from './matrix';
+import { Board, Position, checkMatches, checkSquares, hasLegalMoves, shuffle } from './matrix';
 
 export interface GeneratorConfig {
   rows: number;
@@ -66,19 +66,38 @@ function forbiddenTypesAt(board: Board, row: number, col: number): Set<string> {
 // matches even then, using full checkMatches (ground truth) rather than the
 // 2-cell local heuristic, so it can always find a fix as long as
 // pieceTypeIds has at least 2 distinct values.
+//
+// It also eliminates accidental 2x2 SQUARES (checkSquares): the fill loop's
+// forbiddenTypesAt only blocks 3-in-a-line, so a random fill routinely leaves a
+// bare 2x2 of one type — which is now a real match shape that would auto-spawn
+// an area bomb on the player's first move (see gameState.ts's checkSquares
+// integration). Breaking one corner of each square to a different type removes
+// it; the outer loop re-validates against both scans until the board is clean.
 function repairAccidentalMatches(board: Board, pieceTypeIds: string[], rng: () => number): void {
   const maxPasses = board.length * (board[0]?.length ?? 1) * pieceTypeIds.length + 20;
 
+  const recolor = (pos: Position, avoidType: string | undefined): void => {
+    const alternatives = pieceTypeIds.filter((t) => t !== avoidType);
+    const candidates = alternatives.length > 0 ? fisherYates(alternatives, rng) : pieceTypeIds;
+    const cell = board[pos.row][pos.col];
+    board[pos.row][pos.col] = { ...cell, matchType: candidates[0] };
+  };
+
   for (let pass = 0; pass < maxPasses; pass++) {
     const matches = checkMatches(board);
-    if (matches.length === 0) return;
+    const squares = checkSquares(board);
+    if (matches.length === 0 && squares.length === 0) return;
 
     for (const match of matches) {
       const mid = match.positions[Math.floor(match.positions.length / 2)];
-      const alternatives = pieceTypeIds.filter((t) => t !== match.matchType);
-      const candidates = alternatives.length > 0 ? fisherYates(alternatives, rng) : pieceTypeIds;
-      const cell = board[mid.row][mid.col];
-      board[mid.row][mid.col] = { ...cell, matchType: candidates[0] };
+      recolor(mid, match.matchType);
+    }
+    // After line matches, break each square by recoloring its top-left corner.
+    // A corner that a line-match recolor already changed this pass may no longer
+    // be part of a square, but recoloring it again is harmless — the next pass's
+    // checkSquares is the ground truth that decides when we're done.
+    for (const square of squares) {
+      recolor(square.positions[0], square.matchType);
     }
   }
 

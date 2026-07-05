@@ -49,6 +49,13 @@ export const spriteRegistry: SpriteAssetMap = {
   // this entry present a bomb renders the real glowing art; before it, the
   // lookup missed and fell through to resolveSpriteAsset's "CO" placeholder.
   'color_bomb': require('./sprites/color_bomb.webp'),
+  // Area-bomb special-piece art. Unlike color_bomb's extensionless key, an area
+  // bomb resolves to the real filename 'area_bomb.webp' (see
+  // components/spriteMap.ts's getSpriteForPiece) — one fixed sprite for every
+  // area bomb regardless of the ingredient it wraps, so this is one line, not
+  // six per-type lines like striped_. Before this entry an area bomb fell
+  // through to resolveSpriteAsset's "AR" text-label placeholder.
+  'area_bomb.webp': require('./sprites/area_bomb.webp'),
   'flame.webp': require('./sprites/flame.webp'),
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),

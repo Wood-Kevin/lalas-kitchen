@@ -4,8 +4,10 @@ import {
   Piece,
   Position,
   Match,
+  Square,
   StripeDirection,
   checkMatches,
+  checkSquares,
   swapPieces,
   calculateCascades,
   hasLegalMoves,
@@ -217,37 +219,66 @@ function sweepLinePositions(
   return out;
 }
 
+// Every cell in the 3x3 block centered on `pos`, clamped to the board edges —
+// the area an area bomb clears when it fires. Pure grid geometry, the
+// square-shaped sibling of sweepLinePositions above and just as
+// blocker-agnostic: resolveMatchEffects's addClear skips a blocker on the
+// blast, so it takes normal adjacent damage instead of a force-clear. Shared by
+// nothing else yet, but kept beside sweepLinePositions since both are "which
+// cells does this special reach" geometry.
+function areaBlastPositions(rows: number, cols: number, pos: Position): Position[] {
+  const out: Position[] = [];
+  for (let r = pos.row - 1; r <= pos.row + 1; r++) {
+    for (let c = pos.col - 1; c <= pos.col + 1; c++) {
+      if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
+      out.push({ row: r, col: c });
+    }
+  }
+  return out;
+}
+
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
-// colorless — see matrix.ts's Piece comment). Kept as a discriminated union
-// so resolveCascades builds each target piece correctly without a second
-// lookup, and so adding a future special type is one more variant here.
+// colorless — see matrix.ts's Piece comment); an area bomb also carries nothing
+// extra (it keeps the base cell's matchType, like striped, but has no
+// direction). Kept as a discriminated union so resolveCascades builds each
+// target piece correctly without a second lookup, and so adding a future
+// special type is one more variant here.
 type AnchorSpec =
   | { kind: 'striped'; direction: StripeDirection }
-  | { kind: 'color_bomb' };
+  | { kind: 'color_bomb' }
+  | { kind: 'area_bomb' };
 
-// Decides what each of this pass's matches actually does — the one place the
-// special-piece spawn rules live:
-//  - a match that CONTAINS a striped piece triggers it, sweeping that piece's
-//    whole row or column (per its `direction`) into the clear set, plus the
-//    ordinary match cells;
+// Decides what each of this pass's matches (runs) and squares actually does —
+// the one place the special-piece spawn rules live:
+//  - a run that CONTAINS a live special (striped and/or area bomb) triggers
+//    each: a striped piece sweeps its whole row or column (per its `direction`)
+//    into the clear set; an area bomb clears the 3x3 block centered on itself.
+//    The ordinary run cells clear too. A special caught in another's sweep/blast
+//    this pass just clears — it does NOT recursively fire (chaining deferred,
+//    see DEFERRED_COMPLEXITY.md);
 //  - a fresh 4-long run of ordinary pieces CONVERTS one cell into a striped
 //    piece carrying the run's orientation as its clear direction, and clears
 //    the other three;
 //  - a fresh 5-long run CONVERTS one cell into a color bomb and clears the
 //    other four. (A color bomb doesn't act here — it only fires when the
 //    player swaps it, handled in applyMove. This branch just spawns it.);
-//  - anything else (a plain 3-match, or a 6+ run — L/T-shape triggers and
-//    longer specials aren't in scope this session, see DEFERRED_COMPLEXITY.md)
-//    clears every cell.
+//  - a fresh 2x2 SQUARE of ordinary pieces (from `squares`) CONVERTS its
+//    top-left cell into an area bomb and clears the other three — but only if
+//    none of its four cells is part of any run this pass. A square overlapping
+//    a run is an L/T/larger shape, deferred (DEFERRED_COMPLEXITY.md): the run
+//    logic handles those cells and the square stands down. Like a striped
+//    piece, the area bomb keeps its matchType and fires passively later;
+//  - anything else (a plain 3-match, or a 6+ run) clears every cell.
 // Blockers are never added to the clear set here: they only ever fall to
-// adjacent damage (applyAdjacentDamage), so a striped sweep across a blocker
-// still respects its hitsRemaining rather than force-clearing it. Pure —
-// reads `board`, mutates nothing, returns the cells to gap and the anchor
+// adjacent damage (applyAdjacentDamage), so a striped sweep or area blast across
+// a blocker still respects its hitsRemaining rather than force-clearing it. Pure
+// — reads `board`, mutates nothing, returns the cells to gap and the anchor
 // cells to convert into special pieces.
 function resolveMatchEffects(
   board: Board,
-  matches: Match[]
+  matches: Match[],
+  squares: Square[]
 ): { clearedPositions: Position[]; anchors: Array<{ pos: Position } & AnchorSpec> } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
@@ -259,20 +290,33 @@ function resolveMatchEffects(
     if (board[r][c].type !== 'blocker') clearedKeys.add(keyOf(r, c));
   };
 
+  // Every cell any run covers this pass — a square is only allowed to spawn an
+  // area bomb when none of its four cells is in here (the pure-square rule that
+  // keeps L/T/larger shapes deferred, see the doc above).
+  const runCovered = new Set<string>();
+  for (const match of matches) {
+    for (const p of match.positions) runCovered.add(keyOf(p.row, p.col));
+  }
+
   for (const match of matches) {
     const cells = match.positions;
-    const containsStriped = cells.some((p) => board[p.row][p.col].type === 'striped');
+    // Live specials sitting in this run — a striped piece or an area bomb.
+    // Either kind fires when included in a match (the passive trigger both
+    // share); a run containing both fires both.
+    const specials = cells.filter((p) => {
+      const t = board[p.row][p.col].type;
+      return t === 'striped' || t === 'area_bomb';
+    });
 
-    if (containsStriped) {
-      // A striped piece was part of this match — sweep its full line. (Its
-      // own effect firing does NOT recursively trigger other striped pieces
-      // caught in the sweep this pass; those just clear. Chaining is deferred,
-      // see DEFERRED_COMPLEXITY.md.)
-      for (const p of cells) {
+    if (specials.length > 0) {
+      for (const p of specials) {
         const piece = board[p.row][p.col];
-        if (piece.type !== 'striped') continue;
-        const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-        for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
+        if (piece.type === 'striped') {
+          const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
+          for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
+        } else {
+          for (const q of areaBlastPositions(rows, cols, p)) addClear(q.row, q.col);
+        }
       }
       for (const p of cells) addClear(p.row, p.col);
     } else if (cells.length === 5) {
@@ -285,6 +329,20 @@ function resolveMatchEffects(
       for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
     } else {
       for (const p of cells) addClear(p.row, p.col);
+    }
+  }
+
+  // Pure 2x2 squares → area bombs. Same anchor-conversion shape a 4-run uses
+  // for a striped piece: convert the top-left cell, clear the other three (so a
+  // square credits 3 toward objectives now; the bomb pays out the rest when it
+  // later fires). checkSquares already guaranteed all four cells are ordinary
+  // pieces, so none is a blocker to skip here.
+  for (const square of squares) {
+    if (square.positions.some((p) => runCovered.has(keyOf(p.row, p.col)))) continue;
+    const anchor = square.positions[0];
+    anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'area_bomb' });
+    for (let i = 1; i < square.positions.length; i++) {
+      addClear(square.positions[i].row, square.positions[i].col);
     }
   }
 
@@ -319,11 +377,15 @@ function resolveCascades(
 
   while (true) {
     const matches = checkMatches(currentBoard);
-    if (matches.length === 0) break;
+    // Squares are a second, run-independent match shape (a pure 2x2 forms no
+    // 3-in-a-row), so the cascade continues while EITHER exists — otherwise a
+    // cascade that settles into a bare 2x2 would leave it un-triggered.
+    const squares = checkSquares(currentBoard);
+    if (matches.length === 0 && squares.length === 0) break;
 
     cascadeCount += 1;
 
-    const { clearedPositions, anchors } = resolveMatchEffects(currentBoard, matches);
+    const { clearedPositions, anchors } = resolveMatchEffects(currentBoard, matches, squares);
 
     // Blockers don't match directly — they take damage from whatever clears
     // next to them (see matrix.ts's applyAdjacentDamage and DECISIONS.md),
@@ -350,6 +412,9 @@ function resolveCascades(
     // pass's gravity like any other piece.
     //  - striped: keeps its matchType too (it's still a matchable piece of its
     //    own type until swept) and gains the type + clear direction.
+    //  - area_bomb: keeps its matchType too (also a matchable piece until it's
+    //    included in a later match, then it clears its 3x3) and gains the type;
+    //    it carries no direction.
     //  - color_bomb: drops matchType/direction entirely — it's colorless and
     //    can never form an ordinary run (see matrix.ts's piecesMatch), it only
     //    fires when swapped (applyMove).
@@ -358,7 +423,9 @@ function resolveCascades(
       withGaps[anchor.pos.row][anchor.pos.col] =
         anchor.kind === 'striped'
           ? { ...base, type: 'striped', direction: anchor.direction }
-          : { id: base.id, type: 'color_bomb' };
+          : anchor.kind === 'area_bomb'
+            ? { ...base, type: 'area_bomb' }
+            : { id: base.id, type: 'color_bomb' };
     }
     currentBoard = calculateCascades(withGaps, spawnPiece);
     steps.push(currentBoard);
@@ -598,7 +665,11 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     resolved = resolveColorBomb(state.board, bombPos, otherPos, state.spawnPiece);
   } else {
     const swapped = swapPieces(state.board, posA, posB);
-    if (checkMatches(swapped).length === 0) {
+    // A swap is legal if it forms a straight run OR a 2x2 square (which spawns
+    // an area bomb — see resolveMatchEffects). A pure square forms no
+    // 3-in-a-row, so checkSquares must be consulted here too, or a valid
+    // square-forming move would be wrongly snapped back as a no-match swap.
+    if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
       return { state, events: [], steps: [] };
     }

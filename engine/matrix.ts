@@ -1,4 +1,4 @@
-export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb';
+export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb' | 'area_bomb';
 
 // Which line a striped piece clears when it's matched (see gameState.ts's
 // resolveCascades). A separate 'row'/'col' field rather than two piece types
@@ -24,6 +24,13 @@ export interface Piece {
   // it's colorless by design, so it can never form an ordinary run
   // (piecesMatch excludes it, like a blocker). It activates only by being
   // swapped, handled entirely in gameState.ts's applyMove, not here.
+  //
+  // An 'area_bomb' piece (spawned by a 2x2 square of same-type pieces, see
+  // gameState.ts's resolveMatchEffects and checkSquares below) is the opposite:
+  // it KEEPS its matchType and carries no direction/hitsRemaining. Like a
+  // striped piece it stays an ordinary matchable, swappable piece — piecesMatch
+  // does NOT exclude it — and activates passively, by being included in a later
+  // ordinary match of its type, at which point it clears the 3x3 around itself.
 }
 
 export type Board = Piece[][];
@@ -42,6 +49,19 @@ export interface Match {
   // 3-match ignores it. positions.length already carries the run length, so a
   // 4-match is distinguishable from a 3-match with no extra field.
   orientation: StripeDirection;
+}
+
+// A 2x2 block of four mutually-matching pieces — a genuinely different shape
+// from checkMatches' straight-line runs, so it gets its own scan (checkSquares)
+// rather than being folded into runsInLine. It has no orientation (a square
+// isn't a row or a column), and it must never be mistaken for a 4-long run,
+// which spawns a striped piece instead of an area bomb. positions[0] is the
+// top-left cell and is the anchor that becomes the area bomb, mirroring how a
+// run uses its first cell as the striped/bomb anchor (see gameState.ts's
+// resolveMatchEffects).
+export interface Square {
+  matchType: string | undefined;
+  positions: Position[];
 }
 
 // Two pieces only match if both carry a matchType and it's equal. A piece
@@ -103,6 +123,49 @@ export function checkMatches(board: Board): Match[] {
   }
 
   return matches;
+}
+
+// Finds every 2x2 block of four ORDINARY pieces sharing one matchType. Only
+// plain `type === 'normal'` cells seed a square: a blocker, a color bomb, or an
+// already-live special (striped/area_bomb) caught in a 2x2 region never
+// converts to — or is consumed by — an area bomb, exactly as the run path never
+// re-spawns a special over an existing one. This is the SPAWN scan; it's
+// independent of, and runs alongside, checkMatches (a pure 2x2 forms no
+// 3-in-a-row, so the run scan alone would miss it). Overlapping squares (a 2x3
+// region, say) are all returned, but such a region also contains a straight
+// run, so gameState.ts's resolveMatchEffects — which only spawns a bomb for a
+// square whose cells no run touches — stands those down and lets the run logic
+// handle them (L/T/larger shapes stay deferred). Pure: reads the board, returns
+// the squares found.
+export function checkSquares(board: Board): Square[] {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const squares: Square[] = [];
+
+  for (let r = 0; r + 1 < rows; r++) {
+    for (let c = 0; c + 1 < cols; c++) {
+      const tl = board[r][c];
+      const tr = board[r][c + 1];
+      const bl = board[r + 1][c];
+      const br = board[r + 1][c + 1];
+      if (tl.type !== 'normal' || tr.type !== 'normal' || bl.type !== 'normal' || br.type !== 'normal') {
+        continue;
+      }
+      if (!piecesMatch(tl, tr) || !piecesMatch(tl, bl) || !piecesMatch(tl, br)) continue;
+
+      squares.push({
+        matchType: tl.matchType,
+        positions: [
+          { row: r, col: c },
+          { row: r, col: c + 1 },
+          { row: r + 1, col: c },
+          { row: r + 1, col: c + 1 },
+        ],
+      });
+    }
+  }
+
+  return squares;
 }
 
 export function swapPieces(board: Board, posA: Position, posB: Position): Board {
@@ -228,7 +291,15 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
     candidate = Array.from({ length: rows }, (_, r) =>
       Array.from({ length: cols }, (_, c) => shuffledPieces[r * cols + c])
     );
-    if (checkMatches(candidate).length === 0 && hasLegalMoves(candidate)) {
+    // A freshly shuffled board must be free of BOTH straight runs and 2x2
+    // squares — a latent square would auto-spawn an area bomb on the player's
+    // next move without them having formed it, so it counts as "already
+    // matched" here exactly like a run does.
+    if (
+      checkMatches(candidate).length === 0 &&
+      checkSquares(candidate).length === 0 &&
+      hasLegalMoves(candidate)
+    ) {
       return candidate;
     }
   }
@@ -252,6 +323,15 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // the cross combo (see gameState.ts's resolveStripedCross) on the swap itself,
 // no run required. A striped+bomb pair is already covered by the color-bomb
 // clause above (the bomb makes the pair legal), so both combo swaps are handled.
+//
+// A swap that forms a 2x2 square (rather than a straight run) is also a legal
+// move — it spawns an area bomb (see gameState.ts's resolveMatchEffects) — so
+// checkSquares joins checkMatches in the ordinary-pair test below. Without this
+// a board whose only move makes a square would be wrongly judged stuck and
+// shuffled out from under the player, the same failure the color-bomb clause
+// guards against. The area bomb's own passive trigger needs no clause here: a
+// swap that lines it into a run is caught by checkMatches like any matchable
+// piece.
 export function hasLegalMoves(board: Board): boolean {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
@@ -259,7 +339,7 @@ export function hasLegalMoves(board: Board): boolean {
   const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
     if (a.type === 'striped' && b.type === 'striped') return true;
-    return checkMatches(swapped).length > 0;
+    return checkMatches(swapped).length > 0 || checkSquares(swapped).length > 0;
   };
 
   for (let r = 0; r < rows; r++) {

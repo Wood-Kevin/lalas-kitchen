@@ -103,4 +103,23 @@ describe('getSpriteForPiece', () => {
     const bombSprite = getSpriteForPiece({ type: 'color_bomb' }, sampleConfig);
     expect(resolveSpriteAsset(bombSprite, emptyAssets)).toEqual({ kind: 'label', label: 'CO' });
   });
+
+  test('an area bomb resolves to the single fixed area_bomb.webp regardless of matchType', () => {
+    // One fixed sprite (the skin ships one area_bomb.webp), like the color bomb —
+    // not a per-type variant like striped. The engine still keeps the piece's
+    // matchType for its passive trigger and credit; only the sprite is uniform.
+    expect(getSpriteForPiece({ type: 'area_bomb', matchType: 'tomato' }, sampleConfig)).toBe('area_bomb.webp');
+    expect(getSpriteForPiece({ type: 'area_bomb', matchType: 'lemon' }, sampleConfig)).toBe('area_bomb.webp');
+    // Even a matchType absent from the config resolves the same — the sprite
+    // doesn't derive from the ingredient at all.
+    expect(getSpriteForPiece({ type: 'area_bomb', matchType: 'nonexistent' }, sampleConfig)).toBe('area_bomb.webp');
+  });
+
+  test('an area bomb with no registered art falls back to the text-label placeholder', () => {
+    // The same graceful fallback every un-arted piece gets — never a crash or
+    // blank tile. Real art is one spriteRegistry.ts line ('area_bomb.webp').
+    const emptyAssets = {} as unknown as Parameters<typeof resolveSpriteAsset>[1];
+    const areaSprite = getSpriteForPiece({ type: 'area_bomb', matchType: 'tomato' }, sampleConfig);
+    expect(resolveSpriteAsset(areaSprite, emptyAssets)).toEqual({ kind: 'label', label: 'AR' });
+  });
 });

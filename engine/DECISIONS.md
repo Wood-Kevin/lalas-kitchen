@@ -1440,3 +1440,88 @@ the bomb+bomb whole-board clear is unchanged (not a "combo" in this sense), and
 the intermediate convert-to-striped animation frame for the supercombo are all
 deferred; the combos are correct at the settled-board level, which is what the
 engine and objectives care about.
+
+## Area bombs: the third special piece (spawn on a 2×2 square, clear a 3×3 on match)
+
+A run of 3 clears, 4 spawns a striped piece, 5 spawns a color bomb — all
+straight-line shapes. The area bomb is the first special triggered by a
+genuinely different shape: a **2×2 square** of four same-type pieces spawns one
+area bomb; matching that bomb later clears the **3×3** block centered on it.
+L/T-shape triggers stay deferred (`DEFERRED_COMPLEXITY.md`) — the square is a
+strictly simpler detection than intersecting runs meeting at a corner.
+
+**A 2×2 is a new match shape, not a longer/shorter run.** Every prior detector
+(`checkMatches`) scans straight runs only, so a pure 2×2 (which contains no
+3-in-a-row) was invisible to the whole engine. A new pure scan `checkSquares`
+(`matrix.ts`) finds every 2×2 of four `type === 'normal'` cells sharing a
+matchType, alongside — never folded into — `checkMatches`. It gets its own
+`Square` type (no `orientation`; a square is neither a row nor a column) so it's
+never mistaken for a 4-run, which would spawn a striped piece instead.
+
+**The detection surface is broader than the trigger.** Because a pure square
+forms no run, EVERY "is there a match?" gate had to learn about squares, or the
+feature breaks in two ways: a valid square-forming swap gets snapped back as a
+no-match move, and a board with a latent square (from generation or a shuffle)
+auto-spawns a *free* bomb on the player's next move. So `checkSquares` now joins
+`checkMatches` in: `applyMove`'s snap-back check, `resolveCascades`'s loop
+condition, `hasLegalMoves`'s legal-pair test, `shuffle`'s match-free guarantee,
+and the generator's `repairAccidentalMatches`. This surface is required
+regardless of the activation choice below.
+
+**Activation: passive, like the striped piece — a real fork, confirmed with the
+architect.** The area bomb is a *colored* special: it spawns from four same-type
+pieces and keeps its `matchType`, exactly like a striped piece. In this game's
+taxonomy, colored specials fire by being **matched** (the striped sweep); the
+color bomb fires on **swap** only because it's colorless and has no color to
+match on. Putting the area bomb in its natural (striped) camp means it activates
+passively — included in a later ordinary run of its type, then it blasts its 3×3.
+The decisive practical consequence: passive needs **no** new `applyMove` branch
+and **no** `hasLegalMoves` trigger-clause. It rides the existing
+`resolveCascades` → `resolveMatchEffects` path — the same generalization that
+already fires a striped piece caught in a match. (Active/swap activation would
+have needed both, and would have wasted the piece's color.) The architect
+confirmed passive before the build.
+
+**Where it plugs in.** `resolveMatchEffects` gained an `area_bomb` alongside
+`striped` in the "this match contains a live special — fire each" branch (a
+match containing both fires both; a special caught in another's blast just
+clears — chaining stays deferred). It also gained a squares loop that converts a
+square's top-left anchor to an area bomb and clears the other three — but only if
+none of the square's four cells is touched by a run this pass. That
+run-overlap guard is what keeps L/T/larger shapes deferred: an L contains both a
+3-run and a 2×2, and the run logic owns those cells, so the overlapping square
+stands down and no bomb spawns. `resolveCascades` computes `checkSquares`
+each pass, breaks when both runs and squares are empty, and converts an
+`area_bomb` anchor with `{ ...base, type: 'area_bomb' }` — keeping the base
+cell's matchType (colored, matchable, passively triggerable), no direction. The
+3×3 geometry is `areaBlastPositions`, the square-shaped sibling of
+`sweepLinePositions`.
+
+**Crediting mirrors the striped piece.** A 2×2 converts one cell and clears
+three, so it credits 3 toward objectives now; the bomb pays out the rest when it
+later fires — the same anchor-excluded accounting a 4-run→striped uses.
+
+**Blocker consistency holds.** `resolveMatchEffects`'s `addClear` skips blocker
+cells, so a blocker caught in a 3×3 blast takes normal one-hit adjacent damage
+through `applyAdjacentDamage`, never a force-clear — the one blocker rule every
+clearing mechanism obeys.
+
+**Sprite: one fixed `area_bomb.webp`, like the color bomb — but keyed by its real
+filename.** The skin ships a single `area_bomb.webp` (the bomb wrap looks the
+same whatever ingredient it wraps), so `getSpriteForPiece` resolves every area
+bomb to that one filename regardless of matchType — even though the engine keeps
+the matchType for the trigger and credit. This was a course-correction: the first
+implementation used a per-base `area_bomb_<type>` scheme (like striped), which
+would have left the architect's pre-dropped `area_bomb.webp` permanently
+unrendered (always the "AR" text placeholder) — exactly the recipe-card-art vs.
+placeholder-contract class of silent bug the playtest protocol warns about.
+Unlike the color bomb's deliberately extensionless key, this keys by the real
+filename `'area_bomb.webp'` like every other registry entry.
+
+Verified live — see `docs/verification/area-bomb/` for the real-`applyMove`
+filmstrip (2×2 → bomb, match → 3×3, blocker spared on one hit).
+
+**Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** L/T-shape triggers
+(an L/T-formed area bomb, vs. the built square trigger), and blast chaining (a
+special caught in a 3×3 blast just clears, it doesn't recursively fire) remain
+deferred, consistent with the striped and color-bomb scope limits.

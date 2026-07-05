@@ -40,6 +40,16 @@ export function getSpriteForPiece(
   // placeholder ("CO"), same graceful fallback every un-arted piece gets;
   // dropping in real art is one spriteRegistry.ts line, zero code changes.
   if (piece.type === 'color_bomb') return 'color_bomb';
+  // An area bomb, like a color bomb, renders as a SINGLE fixed sprite rather than
+  // a per-type variant: the skin ships one `area_bomb.webp` (the bomb wrap looks
+  // the same whatever the wrapped ingredient), so this resolves to that one
+  // filename regardless of matchType — even though the engine keeps the piece's
+  // matchType for its passive trigger and objective credit (see matrix.ts's
+  // Piece comment). Unlike color_bomb's extensionless key, this keys by the real
+  // filename like every other entry. With no registry entry it falls through to
+  // resolveSpriteAsset's text-label placeholder ("AR"), the same graceful
+  // fallback every un-arted piece gets.
+  if (piece.type === 'area_bomb') return 'area_bomb.webp';
   const base = getSpriteForMatchType(piece.matchType, config);
   if (piece.type === 'striped' && base !== undefined) return `striped_${base}`;
   return base;

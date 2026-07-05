@@ -8,7 +8,7 @@ import {
   saveProgress,
   createInMemoryStorage,
 } from './gameState';
-import { Board, Piece, checkMatches, hasLegalMoves } from './matrix';
+import { Board, Piece, checkMatches, checkSquares, hasLegalMoves } from './matrix';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
@@ -1241,5 +1241,154 @@ describe('save/load round trip', () => {
 
     expect(loaded).toEqual(data);
     expect(loaded?.itemsCollected).toEqual({ tomato: 21, lemon: 9 });
+  });
+});
+
+describe('applyMove — area bombs (2x2 square trigger)', () => {
+  // A wholly-distinct grid so nothing matches or squares by accident — every
+  // area-bomb scenario is set up explicitly on top of it. Same pattern as the
+  // combos block above.
+  const distinctBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`c${r}${c}`, `${r}-${c}`))
+    );
+  const distinctSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 40 }, (_, i) => `s${i}`));
+  const hasId = (board: Board, id: string): boolean => board.flat().some((p) => p.id === id);
+  const findById = (board: Board, id: string): Piece | undefined => board.flat().find((p) => p.id === id);
+  const countType = (board: Board, type: string): number => board.flat().filter((p) => p.type === type).length;
+  const survivingGridPieces = (board: Board): number =>
+    board.flat().filter((p) => /^\d+-\d+$/.test(p.id)).length;
+
+  const stateWith = (board: Board, targetMatchType: string): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType, targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: distinctSpawns(),
+  });
+
+  test('a 2x2 block spawns exactly one area bomb and clears the other three (not four ordinary clears)', () => {
+    const board = distinctBoard(5, 5);
+    // Three A's already forming an L at the corner; a fourth A one cell right of
+    // the gap. Swapping it in completes the 2x2 {(0,0),(0,1),(1,0),(1,1)} with
+    // NO 3-in-a-row anywhere — the pure-square trigger.
+    board[0][0] = piece('A', '0-0');
+    board[0][1] = piece('A', '0-1');
+    board[1][0] = piece('A', '1-0');
+    board[1][2] = piece('A', '1-2');
+    // Pre-move sanity: no run, no square yet (only 3 of the 2x2 are filled).
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // Exactly one area bomb exists — the 2x2 became one special, not four clears
+    // and not a striped piece or color bomb.
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+    // It's the top-left anchor cell (id '0-0'), colored (keeps matchType 'A'),
+    // with no striped direction. Gravity may have dropped it from row 0, so it's
+    // found by id, not position.
+    const bomb = findById(result.state.board, '0-0');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(bomb?.matchType).toBe('A');
+    expect(bomb?.direction).toBeUndefined();
+    // The other three A cells cleared (the anchor was converted, not cleared).
+    for (const id of ['0-1', '1-0', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
+    // Only 3 grid pieces cleared, and the objective credits 3 (anchor excluded),
+    // exactly like a 4-run spawning a striped piece credits 3.
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 3);
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    // A real, committed move even though the swap formed no ordinary run.
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('matching an area bomb into a run clears the full 3x3 area centered on it', () => {
+    const board = distinctBoard(5, 5);
+    // A live area bomb at the center (2,2), matchType 'A'. Two ordinary A's set
+    // up so one swap forms a 3-run through it: A at (2,1), A at (2,4), distinct
+    // at (2,3). Swapping (2,3)<->(2,4) makes row 2 cols 1-2-3 all 'A'.
+    board[2][2] = { id: '2-2', type: 'area_bomb', matchType: 'A' };
+    board[2][1] = piece('A', '2-1');
+    board[2][4] = piece('A', '2-4');
+    // Pre-move sanity: only two adjacent A's near the bomb, no run yet.
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 3 }, { row: 2, col: 4 });
+
+    // The 3x3 centered on (2,2) — rows 1-3, cols 1-3 — is fully cleared. Ids of
+    // the pieces that occupied those cells at trigger time (post-swap: the A
+    // from (2,4) sits at (2,3)).
+    const blastIds = ['1-1', '1-2', '1-3', '2-1', '2-2', '2-4', '3-1', '3-2', '3-3'];
+    for (const id of blastIds) expect(hasId(result.state.board, id)).toBe(false);
+    // The distinct piece originally at (2,3) was swapped OUT to (2,4), off the
+    // blast, so it survives — proving the clear is the 3x3, not the swap cells.
+    expect(hasId(result.state.board, '2-3')).toBe(true);
+    // The bomb consumed itself; none left.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    // Nine cells cleared; three of them are 'A' (the two ordinary A's and the
+    // bomb, which carries matchType 'A'), crediting 3 to the objective.
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 9);
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a two-hit blocker caught in the 3x3 blast takes one hit and is never force-cleared', () => {
+    const board = distinctBoard(5, 5);
+    board[2][2] = { id: '2-2', type: 'area_bomb', matchType: 'A' };
+    board[2][1] = piece('A', '2-1');
+    board[2][4] = piece('A', '2-4');
+    // A two-hit blocker inside the 3x3 (at (3,3)), adjacent to blast cells (2,3)
+    // and (3,2), so it takes adjacent damage rather than a direct clear.
+    board[3][3] = { id: '3-3', type: 'blocker', matchType: 'lid', hitsRemaining: 2 };
+
+    const result = applyMove(stateWith(board, 'lid'), { row: 2, col: 3 }, { row: 2, col: 4 });
+
+    const lid = findById(result.state.board, '3-3');
+    expect(lid?.type).toBe('blocker');
+    expect(lid?.hitsRemaining).toBe(1); // one hit, not force-cleared
+    // It didn't clear, so nothing credited to the 'lid' objective.
+    expect(result.state.objectives[0].currentCount).toBe(0);
+  });
+
+  test('hasLegalMoves keeps a board playable when its only move forms a 2x2 square', () => {
+    // Distinct 3x3 with a small A cluster; the ONLY productive swap makes a pure
+    // square (no run). Passive area bombs need no trigger-clause here — this
+    // guards the spawn path, the same way the color bomb needed its own clause.
+    const board = buildBoard([
+      ['A', 'A', 'p'],
+      ['A', 'z', 'A'],
+      ['q', 'r', 's'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+
+  test('an L-shape (a square overlapping a straight run) does not spawn an area bomb — L/T stays deferred', () => {
+    const board = distinctBoard(5, 5);
+    // Four A's placed so ONE swap forms an L of five: a vertical 3-run in
+    // column 1 (rows 0-2) AND the 2x2 {(0,1),(0,2),(1,1),(1,2)} at once. Neither
+    // the run nor the square pre-exists (both need cell (0,1), which the swap
+    // fills). The square's cells overlap the run, so it stands down — no bomb.
+    board[1][1] = piece('A', '1-1');
+    board[2][1] = piece('A', '2-1');
+    board[0][2] = piece('A', '0-2');
+    board[1][2] = piece('A', '1-2');
+    // The A that completes the L, parked at (0,0), swapped into (0,1).
+    board[0][0] = piece('A', '0-0');
+    // Pre-move sanity: no run and no square yet.
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // The overlapping square stood down: no area bomb spawned. (The column-1
+    // 3-run resolved as an ordinary clear.)
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    // A real move happened.
+    expect(result.state.movesRemaining).toBe(9);
   });
 });
