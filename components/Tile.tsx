@@ -11,6 +11,7 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { ResolvedSprite } from './spriteAsset';
 import { BLOCKER_CLEAR_HIGHLIGHT_MS, SWEEP_GLOW_POP_MS } from './cascadeTiming';
+import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
 
 export interface TileProps {
@@ -51,6 +52,15 @@ export interface TileProps {
   // Fires once on release, with the final offset. Board resolves it to a
   // neighbour and, if any, calls the same applyMove path a tap-swap uses.
   onDragEnd?: (dx: number, dy: number) => void;
+  // Board's grid dimensions, plus the px distance a drag must travel to commit
+  // (Board's tileSize * DRAG_SWAP_THRESHOLD_FRACTION). The release handler uses
+  // these to answer, on the UI thread, "will this drag commit a swap?" — the
+  // same question Board answers on the JS thread — so it knows whether the
+  // committed slide will fold the finger-offset back to rest (it will, via the
+  // position effect) or whether this tile must spring itself back instead.
+  rows?: number;
+  cols?: number;
+  dragSwapThresholdPx?: number;
 }
 
 // A single animated board tile. Position is driven entirely by Reanimated
@@ -74,6 +84,9 @@ export function Tile({
   dragEnabled = true,
   onDragMove,
   onDragEnd,
+  rows = 0,
+  cols = 0,
+  dragSwapThresholdPx = 0,
 }: TileProps) {
   const rowShared = useSharedValue(enterFromRow ?? row);
   const colShared = useSharedValue(col);
@@ -89,6 +102,18 @@ export function Tile({
     rowShared.value = withTiming(row, { duration: durationMs });
     colShared.value = withTiming(col, { duration: durationMs });
     opacity.value = withTiming(1, { duration: durationMs });
+    // Fold any live drag offset back to rest on the SAME clock as the row/col
+    // slide above. When a drag commits a swap, this tile re-renders with its new
+    // cell, so the grid slide and the finger-offset decay start on the same
+    // frame with the same duration/easing — their sum stays monotonic, and the
+    // tile flows continuously from where the finger left it straight to its
+    // landing cell. This is the fix for the drag "jump": previously the offset
+    // decayed on its own DRAG_RETURN_MS clock (see onFinalize) that started a
+    // few frames earlier than the grid slide, so the tile briefly retreated
+    // toward its origin before sliding out to the destination. A no-op (0 → 0)
+    // on every non-drag render, which is every render for a tapped swap.
+    dragX.value = withTiming(0, { duration: durationMs });
+    dragY.value = withTiming(0, { duration: durationMs });
     // Only the target position/duration should retrigger the animation —
     // reanimated shared values are stable across renders by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,14 +145,38 @@ export function Tile({
           'worklet';
           if (onDragEnd) runOnJS(onDragEnd)(event.translationX, event.translationY);
         })
-        .onFinalize(() => {
+        .onFinalize((event) => {
           'worklet';
-          // Always snap back to rest — whether the swap committed (Board's
-          // row/col animation takes over) or not.
-          dragX.value = withTiming(0, { duration: DRAG_RETURN_MS });
-          dragY.value = withTiming(0, { duration: DRAG_RETURN_MS });
+          // Does this release resolve to a real, in-bounds neighbour? If so a
+          // swap is about to commit (or, if illegal, snap back) — either way the
+          // tile re-renders and the position effect folds this offset back to
+          // rest on the grid slide's own clock. Starting a competing decay here
+          // would put the follow-offset and the committed slide on two different
+          // clocks again — the exact jump this change removes — so we leave the
+          // offset untouched and let the re-render carry it home.
+          //
+          // Only when the drag resolved to nothing (below threshold or off the
+          // board edge) does Board make no move and nothing re-renders, so this
+          // is the one case where the tile must spring itself back. Same origin
+          // cell the grid slide reads from: rowShared/colShared are at rest on
+          // an integer cell here, since a drag can only start when no animation
+          // is in flight (see Board's dragEnabled). resolveDragTarget is the same
+          // decision Board.dragNeighbor makes; a non-null target means a swap
+          // commits and re-renders (position effect folds the offset), so we skip.
+          const target = resolveDragTarget(
+            event.translationX,
+            event.translationY,
+            { row: Math.round(rowShared.value), col: Math.round(colShared.value) },
+            rows,
+            cols,
+            dragSwapThresholdPx
+          );
+          if (!target) {
+            dragX.value = withTiming(0, { duration: DRAG_RETURN_MS });
+            dragY.value = withTiming(0, { duration: DRAG_RETURN_MS });
+          }
         }),
-    [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY]
+    [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY, rowShared, colShared, rows, cols, dragSwapThresholdPx]
   );
 
   const animatedStyle = useAnimatedStyle(() => ({

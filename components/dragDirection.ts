@@ -38,6 +38,12 @@ export function resolveDragDirection(
   dy: number,
   threshold: number
 ): DragDirection | null {
+  // Marked a worklet so the release handler in Tile.tsx can call it directly on
+  // the UI thread (to decide whether a drag will commit a swap) using the exact
+  // same dominant-axis + threshold rule Board applies on the JS thread — one
+  // source of truth for the geometry, no duplicated tie-breaking. Still a plain
+  // pure function when called from JS (Board.tsx, the tests).
+  'worklet';
   const absX = Math.abs(dx);
   const absY = Math.abs(dy);
   // Not far enough along either axis yet — no neighbour is clearly targeted.
@@ -46,4 +52,37 @@ export function resolveDragDirection(
     return dx > 0 ? 'right' : 'left';
   }
   return dy > 0 ? 'down' : 'up';
+}
+
+// A drag vector originating on `origin` mapped to the actual in-bounds neighbour
+// cell it commits to, or null if it resolves to nothing (below threshold, or it
+// would run off the board edge). This is the single "does this release land a
+// swap?" decision, shared by two callers that must agree:
+//   - Board.dragNeighbor, on the JS thread, for the live target highlight and
+//     the release-to-applyMove handoff;
+//   - Tile's onFinalize worklet, on release, to decide whether to spring the
+//     finger-offset back. A non-null target means a swap will commit (or snap
+//     back) and re-render, so the position effect folds the offset home on the
+//     grid slide's clock — onFinalize must NOT start a second decay. A null
+//     target means nothing re-renders, so onFinalize is the only thing that can
+//     return the tile to rest.
+// Kept a worklet so the release handler can call it on the UI thread; still a
+// plain pure function from JS (Board, the tests). Bounds use a plain {row,col}
+// shape rather than importing gameState's Position, so this module stays pure
+// geometry with no engine dependency.
+export function resolveDragTarget(
+  dx: number,
+  dy: number,
+  origin: { row: number; col: number },
+  rows: number,
+  cols: number,
+  thresholdPx: number
+): { row: number; col: number } | null {
+  'worklet';
+  const direction = resolveDragDirection(dx, dy, thresholdPx);
+  if (!direction) return null;
+  const delta = DRAG_NEIGHBOR_DELTA[direction];
+  const target = { row: origin.row + delta.dRow, col: origin.col + delta.dCol };
+  if (target.row < 0 || target.row >= rows || target.col < 0 || target.col >= cols) return null;
+  return target;
 }

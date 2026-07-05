@@ -12,7 +12,7 @@ import {
 import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
-import { DRAG_NEIGHBOR_DELTA, resolveDragDirection } from './dragDirection';
+import { resolveDragTarget } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
 import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
@@ -326,12 +326,10 @@ export function Board({
   // threshold scales with tileSize (see the Tile props below), so "far enough"
   // stays proportional across screen sizes.
   function dragNeighbor(origin: Position, dx: number, dy: number): Position | null {
-    const direction = resolveDragDirection(dx, dy, tileSize * DRAG_SWAP_THRESHOLD_FRACTION);
-    if (!direction) return null;
-    const delta = DRAG_NEIGHBOR_DELTA[direction];
-    const target = { row: origin.row + delta.dRow, col: origin.col + delta.dCol };
-    if (target.row < 0 || target.row >= rows || target.col < 0 || target.col >= cols) return null;
-    return target;
+    // Same decision Tile's onFinalize makes on release (see resolveDragTarget) —
+    // one geometry, so the live highlight, the committed swap, and the tile's
+    // spring-back-or-not can never disagree.
+    return resolveDragTarget(dx, dy, origin, rows, cols, tileSize * DRAG_SWAP_THRESHOLD_FRACTION);
   }
 
   // Live during a drag: light up whichever neighbour the finger currently
@@ -550,12 +548,29 @@ export function Board({
                     // Drag-to-swap, added alongside tap: a live drag from this
                     // tile highlights and (on release) swaps toward the
                     // neighbour it points at, reusing handleTilePress's exact
-                    // applyMove path. Disabled while an overlay is up or the
-                    // level isn't in progress; a plain tap is unaffected.
-                    dragEnabled={gameState.status === 'in_progress' && !showBlockerTutorial}
+                    // applyMove path. Enabled on the same conditions
+                    // canAcceptMove gates on that persist across a finger-down
+                    // (in progress, no overlay, no snap-back, not mid-cascade),
+                    // so a drag that can start is always one whose release will
+                    // be accepted — which is what lets Tile treat "resolves to a
+                    // neighbour" as "will re-render" when deciding whether to
+                    // fold its own offset. A plain tap is unaffected either way.
+                    dragEnabled={
+                      gameState.status === 'in_progress' &&
+                      !showBlockerTutorial &&
+                      !snapBack &&
+                      !displayBoard
+                    }
                     dragTargeted={!!dragTarget && dragTarget.row === r && dragTarget.col === c}
                     onDragMove={(dx, dy) => handleDragMove({ row: r, col: c }, dx, dy)}
                     onDragEnd={(dx, dy) => handleDragEnd({ row: r, col: c }, dx, dy)}
+                    // Board's grid bounds + the commit distance, so Tile's
+                    // release handler can decide on the UI thread whether this
+                    // drag will commit a swap (and therefore re-render) — the
+                    // same geometry dragNeighbor uses on the JS thread.
+                    rows={rows}
+                    cols={cols}
+                    dragSwapThresholdPx={tileSize * DRAG_SWAP_THRESHOLD_FRACTION}
                   />
                 );
               })

@@ -38,3 +38,9 @@ The pure geometry behind "which neighbour does this drag point at" is covered by
 `components/dragDirection.test.ts` (diagonal collapse, 45° tie determinism,
 threshold-on-dominant-axis) — the fun-to-debug part lives in a test, per
 CLAUDE.md.
+
+**Follow-up:** the drag *release* animation was later found to jump — the
+finger-follow offset decayed on a different clock than the committed grid slide,
+so a firm drag briefly retreated toward its origin before settling. Fixed by
+folding the offset back on the grid slide's own clock; see
+`../drag-swap-timing/` for the root cause and the frame-by-frame A/B trace.

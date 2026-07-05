@@ -1,0 +1,111 @@
+{
+  "grid": {
+    "tile": 68
+  },
+  "cell": [
+    3,
+    2
+  ],
+  "traj": [
+    {
+      "t": 0,
+      "y": 444.49,
+      "present": true
+    },
+    {
+      "t": 0.2,
+      "y": 444.49,
+      "present": true
+    },
+    {
+      "t": 12.7,
+      "y": 444.49,
+      "present": true
+    },
+    {
+      "t": 28.9,
+      "y": 444.49,
+      "present": true
+    },
+    {
+      "t": 62.1,
+      "y": 444.5,
+      "present": true
+    },
+    {
+      "t": 63.9,
+      "y": 444.5,
+      "present": true
+    },
+    {
+      "t": 78.9,
+      "y": 444.77,
+      "present": true
+    },
+    {
+      "t": 95.1,
+      "y": 448.09,
+      "present": true
+    },
+    {
+      "t": 113.3,
+      "y": 455.31,
+      "present": true
+    },
+    {
+      "t": 128.3,
+      "y": 466.33,
+      "present": true
+    },
+    {
+      "t": 145.8,
+      "y": 481.16,
+      "present": true
+    },
+    {
+      "t": 163.1,
+      "y": 494.8,
+      "present": true
+    },
+    {
+      "t": 179,
+      "y": 504.52,
+      "present": true
+    },
+    {
+      "t": 195.4,
+      "y": 510.44,
+      "present": true
+    },
+    {
+      "t": 213,
+      "y": 512.48,
+      "present": true
+    },
+    {
+      "t": 229.5,
+      "y": 512.5,
+      "present": true
+    },
+    {
+      "t": 245.5,
+      "y": 512.5,
+      "present": true
+    },
+    {
+      "t": 262.8,
+      "y": 512.5,
+      "present": true
+    },
+    {
+      "t": 278.2,
+      "y": 512.5,
+      "present": true
+    },
+    {
+      "t": 295.3,
+      "y": 512.5,
+      "present": true
+    }
+  ]
+}
