@@ -14,7 +14,7 @@ import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
-import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
+import { getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
@@ -97,6 +97,14 @@ interface ExitingEntry {
   key: string;
   pieceId: string;
   matchType: string | undefined;
+  // The cleared piece's full engine type, carried so the exit animation
+  // resolves its sprite the same way a live tile does — via getSpriteForPiece,
+  // not matchType alone. A color bomb has no matchType, so a matchType-only
+  // lookup rendered its detonation frame as the "?" placeholder; a striped
+  // piece keeps its base matchType but a matchType-only lookup dropped its
+  // stripe overlay. Both need the type to resolve correctly (see the exit-tile
+  // render below and DECISIONS.md's two-sprite-path rendering note).
+  pieceType: string;
   row: number;
   col: number;
   // From diff.cleared's own piece.type — a blocker cleared by adjacent
@@ -125,9 +133,10 @@ function isAdjacent(a: Position, b: Position): boolean {
 }
 
 // Reads GameState + the active skin's config and renders the board. Never
-// contains a literal piece name — every piece is drawn purely from its
-// matchType id via getSpriteForMatchType, so this file would render an
-// entirely different skin unchanged.
+// contains a literal piece name — every piece is drawn purely from its engine
+// type + matchType id via getSpriteForPiece (both the live tiles and the
+// exiting/clearing tiles), so this file would render an entirely different skin
+// unchanged.
 export function Board({
   levelConfig,
   skinConfig,
@@ -426,6 +435,7 @@ export function Board({
           key: `${piece.id}-${moveId}`,
           pieceId: piece.id,
           matchType: piece.matchType,
+          pieceType: piece.type,
           row: from.row,
           col: from.col,
           isBlockerClear: piece.type === 'blocker',
@@ -631,7 +641,7 @@ export function Board({
                 row={entry.row}
                 col={entry.col}
                 tileSize={tileSize}
-                sprite={resolveSpriteAsset(getSpriteForMatchType(entry.matchType, skinConfig), spriteAssets)}
+                sprite={resolveSpriteAsset(getSpriteForPiece({ type: entry.pieceType, matchType: entry.matchType }, skinConfig), spriteAssets)}
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 durationMs={matchDurationMs}

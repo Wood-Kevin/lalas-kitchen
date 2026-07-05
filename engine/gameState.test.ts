@@ -284,6 +284,55 @@ describe('applyMove — cascade steps', () => {
     expect(checkMatches(result.state.board)).toEqual([]);
   });
 
+  test('a winning move whose threshold is crossed on the first pass still returns every later pass as a step', () => {
+    // The presentation-layer guard against the "Won overlay appears before the
+    // cascade finishes" bug depends on this engine fact: a move can commit
+    // status 'won' on an early cascade pass yet keep cascading, so `steps` must
+    // still contain the passes that come AFTER the winning one. The overlay is
+    // then gated (see Board.tsx + components/cascadeTiming.ts's
+    // planCascadeAnimation) on those steps finishing, not on this 'won' landing.
+    const board = buildBoard([
+      ['A', 'X', 'Q'],
+      ['R', 'A', 'P'],
+      ['S', 'A', 'P'],
+    ]);
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      // Target 3 A's — pass 1 alone clears exactly the 3-run of A and meets it,
+      // so the win is decided mid-chain, with pass 2 (the B-run) still to come.
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 3, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // Same two-pass chain as the test above: pass 1 clears the A-run, column 1
+      // refills B,B,B (pass 2), then settles to P,F,G with no further match.
+      spawnPiece: queueSpawnPiece(['B', 'B', 'B', 'P', 'F', 'G']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // The move is won...
+    expect(result.state.status).toBe('won');
+    expect(result.state.objectives[0].currentCount).toBeGreaterThanOrEqual(3);
+    // ...and the winning pass (pass 1, the A-run) is NOT the last pass: a second
+    // pass follows and must still be animated before the overlay may appear.
+    expect(result.steps).toHaveLength(2);
+    // Pass 1 has already cleared the objective's A pieces (col 1 now shows the
+    // B-run pass 2 will clear), confirming the threshold was crossed here, not
+    // on the final settled pass.
+    expect(result.steps[0].map((row) => row.map((p) => p.matchType))).toEqual([
+      ['X', 'B', 'Q'],
+      ['R', 'B', 'P'],
+      ['S', 'B', 'P'],
+    ]);
+    // The final step is still the committed board, so animating the last pass
+    // lands exactly on the won state's board.
+    expect(result.steps[result.steps.length - 1]).toBe(result.state.board);
+  });
+
   test('a single-match move with no chain returns exactly one step, unchanged from the settled-board behavior', () => {
     const board = buildBoard([
       ['A', 'X', 'Q'],

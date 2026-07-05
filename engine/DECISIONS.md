@@ -483,6 +483,30 @@ endpoints. Multi-cascade chains still animated — every piece's start and end
 position was known — but resolved as one continuous motion rather than
 distinct chained beats.
 
+**Follow-up fix — the terminal overlay was NOT actually deferred past the
+final pass.** The "defers committing gameState — and therefore any win/paused
+overlay — until the final pass" claim above was only half-true. `animateCascade`
+committed `gameState` (flipping `status` to `'won'`/`'paused_awaiting_input'`)
+at the *start* of the final pass's `runStep`, and the overlays rendered directly
+off `gameState.status`. So the overlay appeared the instant the winning move's
+data resolved — over the final pass while it was still animating (and, on a
+single-pass win, over the winning match's own pop). Real play surfaced this: the
+Won overlay cut off the chain reaction of the winning move. Root cause is the
+same "two features built at different times, never checked against each other"
+shape — the cascade-steps sequencing solved everything-happens-at-once for
+ordinary matches, but the overlay trigger was never revisited against it.
+
+Fixed by gating the terminal overlays on a `terminalOverlayReady` flag
+(`Board.tsx`) set `true` only one full between-pass beat *after* the final pass
+commits — the last pass now gets the same play time every earlier pass already
+gets before the next one starts. The reveal timing is pure and unit-tested:
+`planCascadeAnimation` / `terminalOverlayHoldMs` in `components/cascadeTiming.ts`
+(the overlay reveal is always strictly after every pass's start). `status`
+itself — and therefore App-level persistence, recipe unlocks, and input lockout
+— still commits with the data on the final pass; only the *visual* reveal waits,
+so nothing about win/persistence semantics moved, just when the overlay is drawn.
+Verified live: `docs/verification/won-overlay-timing/`.
+
 ## `Position` isn't re-exported from `gameState.ts`
 
 `gameState.ts` imports `Position` from `matrix.ts` internally (for
@@ -1312,8 +1336,31 @@ up), with the real `./sprites/color_bomb.webp` file only on the `require()`
 side. Real dedicated art (`color_bomb.webp` — a glowing potion bottle) has since
 landed via exactly that one registry line, zero code changes; before it, the
 lookup missed and fell through to the same `spriteLabel` "CO" text-label
-placeholder every un-arted piece uses. Both states verified live — see
-`docs/verification/color-bomb/`.
+placeholder every un-arted piece uses. The bomb-on-the-board state was verified
+live — see `docs/verification/color-bomb/`.
+
+**Two sprite lookup paths, not one — and both must go through `getSpriteForPiece`.**
+The paragraph above describes only how a *live* board tile resolves its sprite.
+There is a second path that is easy to forget: a *clearing* tile. `Board.tsx`
+draws live tiles (`gameState.board`) and exiting/clearing tiles (`ExitingTile`,
+one per `diffBoards` cleared piece) as **separate** render branches, each with
+its own sprite lookup. Both must resolve through `getSpriteForPiece(piece)` (which
+reads the piece's `type`), *not* `getSpriteForMatchType(matchType)` (which reads
+`matchType` alone). This matters specifically because the color bomb is the first
+and only clearable piece with **no `matchType`**: a `matchType`-only lookup on a
+detonating bomb resolves to `undefined` → `spriteLabel(undefined)` → the **"?"**
+placeholder, so the bomb's icon turned into a "?" the instant it detonated even
+though it rendered fine sitting still. (A swept striped piece keeps its base
+`matchType`, so it didn't "?" — but a `matchType`-only lookup dropped its stripe
+overlay, degrading it to the plain base sprite mid-sweep.) The exiting-tile path
+was written in Phase 5, when every clearable piece had a `matchType`, and wasn't
+reconciled with the later color bomb until this bug — the classic "two
+independently-correct systems that were never checked against each other once
+they interact." Fix: `ExitingEntry` carries the cleared piece's full `pieceType`
+and the exit tile resolves via `getSpriteForPiece`, exactly like a live tile. The
+transient mid-clear frame (the beat the settled-board capture above never looked
+at) is verified live for both a detonating bomb and a swept striped piece — see
+`docs/verification/exiting-tile-special-sprites/`.
 
 **Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** only exactly-5
 straight runs spawn a bomb (6+ still clears normally); L/T-shape triggers,

@@ -59,3 +59,53 @@ export const SWEEP_TILE_STAGGER_MS = 55;
 // gentle swell folded into the front of the normal pop-and-shrink, not an extra
 // stage that stretches the clear. See ExitingTile's sweep branch.
 export const SWEEP_GLOW_POP_MS = 110;
+
+// How long the terminal (Won / Paused) overlay is held back after the FINAL
+// cascade pass commits, before it's allowed to appear. Board.tsx's
+// animateCascade commits gameState — flipping status to 'won'/'paused' — at the
+// *start* of the last pass's animation, so the overlay's underlying data is
+// ready one full pass-beat before that pass has finished playing on screen.
+// Without this hold the overlay pops the instant the winning move's data
+// resolves, cutting off the final pass (and, on a single-pass win, the winning
+// match's own pop) — the exact "overlay appears before cascades finish" bug.
+// One full between-pass beat is the same pacing every earlier pass already gets
+// before the next one starts, so the last pass just gets the beat it was
+// missing rather than a bespoke new delay.
+export function terminalOverlayHoldMs(cascadeStepIntervalMs: number): number {
+  return cascadeStepIntervalMs;
+}
+
+export interface CascadeAnimationSchedule {
+  // Offset in ms (from the move being applied) at which each cascade pass
+  // begins animating on screen — one entry per pass, in resolution order.
+  // stepStartsMs[i] === i * cascadeStepIntervalMs, because animateCascade
+  // chains each pass a fixed interval after the previous one.
+  stepStartsMs: number[];
+  // Offset in ms at which the terminal (Won / Paused) overlay may appear. By
+  // construction this is always strictly greater than every entry in
+  // stepStartsMs — the overlay is gated on the LAST pass having begun AND had a
+  // full beat to finish, never on the moment win data resolves mid- or
+  // start-of-final-pass. This is the property the presentation layer must
+  // honour, expressed as pure arithmetic so it's testable without a component.
+  overlayRevealMs: number;
+}
+
+// Models when each cascade pass animates and when the terminal overlay is
+// allowed to show, for a move that resolved `stepCount` passes. Board.tsx
+// realises this schedule via chained setTimeouts (per-pass) plus one final
+// hold timer (the overlay); this function is the single source of truth for the
+// ordering, so a test can assert "every pass plays before the overlay" directly
+// rather than driving React timers. stepCount is clamped at 0 for safety,
+// though applyMove never returns an empty `steps` for a committed move.
+export function planCascadeAnimation(
+  stepCount: number,
+  cascadeStepIntervalMs: number
+): CascadeAnimationSchedule {
+  const passes = Math.max(0, stepCount);
+  const stepStartsMs = Array.from({ length: passes }, (_, i) => i * cascadeStepIntervalMs);
+  const lastStartMs = passes > 0 ? stepStartsMs[passes - 1] : 0;
+  return {
+    stepStartsMs,
+    overlayRevealMs: lastStartMs + terminalOverlayHoldMs(cascadeStepIntervalMs),
+  };
+}

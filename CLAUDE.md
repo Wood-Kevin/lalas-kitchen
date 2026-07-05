@@ -91,3 +91,19 @@ Docs move with the code. If a session changes the engine's shape, the config sch
 ## Definition of Done for V1
 
 A player can open the app, see a board, make legal swaps, watch cascades resolve, run out of moves or hit the collection target, and have progress saved on close. Winning one of the 9 curated milestone levels reveals a recipe card into a real, persisted collection, viewable from Home. No power-ups, no ads wired in. Just a real, playable, saved match-3 level, themed, calm, and built for the one person it's actually for.
+
+## Playtest Feedback Protocol
+
+When real playtesting surfaces something that feels wrong, broken, or unsatisfying, follow this shape by default, no need to be told each time:
+
+
+Investigate the actual cause before proposing a fix. A symptom's obvious explanation is often wrong. Check the real code, the real data, the real behavior, before writing anything.
+Check whether this might share a root cause with something already built. Several real bugs in this project turned out to be two independently correct systems that were never checked against each other once they started interacting (the piece-type ramp and the objective gate, the recipe card art and the placeholder contract, the win overlay and the cascade step sequencing). When something feels wrong shortly after a related feature shipped, checking for this kind of overlap first is often faster than assuming a fresh, unrelated bug.
+When a new feature builds on an old one, check whether the old feature's shortcut still holds. A duplicated decision, a copied piece of logic, a special case, any of these can quietly drift the moment a second implementation exists. If a fix requires testing a decision, and that decision is duplicated somewhere, collapse the duplication into one shared source before writing the test, don't test a stand-in copy.
+Verify against real behavior, not just a passing test suite. A test proves the code does what the test checks. It doesn't prove a player can see it, feel it, or that it's wired into the actual running app. When animation, timing, or feel is involved, a live trace, a real screenshot sequence, or a frame-by-frame capture is the honest standard, not a simulated or mocked equivalent.
+Don't default to genre convention without checking it against this game's actual principles. This game is built for one specific real player who plays to relax, not for excitement, and everything a player gets access to comes from playing well, never purchased. Genre-standard choices (stingy resource grants, aggressive urgency framing, unlimited ad-for-continue loops) are worth checking against these principles specifically, not assumed correct just because most other games do it that way.
+Confirm before deciding on a genuine fork, don't guess silently. If a fix could reasonably go two different directions with real consequences either way, say so plainly and ask, rather than picking one and hoping it was the intended one.
+Update DECISIONS.md, DEFERRED_COMPLEXITY.md, and CLAUDE.md's own scope notes as part of the same session, not as an afterthought. Documentation moves with the code that changed, always.
+
+
+This protocol applies by default. A future prompt doesn't need to restate it, just describe the actual symptom and trust this standing expectation to shape the investigation.
