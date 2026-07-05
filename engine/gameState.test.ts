@@ -1290,63 +1290,67 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(countType(result.state.board, 'area_bomb')).toBe(1);
     expect(countType(result.state.board, 'striped')).toBe(0);
     expect(countType(result.state.board, 'color_bomb')).toBe(0);
-    // It's the top-left anchor cell (id '0-0'), colored (keeps matchType 'A'),
-    // with no striped direction. Gravity may have dropped it from row 0, so it's
-    // found by id, not position.
+    // It's the top-left anchor cell (id '0-0'), now COLORLESS (drops matchType,
+    // like a color bomb — it's swap-activated, not matched), with no striped
+    // direction. Gravity may have dropped it from row 0, so it's found by id.
     const bomb = findById(result.state.board, '0-0');
     expect(bomb?.type).toBe('area_bomb');
-    expect(bomb?.matchType).toBe('A');
+    expect(bomb?.matchType).toBeUndefined();
     expect(bomb?.direction).toBeUndefined();
     // The other three A cells cleared (the anchor was converted, not cleared).
     for (const id of ['0-1', '1-0', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
     // Only 3 grid pieces cleared, and the objective credits 3 (anchor excluded),
-    // exactly like a 4-run spawning a striped piece credits 3.
+    // exactly like a 4-run spawning a striped piece credits 3. The three cleared
+    // cells still carried matchType 'A', so the colorless anchor doesn't change
+    // this count.
     expect(survivingGridPieces(result.state.board)).toBe(25 - 3);
     expect(result.state.objectives[0].currentCount).toBe(3);
     // A real, committed move even though the swap formed no ordinary run.
     expect(result.state.movesRemaining).toBe(9);
   });
 
-  test('matching an area bomb into a run clears the full 3x3 area centered on it', () => {
+  test('swapping an area bomb with an ordinary piece fires the 3x3 blast immediately — no run needed, centered on the bomb', () => {
     const board = distinctBoard(5, 5);
-    // A live area bomb at the center (2,2), matchType 'A'. Two ordinary A's set
-    // up so one swap forms a 3-run through it: A at (2,1), A at (2,4), distinct
-    // at (2,3). Swapping (2,3)<->(2,4) makes row 2 cols 1-2-3 all 'A'.
-    board[2][2] = { id: '2-2', type: 'area_bomb', matchType: 'A' };
-    board[2][1] = piece('A', '2-1');
-    board[2][4] = piece('A', '2-4');
-    // Pre-move sanity: only two adjacent A's near the bomb, no run yet.
+    // A live COLORLESS area bomb at the center (2,2). No A's, no runs anywhere —
+    // the swap forms no ordinary match at all, proving the trigger is the swap
+    // itself, not a match. Two of the blast cells are made 'A' to show objective
+    // credit comes from the cleared cells, NOT the colorless bomb.
+    board[2][2] = { id: '2-2', type: 'area_bomb' };
+    board[1][1] = piece('A', '1-1');
+    board[3][3] = piece('A', '3-3');
+    // Pre-move sanity: no run and no square exist (the swap won't make one either).
     expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
 
-    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 3 }, { row: 2, col: 4 });
+    // Swap the bomb (2,2) with its ordinary right neighbour (2,3).
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
 
-    // The 3x3 centered on (2,2) — rows 1-3, cols 1-3 — is fully cleared. Ids of
-    // the pieces that occupied those cells at trigger time (post-swap: the A
-    // from (2,4) sits at (2,3)).
-    const blastIds = ['1-1', '1-2', '1-3', '2-1', '2-2', '2-4', '3-1', '3-2', '3-3'];
+    // The blast is the 3x3 centered on the bomb's own cell (rows 1-3, cols 1-3),
+    // regardless of the partner — the bomb isn't physically swapped first, so its
+    // blast geometry never depends on what it swapped with.
+    const blastIds = ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3'];
     for (const id of blastIds) expect(hasId(result.state.board, id)).toBe(false);
-    // The distinct piece originally at (2,3) was swapped OUT to (2,4), off the
-    // blast, so it survives — proving the clear is the 3x3, not the swap cells.
-    expect(hasId(result.state.board, '2-3')).toBe(true);
+    // A cell just outside the 3x3 survives (proving the clear is the local 3x3).
+    expect(hasId(result.state.board, '2-4')).toBe(true);
     // The bomb consumed itself; none left.
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
-    // Nine cells cleared; three of them are 'A' (the two ordinary A's and the
-    // bomb, which carries matchType 'A'), crediting 3 to the objective.
+    // Nine cells cleared. Only the two ordinary A's credit the objective — the
+    // colorless bomb credits nothing (its own cell has no matchType).
     expect(survivingGridPieces(result.state.board)).toBe(25 - 9);
-    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.objectives[0].currentCount).toBe(2);
+    // A committed move even though the swap formed no run.
     expect(result.state.movesRemaining).toBe(9);
   });
 
   test('a two-hit blocker caught in the 3x3 blast takes one hit and is never force-cleared', () => {
     const board = distinctBoard(5, 5);
-    board[2][2] = { id: '2-2', type: 'area_bomb', matchType: 'A' };
-    board[2][1] = piece('A', '2-1');
-    board[2][4] = piece('A', '2-4');
+    board[2][2] = { id: '2-2', type: 'area_bomb' };
     // A two-hit blocker inside the 3x3 (at (3,3)), adjacent to blast cells (2,3)
     // and (3,2), so it takes adjacent damage rather than a direct clear.
     board[3][3] = { id: '3-3', type: 'blocker', matchType: 'lid', hitsRemaining: 2 };
 
-    const result = applyMove(stateWith(board, 'lid'), { row: 2, col: 3 }, { row: 2, col: 4 });
+    // Fire the bomb by swapping it with an adjacent ordinary piece.
+    const result = applyMove(stateWith(board, 'lid'), { row: 2, col: 2 }, { row: 2, col: 3 });
 
     const lid = findById(result.state.board, '3-3');
     expect(lid?.type).toBe('blocker');
@@ -1355,16 +1359,62 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.state.objectives[0].currentCount).toBe(0);
   });
 
+  test('an area+special swap is a deferred combo: it snaps back with no move spent', () => {
+    // The area bomb sits next to a color bomb, a striped piece, and another area
+    // bomb. Each of these swaps is a deferred combo (see DEFERRED_COMPLEXITY.md),
+    // so it must snap back exactly like a no-match swap — no move spent, board
+    // unchanged — and must NOT misfire through the color-bomb branch.
+    const board = distinctBoard(5, 5);
+    board[2][2] = { id: '2-2', type: 'area_bomb' };
+    board[2][3] = { id: '2-3', type: 'color_bomb' };
+    board[2][1] = { id: '2-1', type: 'striped', matchType: 'A', direction: 'row' };
+    board[1][2] = { id: '1-2', type: 'area_bomb' };
+
+    for (const partner of [
+      { row: 2, col: 3 }, // area + color bomb
+      { row: 2, col: 1 }, // area + striped
+      { row: 1, col: 2 }, // area + area
+    ]) {
+      const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, partner);
+      expect(result.state.movesRemaining).toBe(10); // no move spent
+      expect(result.steps).toHaveLength(0); // rejected move, no cascade steps
+      expect(result.state.board).toBe(board); // unchanged (same reference)
+    }
+  });
+
   test('hasLegalMoves keeps a board playable when its only move forms a 2x2 square', () => {
     // Distinct 3x3 with a small A cluster; the ONLY productive swap makes a pure
-    // square (no run). Passive area bombs need no trigger-clause here — this
-    // guards the spawn path, the same way the color bomb needed its own clause.
+    // square (no run). This guards the area-bomb SPAWN path, the same way the
+    // color bomb needed its own clause.
     const board = buildBoard([
       ['A', 'A', 'p'],
       ['A', 'z', 'A'],
       ['q', 'r', 's'],
     ]);
     expect(hasLegalMoves(board)).toBe(true);
+  });
+
+  test('hasLegalMoves: an area-bomb swap is legal with an ordinary neighbour, not with a special one', () => {
+    // An all-distinct board with no run or square possible is stuck on its own.
+    const board = buildBoard([
+      ['a', 'b', 'c'],
+      ['d', 'e', 'f'],
+      ['g', 'h', 'i'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(false);
+    // Drop a colorless area bomb into the middle: swapping it with any ordinary
+    // neighbour fires its blast, which is always a legal move (mirrors the color
+    // bomb clause) — so the board is playable again.
+    board[1][1] = { id: '1-1', type: 'area_bomb' };
+    expect(hasLegalMoves(board)).toBe(true);
+
+    // But an area bomb whose ONLY neighbour is another special is NOT legal — that
+    // swap is a deferred combo that snaps back. A 1x2 board of area bomb + color
+    // bomb has no other move, so it reads as stuck.
+    const areaPlusSpecial: Board = [
+      [{ id: 'x', type: 'area_bomb' }, { id: 'y', type: 'color_bomb' }],
+    ];
+    expect(hasLegalMoves(areaPlusSpecial)).toBe(false);
   });
 
   test('an L-shape (a square overlapping a straight run) does not spawn an area bomb — L/T stays deferred', () => {

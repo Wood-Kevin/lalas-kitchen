@@ -26,11 +26,15 @@ export interface Piece {
   // swapped, handled entirely in gameState.ts's applyMove, not here.
   //
   // An 'area_bomb' piece (spawned by a 2x2 square of same-type pieces, see
-  // gameState.ts's resolveMatchEffects and checkSquares below) is the opposite:
-  // it KEEPS its matchType and carries no direction/hitsRemaining. Like a
-  // striped piece it stays an ordinary matchable, swappable piece — piecesMatch
-  // does NOT exclude it — and activates passively, by being included in a later
-  // ordinary match of its type, at which point it clears the 3x3 around itself.
+  // gameState.ts's resolveMatchEffects and checkSquares below) is now the SAME
+  // taxonomy as the color bomb: it also drops matchType/direction/hitsRemaining
+  // and is colorless (piecesMatch excludes it too), and it also activates by
+  // being SWAPPED, not by being matched — swapping it with any ordinary piece
+  // fires its 3x3 blast (gameState.ts's resolveAreaBomb). This reverses its
+  // original passive/colored design: the single fixed area_bomb.webp sprite
+  // gave a player no way to see which color a passive bomb was, so making it
+  // colorless makes that question moot (see engine/DECISIONS.md's area-bomb
+  // reversal entry).
 }
 
 export type Board = Piece[][];
@@ -72,10 +76,14 @@ export interface Square {
 // excluded the same way: it's colorless (no matchType) and only ever acts by
 // being swapped (see gameState.ts's applyMove), never by joining a run — this
 // guard makes that true even if a bomb ever ends up adjacent to same-typed
-// pieces around it.
+// pieces around it. An area bomb is now excluded for exactly the same reason:
+// it too is colorless and swap-activated (it was passive/colored before — see
+// engine/DECISIONS.md's area-bomb reversal entry), so it can never form or
+// join a run either.
 function piecesMatch(a: Piece, b: Piece): boolean {
   if (a.type === 'blocker' || b.type === 'blocker') return false;
   if (a.type === 'color_bomb' || b.type === 'color_bomb') return false;
+  if (a.type === 'area_bomb' || b.type === 'area_bomb') return false;
   return a.matchType !== undefined && a.matchType === b.matchType;
 }
 
@@ -329,14 +337,32 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // checkSquares joins checkMatches in the ordinary-pair test below. Without this
 // a board whose only move makes a square would be wrongly judged stuck and
 // shuffled out from under the player, the same failure the color-bomb clause
-// guards against. The area bomb's own passive trigger needs no clause here: a
-// swap that lines it into a run is caught by checkMatches like any matchable
-// piece.
+// guards against.
+//
+// A live area bomb is now swap-activated too (it used to trigger passively via a
+// run, needing no clause here). Its rule mirrors the color bomb's but is
+// narrower, matching the deferred-combo decision: a swap of an area bomb with an
+// ORDINARY piece always fires its 3x3 blast, so it's always legal; a swap of an
+// area bomb with ANOTHER special (color bomb / striped / area bomb) is a deferred
+// combo that snaps back (gameState.ts's applyMove), so it is NOT a legal move.
+// The area-bomb clause therefore runs FIRST and returns false for a special
+// partner, so that pair isn't wrongly counted as legal via the color-bomb clause
+// below.
 export function hasLegalMoves(board: Board): boolean {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
 
   const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
+    if (a.type === 'area_bomb' || b.type === 'area_bomb') {
+      const partner = a.type === 'area_bomb' ? b : a;
+      // area + ordinary → always legal (fires the blast); area + special →
+      // deferred no-op, not legal.
+      return (
+        partner.type !== 'area_bomb' &&
+        partner.type !== 'striped' &&
+        partner.type !== 'color_bomb'
+      );
+    }
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
     if (a.type === 'striped' && b.type === 'striped') return true;
     return checkMatches(swapped).length > 0 || checkSquares(swapped).length > 0;

@@ -1525,3 +1525,57 @@ filmstrip (2×2 → bomb, match → 3×3, blocker spared on one hit).
 (an L/T-formed area bomb, vs. the built square trigger), and blast chaining (a
 special caught in a 3×3 blast just clears, it doesn't recursively fire) remain
 deferred, consistent with the striped and color-bomb scope limits.
+
+### Area bomb: reversed from passive/colored to active/colorless (swap-triggered)
+
+**Why the reversal.** Real play surfaced the flaw in the passive design above: the
+area bomb kept its `matchType` and fired by being *matched*, but it renders through
+a **single universal `area_bomb.webp`** (the decision just above) that shows no
+color. So a player literally could not see *which* match would trigger a given
+bomb — the trigger information was in the data but not on the screen. Two fixes
+were possible: encode color into the sprite, or remove color from the piece. We
+chose the latter — make the area bomb **colorless and swap-activated**, moving it
+out of the striped piece's "colored, passive" camp and into the color bomb's
+"colorless, active" camp — because it makes the ambiguous-color question *moot*
+rather than merely legible, and it reuses infrastructure the color bomb already
+has instead of adding a new art requirement.
+
+**What changed (each one reverses a passive-design shortcut).**
+- `piecesMatch` (`matrix.ts`) now **excludes `area_bomb`** alongside `color_bomb`:
+  a live area bomb is colorless (`checkMatches` can never see it in a run).
+- The spawn still comes from a pure 2×2 square (`checkSquares` unchanged), but
+  `resolveCascades` now builds the anchor as `{ id, type: 'area_bomb' }` —
+  **dropping matchType/direction**, identical to the color bomb (was
+  `{ ...base, type: 'area_bomb' }`). `resolveMatchEffects` no longer collects area
+  bombs into its in-run `specials` set (nothing to collect — they can't be in a
+  run).
+- `applyMove` gained a **swap branch** (`resolveAreaBomb`) that fires the 3×3
+  blast on the swap itself, bypassing the no-match snap-back exactly like the color
+  bomb. It sits **before** the solo-color-bomb branch: an `area + color_bomb` swap
+  is "bomb-involving," so `resolveColorBomb` would otherwise run a degenerate
+  clear on the area bomb's `undefined` matchType.
+- `hasLegalMoves` gained an **area clause** (also first): `area + ordinary` is
+  always legal; `area + special` is not (see below).
+- The 3×3 geometry helper `areaBlastPositions` is unchanged; only its caller moved
+  from `resolveMatchEffects` (passive) to `resolveAreaBomb` (active).
+
+**The area+special fork (confirmed with the architect).** Because the color bomb
+*also* fires on swap, swapping an area bomb directly into another special (color
+bomb, striped, or another area bomb) is two swap/match-activated specials meeting.
+Rather than define a combined effect, this is a **deferred combo**: such a swap
+**snaps back with no move spent** (the same reject path a no-match ordinary swap
+uses), guarded in `applyMove` before the color-bomb branch and mirrored in
+`hasLegalMoves` (an area+special pair is not a legal move). Only `area + ordinary`
+resolves — it always fires the same local 3×3 blast centered on the bomb,
+regardless of the partner (the bomb is never physically swapped first, so its
+blast geometry never depends on what it swapped with). This keeps the area bomb's
+combo behavior bounded exactly like the still-deferred sweep/blast chaining. See
+`DEFERRED_COMPLEXITY.md`.
+
+**Objective accounting shift.** A colorless area bomb's own cell now credits
+nothing when it detonates (its `matchType` is gone), same as the color bomb — the
+cleared *neighbours* still credit by their own matchType. A 2×2 spawn still credits
+3 (the three non-anchor cells), unchanged.
+
+Verified live — see `docs/verification/area-bomb/active/` for the swap-triggered
+filmstrip (area bomb + ordinary piece → immediate 3×3 blast, no matching run).

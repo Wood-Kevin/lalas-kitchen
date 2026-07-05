@@ -324,6 +324,30 @@ describe('color bombs — excluded from runs, always a legal move', () => {
     board[1][1] = colorBombPiece('cb');
     expect(hasLegalMoves(board)).toBe(true);
   });
+
+  test('a live area bomb is colorless too — it never joins a run', () => {
+    // Since the passive->active reversal, a live area bomb is colorless (drops
+    // its matchType), exactly like a color bomb: if it weren't excluded, this
+    // would read as a 4-run of 'A'.
+    const board: Board = [
+      [piece('A', 'a0'), piece('A', 'a1'), { id: 'ab', type: 'area_bomb' }, piece('A', 'a2')],
+    ];
+    expect(checkMatches(board)).toEqual([]);
+  });
+
+  test('an area bomb makes an otherwise-stuck board report a legal move (with an ordinary neighbour)', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['C', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(false);
+
+    // A colorless area bomb in the center is swap-activated: swapping it with any
+    // ordinary neighbour fires its 3x3 blast, always a legal move.
+    board[1][1] = { id: 'ab', type: 'area_bomb' };
+    expect(hasLegalMoves(board)).toBe(true);
+  });
 });
 
 describe('applyAdjacentDamage', () => {

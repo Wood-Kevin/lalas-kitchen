@@ -1,8 +1,16 @@
 # Area bomb — verification
 
+> **Superseded (design reversed).** This filmstrip verifies the area bomb's
+> *original* **passive/colored** activation (matching the bomb into a run of its
+> own type). That was later **reversed to active/colorless** (fires on swap, like
+> the color bomb) after real play showed the universal sprite gave no color cue —
+> see `active/` in this folder for the current behavior and `engine/DECISIONS.md`'s
+> area-bomb reversal sub-entry. This page is kept as history of the spawn
+> mechanic (unchanged) and the design that was reversed.
+
 `area-bomb-filmstrip.png` verifies the third special piece, the **area bomb**: a
-2×2 square of same-type pieces spawns one bomb, and matching that bomb later
-clears the full 3×3 around it. Captured the same way the color-bomb and
+2×2 square of same-type pieces spawns one bomb, and (in the now-reversed passive
+design) matching that bomb later clears the full 3×3 around it. Captured the same way the color-bomb and
 special-piece-combo verifications were — a throwaway harness (deleted after
 capture, per the WSL screenshot note) that drives the **real `applyMove`** and
 renders every board through the **real `getSpriteForPiece` → bundled `.webp`**

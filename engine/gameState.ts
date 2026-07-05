@@ -220,12 +220,13 @@ function sweepLinePositions(
 }
 
 // Every cell in the 3x3 block centered on `pos`, clamped to the board edges —
-// the area an area bomb clears when it fires. Pure grid geometry, the
-// square-shaped sibling of sweepLinePositions above and just as
-// blocker-agnostic: resolveMatchEffects's addClear skips a blocker on the
-// blast, so it takes normal adjacent damage instead of a force-clear. Shared by
-// nothing else yet, but kept beside sweepLinePositions since both are "which
-// cells does this special reach" geometry.
+// the area an area bomb clears when it fires. Includes the center cell, so the
+// bomb consumes itself. Pure grid geometry, the square-shaped sibling of
+// sweepLinePositions above and just as blocker-agnostic: its caller
+// (resolveAreaBomb, the swap trigger) filters blockers out of the clear set, so
+// a blocker on the blast takes normal adjacent damage instead of a force-clear.
+// Kept beside sweepLinePositions since both are "which cells does this special
+// reach" geometry.
 function areaBlastPositions(rows: number, cols: number, pos: Position): Position[] {
   const out: Position[] = [];
   for (let r = pos.row - 1; r <= pos.row + 1; r++) {
@@ -239,11 +240,11 @@ function areaBlastPositions(rows: number, cols: number, pos: Position): Position
 
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
-// colorless — see matrix.ts's Piece comment); an area bomb also carries nothing
-// extra (it keeps the base cell's matchType, like striped, but has no
-// direction). Kept as a discriminated union so resolveCascades builds each
-// target piece correctly without a second lookup, and so adding a future
-// special type is one more variant here.
+// colorless — see matrix.ts's Piece comment); an area bomb is now also colorless
+// and carries nothing (it drops the base cell's matchType, same as a color bomb,
+// since it's swap-activated rather than matched). Kept as a discriminated union
+// so resolveCascades builds each target piece correctly without a second lookup,
+// and so adding a future special type is one more variant here.
 type AnchorSpec =
   | { kind: 'striped'; direction: StripeDirection }
   | { kind: 'color_bomb' }
@@ -251,12 +252,13 @@ type AnchorSpec =
 
 // Decides what each of this pass's matches (runs) and squares actually does —
 // the one place the special-piece spawn rules live:
-//  - a run that CONTAINS a live special (striped and/or area bomb) triggers
-//    each: a striped piece sweeps its whole row or column (per its `direction`)
-//    into the clear set; an area bomb clears the 3x3 block centered on itself.
-//    The ordinary run cells clear too. A special caught in another's sweep/blast
-//    this pass just clears — it does NOT recursively fire (chaining deferred,
-//    see DEFERRED_COMPLEXITY.md);
+//  - a run that CONTAINS a live striped piece triggers it: the striped piece
+//    sweeps its whole row or column (per its `direction`) into the clear set,
+//    and the ordinary run cells clear too. A striped piece caught in another's
+//    sweep this pass just clears — it does NOT recursively fire (chaining
+//    deferred, see DEFERRED_COMPLEXITY.md). Area bombs are NOT handled here: a
+//    colorless, swap-activated area bomb can never sit inside a run (see
+//    resolveAreaBomb and applyMove for its swap trigger);
 //  - a fresh 4-long run of ordinary pieces CONVERTS one cell into a striped
 //    piece carrying the run's orientation as its clear direction, and clears
 //    the other three;
@@ -267,8 +269,9 @@ type AnchorSpec =
 //    top-left cell into an area bomb and clears the other three — but only if
 //    none of its four cells is part of any run this pass. A square overlapping
 //    a run is an L/T/larger shape, deferred (DEFERRED_COMPLEXITY.md): the run
-//    logic handles those cells and the square stands down. Like a striped
-//    piece, the area bomb keeps its matchType and fires passively later;
+//    logic handles those cells and the square stands down. The spawned area
+//    bomb is colorless (drops its matchType, like a color bomb) and fires only
+//    when later swapped (resolveAreaBomb), not passively;
 //  - anything else (a plain 3-match, or a 6+ run) clears every cell.
 // Blockers are never added to the clear set here: they only ever fall to
 // adjacent damage (applyAdjacentDamage), so a striped sweep or area blast across
@@ -300,23 +303,18 @@ function resolveMatchEffects(
 
   for (const match of matches) {
     const cells = match.positions;
-    // Live specials sitting in this run — a striped piece or an area bomb.
-    // Either kind fires when included in a match (the passive trigger both
-    // share); a run containing both fires both.
-    const specials = cells.filter((p) => {
-      const t = board[p.row][p.col].type;
-      return t === 'striped' || t === 'area_bomb';
-    });
+    // Live striped pieces sitting in this run — a striped piece fires its line
+    // sweep when it's included in a match (its passive trigger). Area bombs are
+    // no longer collected here: they're colorless and swap-activated now (see
+    // matrix.ts's piecesMatch and gameState.ts's resolveAreaBomb), so one can
+    // never appear in a run's cells in the first place.
+    const striped = cells.filter((p) => board[p.row][p.col].type === 'striped');
 
-    if (specials.length > 0) {
-      for (const p of specials) {
+    if (striped.length > 0) {
+      for (const p of striped) {
         const piece = board[p.row][p.col];
-        if (piece.type === 'striped') {
-          const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-          for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
-        } else {
-          for (const q of areaBlastPositions(rows, cols, p)) addClear(q.row, q.col);
-        }
+        const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
+        for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
       }
       for (const p of cells) addClear(p.row, p.col);
     } else if (cells.length === 5) {
@@ -412,9 +410,10 @@ function resolveCascades(
     // pass's gravity like any other piece.
     //  - striped: keeps its matchType too (it's still a matchable piece of its
     //    own type until swept) and gains the type + clear direction.
-    //  - area_bomb: keeps its matchType too (also a matchable piece until it's
-    //    included in a later match, then it clears its 3x3) and gains the type;
-    //    it carries no direction.
+    //  - area_bomb: drops matchType/direction entirely — like a color bomb it's
+    //    now colorless (can never form an ordinary run, see matrix.ts's
+    //    piecesMatch) and only fires when swapped (resolveAreaBomb via
+    //    applyMove). Only its id is preserved, same as the color bomb.
     //  - color_bomb: drops matchType/direction entirely — it's colorless and
     //    can never form an ordinary run (see matrix.ts's piecesMatch), it only
     //    fires when swapped (applyMove).
@@ -424,7 +423,7 @@ function resolveCascades(
         anchor.kind === 'striped'
           ? { ...base, type: 'striped', direction: anchor.direction }
           : anchor.kind === 'area_bomb'
-            ? { ...base, type: 'area_bomb' }
+            ? { id: base.id, type: 'area_bomb' }
             : { id: base.id, type: 'color_bomb' };
     }
     currentBoard = calculateCascades(withGaps, spawnPiece);
@@ -481,6 +480,32 @@ function resolveColorBomb(
     }
   }
 
+  return resolveClearSet(board, clearedPositions, spawnPiece);
+}
+
+// Activates an area-bomb swap — the same swap-triggered camp as the color bomb,
+// but with a fixed LOCAL effect: it always clears the 3x3 block centered on the
+// bomb's own cell, regardless of what it was swapped with (the partner just has
+// to be an ordinary piece — an area+special swap is a deferred combo that
+// applyMove snaps back before ever reaching here). This reverses the area bomb's
+// original passive/colored trigger (see engine/DECISIONS.md's area-bomb reversal
+// entry). `bombPos` is where the area bomb sits; it isn't physically swapped
+// first, since the blast is centered on it and clears it regardless — the swap
+// is cosmetically irrelevant, exactly like the color bomb. Blockers on the blast
+// are filtered out of the clear set (they only ever take adjacent damage, never
+// a force-clear) and the shared resolveClearSet tail does the detonation +
+// refill + chain-cascade, so applyMove treats this like every other move kind
+// from here on.
+function resolveAreaBomb(
+  board: Board,
+  bombPos: Position,
+  spawnPiece: () => Piece
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const clearedPositions = areaBlastPositions(rows, cols, bombPos).filter(
+    (p) => board[p.row][p.col].type !== 'blocker'
+  );
   return resolveClearSet(board, clearedPositions, spawnPiece);
 }
 
@@ -634,11 +659,20 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // committed moves — hasLegalMoves is extended to match). The branch ORDER here
   // is load-bearing:
   //
+  //   0. area bomb + anything  → 3x3 blast (resolveAreaBomb), OR snap back if the
+  //                              partner is another special (deferred combo)
   //   1. striped + color bomb  → supercombo (resolveStripedBombCombo)
   //   2. striped + striped     → cross clear (resolveStripedCross)
   //   3. color bomb + anything → solo bomb   (resolveColorBomb)
   //   4. ordinary swap         → match-or-snap-back
   //
+  // (0) MUST come before (3): an area+color_bomb swap is also "bomb-involving,"
+  // but the area bomb is colorless (no matchType), so resolveColorBomb would run
+  // a degenerate single-type clear on `undefined` and detonate only the bomb
+  // cell. area+special is a DEFERRED combo (see DEFERRED_COMPLEXITY.md), so it
+  // snaps back with no move spent instead — hasLegalMoves is matched. area+
+  // ordinary fires the local 3x3 blast. The area branch only fires when an area
+  // bomb is actually involved, so it's inert for every non-area swap below.
   // (1) MUST come before (3): a striped+bomb swap is also "bomb-involving," and a
   // striped piece carries a matchType, so resolveColorBomb would happily accept
   // it as an ordinary detonation partner and run the WEAKER single-type clear
@@ -646,12 +680,26 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // it first is the only thing guaranteeing the stronger effect wins.
   // (2) MUST come before (4): two striped pieces don't necessarily form a run, so
   // the ordinary branch would snap them back instead of comboing.
+  const aArea = pieceA.type === 'area_bomb';
+  const bArea = pieceB.type === 'area_bomb';
   const aStriped = pieceA.type === 'striped';
   const bStriped = pieceB.type === 'striped';
   const aBomb = pieceA.type === 'color_bomb';
   const bBomb = pieceB.type === 'color_bomb';
   let resolved: { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] };
-  if ((aStriped && bBomb) || (aBomb && bStriped)) {
+  if (aArea || bArea) {
+    const partner = aArea ? pieceB : pieceA;
+    if (partner.type === 'area_bomb' || partner.type === 'striped' || partner.type === 'color_bomb') {
+      // area + special is a deferred combo (area+color_bomb, area+striped,
+      // area+area) — snap back exactly like a no-match swap: no move spent, no
+      // state change. See DEFERRED_COMPLEXITY.md.
+      return { state, events: [], steps: [] };
+    }
+    // area + ordinary: fire the 3x3 blast centered on the bomb, regardless of
+    // what it was swapped with or whether a run would have formed.
+    const bombPos = aArea ? posA : posB;
+    resolved = resolveAreaBomb(state.board, bombPos, state.spawnPiece);
+  } else if ((aStriped && bBomb) || (aBomb && bStriped)) {
     const stripedPos = aStriped ? posA : posB;
     const bombPos = aBomb ? posA : posB;
     resolved = resolveStripedBombCombo(state.board, stripedPos, bombPos, state.spawnPiece);
