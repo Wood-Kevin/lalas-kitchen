@@ -33,3 +33,29 @@ export function cascadeFallDurationMs(cascadeFallSpeed: CascadeFallSpeed): numbe
 // calm-not-frantic constraint — a glow pulse, not a shake, since this
 // player's phone plays with sound off and doesn't need a jarring cue.
 export const BLOCKER_CLEAR_HIGHLIGHT_MS = 200;
+
+// A striped piece's row/column sweep clears a whole line at once in the engine,
+// but clearing every tile in that line simultaneously reads as a flat wash that
+// just appears and vanishes — it never looks like the beam actually *travelled*
+// (real play feedback: the sweep felt lackluster). Instead the presentation
+// layer staggers each tile's pop by its distance (in tiles) from the striped
+// piece, so a gentle glow visibly runs down the line one tile at a time (see
+// components/sweepAnimation.ts + Tile.tsx's ExitingTile sweep branch).
+//
+// 55ms per tile is a calm-pacing judgment call, not a spec value: it's slow
+// enough that each tile clearly reacts at its own moment (the whole point) yet
+// keeps even the longest beam legible — the 8-row board's worst case, an
+// edge-origin column sweep across 7 tiles, travels for ~385ms, in the same
+// unhurried register as the 480ms between-cascade beat. Deliberately a travel
+// cadence, not a speed-up: per CLAUDE.md this player wants more visual weight,
+// not more intensity. Larger would start to drag; smaller collapses back toward
+// the flat all-at-once wash this replaces.
+export const SWEEP_TILE_STAGGER_MS = 55;
+
+// Once the beam reaches a tile, that tile brightens and swells slightly (the
+// "pop") before it shrinks away — this is the brighten phase's duration, the
+// texture that makes each tile's reaction read as a deliberate beat rather than
+// a plain fade. Kept a small fraction of matchDurationMs (300ms) so the pop is a
+// gentle swell folded into the front of the normal pop-and-shrink, not an extra
+// stage that stretches the clear. See ExitingTile's sweep branch.
+export const SWEEP_GLOW_POP_MS = 110;

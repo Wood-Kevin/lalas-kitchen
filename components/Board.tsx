@@ -12,9 +12,10 @@ import {
 import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
+import { sweepDelaysForClears } from './sweepAnimation';
 import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
-import { cascadeFallDurationMs } from './cascadeTiming';
+import { cascadeFallDurationMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { PausedOverlay } from './PausedOverlay';
@@ -101,6 +102,12 @@ interface ExitingEntry {
   // Tile.tsx's ExitingTile). Reusing data diffBoards already computes, not
   // a new engine field.
   isBlockerClear: boolean;
+  // Set only on a tile swept by a striped piece's line clear — how long it
+  // waits before it brightens and pops, so the glow travels down the line
+  // instead of the whole row/column flashing at once. Derived purely from the
+  // pass's diff (see sweepAnimation.ts), no new engine data. Undefined for an
+  // ordinary match cell.
+  sweepDelayMs?: number;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -304,6 +311,13 @@ export function Board({
       const next = steps[i];
       const diff = diffBoards(previous, next);
 
+      // Which cleared tiles belong to a striped piece's line sweep, and how
+      // long each should wait so the glow travels tile-by-tile down the line
+      // rather than the whole row/column popping together. Derived from this
+      // pass's diff alone — the swept striped piece survives into diff.cleared
+      // still carrying its type/direction — so this stays presentation-only.
+      const sweepDelays = sweepDelaysForClears(diff.cleared, SWEEP_TILE_STAGGER_MS);
+
       // Only the first pass carries the just-tapped pair, which uses the
       // snappier swap duration; every later pass is a passive fall.
       setSwapDurationIds(i === 0 ? tappedIds : new Set());
@@ -320,6 +334,7 @@ export function Board({
           row: from.row,
           col: from.col,
           isBlockerClear: piece.type === 'blocker',
+          sweepDelayMs: sweepDelays.get(piece.id),
         })),
       ]);
 
@@ -478,6 +493,7 @@ export function Board({
                 panelColor={skinConfig.palette.panel}
                 durationMs={matchDurationMs}
                 isBlockerClear={entry.isBlockerClear}
+                sweepDelayMs={entry.sweepDelayMs}
                 onExited={() => removeExiting(entry.key)}
               />
             ))}

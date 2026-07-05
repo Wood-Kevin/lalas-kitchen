@@ -247,3 +247,38 @@ that visually "completes" is the same ceiling as a numeric denominator,
 just drawn differently), so there was no version of it that wasn't the
 same lie. `handBuiltLevelCount` came out of `HomeProps` entirely — its
 only caller was the now-deleted `totalCount` line.
+
+## Striped sweep reads as a travelling glow, not a flat all-at-once wash
+
+A striped piece's row/column clear is an *engine* mechanic — `gameState.ts`'s
+`resolveMatchEffects` just adds the whole line to the pass's clear set, so the
+presentation layer originally saw those cells as an ordinary batch of clears and
+popped them all simultaneously. Live play feedback: that read as a flat wash
+appearing and vanishing, never like a beam that actually travelled and did
+something. Two other passes at the striped piece hadn't touched this — the
+direction badge (a pre-move cue) and the general cascade-pacing slowdown — so the
+sweep itself still had no motion of its own.
+
+The fix is entirely presentation-side, no engine change: a matched striped piece
+survives into `diffBoards`' `cleared` list still carrying its `type: 'striped'`
+and `direction`, so `sweepAnimation.ts`'s `sweepDelaysForClears` treats its
+position as the beam origin and gives every other cleared cell on that same
+row/column a stagger delay proportional to its distance (in tiles) from the
+origin. `Board.tsx` threads that per-tile delay into each `ExitingTile`, whose
+sweep branch waits the delay, then brightens-and-swells (a soft accent glow +
+slight scale pop), then shrinks away like any cleared tile. Staggering the delays
+down the line is what makes the glow read as travelling — each tile reacts at its
+own moment rather than the whole line changing at once. The off-axis cells of the
+match that *triggered* the striped piece get no delay and clear immediately, so
+the trigger pops while the beam runs.
+
+Timing (`cascadeTiming.ts`): `SWEEP_TILE_STAGGER_MS = 55` per tile — the 8-row
+board's worst case (an edge-origin column sweep across 7 tiles) travels for
+~385ms, deliberately the same unhurried register as the 480ms between-cascade
+beat. `SWEEP_GLOW_POP_MS = 110` is the brighten phase, folded into the front of
+the normal 300ms pop-and-shrink so a swept tile still takes the normal clear time
+*after* the beam reaches it. This is a travel cadence, not a speed-up — per
+CLAUDE.md the player wants more visual weight, not more intensity. A blocker
+cleared on the swept line keeps its own highlight beat (`isBlockerClear`) rather
+than joining the beam. Verified live (real `ExitingTile` under Expo web, frames
+captured at several times) in `docs/verification/striped-sweep/`.

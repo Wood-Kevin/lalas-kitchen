@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { ResolvedSprite } from './spriteAsset';
-import { BLOCKER_CLEAR_HIGHLIGHT_MS } from './cascadeTiming';
+import { BLOCKER_CLEAR_HIGHLIGHT_MS, SWEEP_GLOW_POP_MS } from './cascadeTiming';
 import { StripeDirection } from '../engine/matrix';
 
 export interface TileProps {
@@ -168,6 +168,13 @@ export interface ExitingTileProps {
   // filtered by piece.type, no new engine data. See
   // BLOCKER_CLEAR_HIGHLIGHT_MS's comment for why this needs its own beat.
   isBlockerClear?: boolean;
+  // Present only for a tile swept by a striped piece's row/column clear — how
+  // long this tile waits, after the pass begins, before it brightens and pops.
+  // Board.tsx derives it from the tile's distance to the striped piece (see
+  // sweepAnimation.ts), so a larger value = further down the line = later, which
+  // is what makes the glow read as a beam travelling rather than a flat wash.
+  // Undefined for an ordinary match cell, which clears immediately as before.
+  sweepDelayMs?: number;
   onExited: () => void;
 }
 
@@ -185,14 +192,48 @@ export function ExitingTile({
   panelColor,
   durationMs,
   isBlockerClear,
+  sweepDelayMs,
   onExited,
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
-  // Only ever animates for a blocker clear; stays at 0 (invisible) otherwise.
+  // Animates for a blocker clear or a striped sweep; stays at 0 (invisible)
+  // for an ordinary match cell.
   const highlightOpacity = useSharedValue(0);
 
   useEffect(() => {
+    if (sweepDelayMs !== undefined) {
+      // A striped sweep tile: sit still until the beam reaches it (sweepDelayMs),
+      // then brighten-and-swell (the "pop"), then shrink away like any cleared
+      // tile. Staggering these delays down the line is what makes the glow read
+      // as travelling. The pop + shrink together still total durationMs, so a
+      // swept tile takes exactly the normal clear time *after* the beam arrives
+      // — the stagger adds the travel, not extra intensity (see CLAUDE.md's
+      // calm-not-frantic constraint and SWEEP_TILE_STAGGER_MS's rationale).
+      const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
+      highlightOpacity.value = withDelay(
+        sweepDelayMs,
+        withSequence(
+          withTiming(0.5, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(0, { duration: shrinkMs })
+        )
+      );
+      scale.value = withDelay(
+        sweepDelayMs,
+        withSequence(
+          withTiming(1.15, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(0, { duration: shrinkMs })
+        )
+      );
+      // Hold fully opaque through the brighten so the pop is visible on a solid
+      // tile, then fade during the shrink.
+      opacity.value = withDelay(
+        sweepDelayMs + SWEEP_GLOW_POP_MS,
+        withTiming(0, { duration: shrinkMs })
+      );
+      const timeout = setTimeout(onExited, sweepDelayMs + durationMs);
+      return () => clearTimeout(timeout);
+    }
     if (isBlockerClear) {
       const halfPulse = BLOCKER_CLEAR_HIGHLIGHT_MS / 2;
       // A brief glow-and-pop draws the eye here first, then the same
@@ -245,6 +286,12 @@ export function ExitingTile({
             testID={`blocker-highlight-${pieceId}`}
           />
         )}
+        {sweepDelayMs !== undefined && (
+          <Animated.View
+            style={[styles.sweepGlow, { backgroundColor: accentColor }, highlightStyle]}
+            testID={`sweep-glow-${pieceId}`}
+          />
+        )}
       </Animated.View>
     </Animated.View>
   );
@@ -272,6 +319,19 @@ const styles = StyleSheet.create({
   // deliberately a plain overlay (no ring/border/particle shape) to stay
   // inside CLAUDE.md's "calm, not frantic" constraint.
   blockerHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  // The traveling sweep's per-tile glow — same soft, full-tile accent wash as
+  // the blocker highlight (a plain overlay, no ring/particle shape, per
+  // CLAUDE.md's calm-not-frantic rule), peaked a touch brighter so the beam
+  // carries more visual weight as it passes. Its own style rather than reusing
+  // blockerHighlight so the two effects can be tuned independently later.
+  sweepGlow: {
     position: 'absolute',
     top: 0,
     left: 0,
