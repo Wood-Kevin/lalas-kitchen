@@ -24,6 +24,13 @@ export interface HomeProps {
   // The recipe book card's own tap target — opens the RecipeBook collection
   // screen (see App.tsx's handleOpenRecipeBook).
   onOpenRecipeBook: () => void;
+  // Dev-only, and provided ONLY in development (App.tsx gates it behind
+  // __DEV__). When present, a long-press on the footer line triggers a full
+  // save wipe + fresh restart. Undefined in every release build, so the footer
+  // is just static text a real player sees — the affordance simply doesn't
+  // exist for them. Deliberately hidden (no visible button, no hint) because
+  // this is a testing convenience, not a feature.
+  onDevReset?: () => void;
 }
 
 const HERO_HEIGHT = 260;
@@ -42,6 +49,7 @@ export function Home({
   onStartNext,
   onBrowseAllLevels,
   onOpenRecipeBook,
+  onDevReset,
 }: HomeProps) {
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
 
@@ -129,7 +137,22 @@ export function Home({
 
       <View style={{ flex: 1 }} />
 
-      <Text style={[styles.footer, { color: config.palette.mutedText }]}>No timers. No rush. The kitchen keeps.</Text>
+      {/* The footer doubles as the hidden dev-reset target in development: a
+          long-press (never a plain tap) triggers onDevReset. It looks and
+          behaves as ordinary static text otherwise — onDevReset is undefined in
+          release builds, so onLongPress is a no-op and there is nothing for a
+          player to trigger. A long-press with no visible affordance is chosen
+          precisely so it can't be stumbled into. */}
+      <Pressable
+        onLongPress={onDevReset}
+        delayLongPress={800}
+        disabled={!onDevReset}
+        // Keep the text's normal layout/appearance — no press feedback, so the
+        // footer never hints that it's interactive.
+        style={styles.footerPressable}
+      >
+        <Text style={[styles.footer, { color: config.palette.mutedText }]}>No timers. No rush. The kitchen keeps.</Text>
+      </Pressable>
     </View>
   );
 }
@@ -257,5 +280,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     marginBottom: 16,
+  },
+  // Wrapper for the footer's hidden dev-reset long-press — full width so the
+  // centered text keeps its position; no press styling so it reads as plain
+  // text (see the JSX comment at the footer).
+  footerPressable: {
+    alignSelf: 'stretch',
   },
 });

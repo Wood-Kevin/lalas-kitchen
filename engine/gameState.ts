@@ -1223,6 +1223,12 @@ export interface SaveData {
 export interface AsyncStorageLike {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
+  // Deletes a key entirely — the honest way to clear a save (writing an empty
+  // value would leave a non-null blob that loadSave would then JSON.parse).
+  // The real AsyncStorage.removeItem(key, callback?) is structurally compatible
+  // with this narrower shape, same as getItem/setItem above, so the package
+  // stays a drop-in with no adapter.
+  removeItem(key: string): Promise<void>;
 }
 
 export function createInMemoryStorage(): AsyncStorageLike {
@@ -1233,6 +1239,9 @@ export function createInMemoryStorage(): AsyncStorageLike {
     },
     async setItem(key: string, value: string): Promise<void> {
       store.set(key, value);
+    },
+    async removeItem(key: string): Promise<void> {
+      store.delete(key);
     },
   };
 }
@@ -1263,4 +1272,16 @@ export async function saveProgress(
   storage: AsyncStorageLike = defaultStorage
 ): Promise<void> {
   await storage.setItem(saveKey(skinId), JSON.stringify(data));
+}
+
+// Deletes this skin's entire save so the next loadSave returns null — the exact
+// "fresh install" state. Used only by the dev-only reset (see App.tsx's
+// handleDevReset); a normal player never triggers it. Removing the key (rather
+// than writing a blank SaveData) means "no save" and "reset save" are the same
+// state, so the app's real first-run path can be reused verbatim afterward.
+export async function clearSave(
+  skinId: string,
+  storage: AsyncStorageLike = defaultStorage
+): Promise<void> {
+  await storage.removeItem(saveKey(skinId));
 }

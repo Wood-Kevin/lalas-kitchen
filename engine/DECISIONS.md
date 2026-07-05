@@ -1899,3 +1899,42 @@ from flashing back in that gap — the once-ever guarantee stays honest.
 the blocker tutorial and `unlockRecipeCard` — no new persistence pattern. Verified
 live (real `applyMove` forging a striped, real `findSpecialPieceTutorial`, real
 `getSpriteForPiece` art, real copy), see `docs/verification/special-piece-tutorial/`.
+
+# Dev-only reset — wipe the save and restart fresh, without OS storage settings
+
+A testing convenience, not a player feature: a way to clear all saved progress
+and reinitialize the game from inside the app, so a tester doesn't have to dig
+through the OS's app-storage settings between runs.
+
+**`clearSave(skinId, storage)` deletes the key rather than writing a blank
+`SaveData`.** Removing the key means "reset save" and "never saved" are the same
+on-disk state (the next `loadSave` returns `null`), so the app's genuine
+fresh-install path can be reused verbatim afterward with zero special-casing.
+This needed one addition to `AsyncStorageLike`: a `removeItem(key)` method (the
+real `AsyncStorage.removeItem` is a drop-in, same as `getItem`/`setItem`;
+`createInMemoryStorage` implements it with `Map.delete`). Writing an empty blob
+was rejected because `loadSave` would then `JSON.parse` a non-null value — the
+opposite of fresh.
+
+**Reinitialization reuses the mount effect's init, not a second copy.** The
+init body that turns a loaded save (or `null`) into session state was factored
+out of App.tsx's mount effect into `applyLoadedSave(save)`. The reset is exactly
+`clearSave(...)` then `applyLoadedSave(null)` — so there is no second definition
+of "what a fresh game looks like" that could drift from the real first-run path.
+A native `location.reload()` was rejected: it's web-only and wouldn't work on the
+actual phone this is for.
+
+**Hidden behind `__DEV__` AND a no-affordance long-press.** App.tsx passes
+`onDevReset` to Home only when `__DEV__` is true, so the whole thing is compiled
+out of any release build — a real player literally cannot reach it. On top of
+that, the trigger is a 800ms long-press on the Home footer line ("No timers. No
+rush. The kitchen keeps."), which renders as ordinary static text with no press
+feedback: nothing to stumble into even in a dev build. A confirm guards an
+accidental long-press (`window.confirm` on web, since react-native-web's `Alert`
+can't render a two-button dialog; RN `Alert` on device).
+
+**Verified live** (real Expo-web app over CDP): a seeded save loaded (Home showed
+"3 of 9 recipes collected", "UP NEXT · LEVEL 4"), the footer long-press raised
+the "[DEV] Reset all saved progress?" confirm, and on accept the localStorage
+save key became `null` and Home returned to fresh ("UP NEXT · LEVEL 1"). See
+`docs/verification/dev-reset/`.

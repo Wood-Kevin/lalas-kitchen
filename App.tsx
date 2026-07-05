@@ -2,7 +2,7 @@
 // before anything renders (its setup requirement on both native and web).
 import 'react-native-gesture-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, View } from 'react-native';
+import { Alert, AppState, AppStateStatus, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Board } from './components/Board';
@@ -11,7 +11,16 @@ import { AllLevels, AllLevelsRow } from './components/AllLevels';
 import { OutOfLives } from './components/OutOfLives';
 import { RecipeCard, SkinConfig } from './components/skinConfig';
 import { RecipeBook } from './components/RecipeBook';
-import { GameState, GameStatus, LevelConfig, Position, loadSave, saveProgress } from './engine/gameState';
+import {
+  GameState,
+  GameStatus,
+  LevelConfig,
+  Position,
+  SaveData,
+  clearSave,
+  loadSave,
+  saveProgress,
+} from './engine/gameState';
 import {
   applyLivesRegen,
   backfillUnlockedRecipeCards,
@@ -175,61 +184,98 @@ export default function App() {
   // renders off this value directly, only off `lives` itself.
   const livesLastRegenAtRef = useRef(Date.now());
 
+  // Initialize all session state from a loaded save (or `null` for a fresh
+  // install). Factored out of the mount effect so the dev reset can reuse the
+  // EXACT first-run path by calling it with null — no second copy of the
+  // "what does a fresh game look like" defaults that could drift from this one.
+  const applyLoadedSave = useCallback((save: SaveData | null) => {
+    const startLevelIndex = resolveStartLevelIndex(save);
+    const initialCompleted = save?.completedLevels ?? [];
+    const initialSeenTutorials = save?.seenTutorials ?? [];
+    // Reconcile the persisted card list against completed-level history on
+    // every load: progress made before the recipe card system existed left
+    // milestone levels in completedLevels with no matching unlocked card,
+    // and this is the one-time catch-up that recovers them (idempotent, so
+    // it's a no-op once caught up — see appPersistence.ts's
+    // backfillUnlockedRecipeCards). The live win flow below still owns
+    // *new* unlocks; this only heals old saves.
+    const initialUnlockedRecipeCards = backfillUnlockedRecipeCards(
+      skinConfig.recipeCards,
+      initialCompleted,
+      save?.unlockedRecipeCards ?? []
+    );
+
+    // Regen is computed once here from whatever the save last recorded —
+    // a session could have been closed for hours or days, and this is
+    // the first real opportunity to credit any lives that regenerated
+    // while the app wasn't running. `save.livesLastRegenAt` is only
+    // absent on a genuinely fresh install (no save yet), where "now" is
+    // the only sensible anchor to start counting from.
+    const now = Date.now();
+    const regenerated = applyLivesRegen(
+      startingLives(save, skinConfig.lives.max),
+      save?.livesLastRegenAt ?? now,
+      skinConfig.lives.max,
+      skinConfig.lives.regenMinutes,
+      now
+    );
+
+    levelIndexRef.current = startLevelIndex;
+    completedLevelsRef.current = initialCompleted;
+    seenTutorialsRef.current = initialSeenTutorials;
+    unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
+    livesRef.current = regenerated.lives;
+    livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
+    setLives(regenerated.lives);
+    setLevelIndex(startLevelIndex);
+    setCompletedLevels(initialCompleted);
+    setSeenTutorials(initialSeenTutorials);
+    setUnlockedRecipeCards(initialUnlockedRecipeCards);
+    setLevelConfig(null);
+    // levelConfig stays null here — every session now opens on Home (see
+    // resolveStartScreen), not straight into a board, so there's nothing
+    // to preload until the player actually taps into a level.
+    setScreen(resolveStartScreen());
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     loadSave(skinConfig.skinId).then((save) => {
       if (cancelled) return;
-      const startLevelIndex = resolveStartLevelIndex(save);
-      const initialCompleted = save?.completedLevels ?? [];
-      const initialSeenTutorials = save?.seenTutorials ?? [];
-      // Reconcile the persisted card list against completed-level history on
-      // every load: progress made before the recipe card system existed left
-      // milestone levels in completedLevels with no matching unlocked card,
-      // and this is the one-time catch-up that recovers them (idempotent, so
-      // it's a no-op once caught up — see appPersistence.ts's
-      // backfillUnlockedRecipeCards). The live win flow below still owns
-      // *new* unlocks; this only heals old saves.
-      const initialUnlockedRecipeCards = backfillUnlockedRecipeCards(
-        skinConfig.recipeCards,
-        initialCompleted,
-        save?.unlockedRecipeCards ?? []
-      );
-
-      // Regen is computed once here from whatever the save last recorded —
-      // a session could have been closed for hours or days, and this is
-      // the first real opportunity to credit any lives that regenerated
-      // while the app wasn't running. `save.livesLastRegenAt` is only
-      // absent on a genuinely fresh install (no save yet), where "now" is
-      // the only sensible anchor to start counting from.
-      const now = Date.now();
-      const regenerated = applyLivesRegen(
-        startingLives(save, skinConfig.lives.max),
-        save?.livesLastRegenAt ?? now,
-        skinConfig.lives.max,
-        skinConfig.lives.regenMinutes,
-        now
-      );
-
-      levelIndexRef.current = startLevelIndex;
-      completedLevelsRef.current = initialCompleted;
-      seenTutorialsRef.current = initialSeenTutorials;
-      unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
-      livesRef.current = regenerated.lives;
-      livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
-      setLives(regenerated.lives);
-      setLevelIndex(startLevelIndex);
-      setCompletedLevels(initialCompleted);
-      setSeenTutorials(initialSeenTutorials);
-      setUnlockedRecipeCards(initialUnlockedRecipeCards);
-      // levelConfig stays null here — every session now opens on Home (see
-      // resolveStartScreen), not straight into a board, so there's nothing
-      // to preload until the player actually taps into a level.
-      setScreen(resolveStartScreen());
+      applyLoadedSave(save);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyLoadedSave]);
+
+  // Dev-only "wipe everything and start fresh" — wired in below ONLY when
+  // __DEV__ is true (see the Home onDevReset prop), so it is compiled out of
+  // any release build and a real player can never reach it. It exists so the
+  // save can be reset from inside the app during testing instead of digging
+  // through the OS's app-storage settings. clearSave deletes the persisted
+  // blob; applyLoadedSave(null) then rebuilds session state via the same path a
+  // genuine fresh install takes, landing back on Home.
+  const handleDevReset = useCallback(() => {
+    const doReset = () => {
+      clearSave(skinConfig.skinId)
+        .then(() => applyLoadedSave(null))
+        .catch((err) => console.error('[dev] reset failed to clear save', err));
+    };
+    // Guard against a fat-fingered long-press nuking progress mid-test.
+    // react-native-web's Alert can't render a two-button confirm, so use the
+    // browser's native confirm on web and RN's Alert on device.
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('[DEV] Reset all saved progress?')) {
+        doReset();
+      }
+    } else {
+      Alert.alert('[DEV] Reset all progress?', 'This wipes the save and starts fresh.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reset', style: 'destructive', onPress: doReset },
+      ]);
+    }
+  }, [applyLoadedSave]);
 
   const persistLatestState = useCallback(() => {
     const state = latestStateRef.current;
@@ -524,6 +570,10 @@ export default function App() {
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
             onOpenRecipeBook={handleOpenRecipeBook}
+            // Dev-only: passed only in development so Home's hidden long-press
+            // reset affordance exists solely for testing, never in a release
+            // build a real player runs. See handleDevReset.
+            onDevReset={__DEV__ ? handleDevReset : undefined}
           />
         ) : screen === 'recipeBook' ? (
           <RecipeBook

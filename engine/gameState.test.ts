@@ -6,6 +6,7 @@ import {
   SaveData,
   loadSave,
   saveProgress,
+  clearSave,
   createInMemoryStorage,
 } from './gameState';
 import { Board, Piece, Position, checkMatches, checkSquares, hasLegalMoves } from './matrix';
@@ -1379,6 +1380,33 @@ describe('save/load round trip', () => {
     const storage = createInMemoryStorage();
     const loaded = await loadSave('never-saved', storage);
     expect(loaded).toBeNull();
+  });
+
+  // The dev-only reset (App.tsx's handleDevReset) leans on clearSave returning
+  // the skin to the exact "no save yet" state above, so the app's fresh-install
+  // path can be reused verbatim. This asserts that equivalence: after a save
+  // exists, clearSave makes the next load null again, and clearing another skin
+  // never touches this one's key.
+  test('clearSave deletes the save so the next load is null again', async () => {
+    const storage = createInMemoryStorage();
+    const data: SaveData = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 7,
+      lives: 3,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: {},
+      powerUpCounts: {},
+    };
+    await saveProgress('lalas-kitchen', data, storage);
+    expect(await loadSave('lalas-kitchen', storage)).toEqual(data);
+
+    // Clearing an unrelated skin leaves this save intact...
+    await clearSave('some-other-skin', storage);
+    expect(await loadSave('lalas-kitchen', storage)).toEqual(data);
+
+    // ...and clearing this skin returns it to the fresh-install null state.
+    await clearSave('lalas-kitchen', storage);
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
   });
 
   // SaveData.itemsCollected is keyed by matchType and has no structural tie
