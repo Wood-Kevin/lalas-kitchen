@@ -282,3 +282,41 @@ CLAUDE.md the player wants more visual weight, not more intensity. A blocker
 cleared on the swept line keeps its own highlight beat (`isBlockerClear`) rather
 than joining the beam. Verified live (real `ExitingTile` under Expo web, frames
 captured at several times) in `docs/verification/striped-sweep/`.
+
+## Drag-to-swap (an addition alongside tap, never a replacement)
+
+Tap-to-select-then-tap-adjacent stayed exactly as it was; drag-to-swap is a
+second way to trigger the *same* move. Precise dragging is genuinely harder for
+some players than two deliberate taps, and this game is built for one specific
+person — so both paths coexist and both end in the one `applyMove` call
+(`Board.tsx`'s `attemptSwap`, extracted from the old inline tap handler so tap
+and drag share it verbatim; there is no drag-specific game logic).
+
+Mechanism (`react-native-gesture-handler` `Gesture.Pan`, one per `Tile`, wrapped
+in a `GestureDetector`; the app root gained a `GestureHandlerRootView`). The pan
+activates only after ~6px of travel (`DRAG_ACTIVATION_SLOP`), so a plain tap never
+triggers it and falls straight through to the tile's `Pressable` — that is what
+keeps tap fully intact. `onUpdate`/`onEnd` run on the UI thread; the finger-follow
+offset is a Reanimated shared value set there, while the target-highlight and the
+commit hop to JS via `runOnJS` (they touch React state / `applyMove`).
+
+Which neighbour a drag points at is pure geometry, pulled out into
+`dragDirection.ts` (`resolveDragDirection`, tested in `dragDirection.test.ts`):
+dominant axis wins so a diagonal collapses to one orthogonal neighbour rather than
+being rejected, the threshold is measured against that dominant component (so the
+finger need only travel ~0.4 of a tile *toward* a neighbour, not all the way), and
+an exact 45° tie resolves deterministically to horizontal. `Board.tsx` maps the
+returned direction onto an actual cell, bounds-checks it, and both the live
+highlight and the release use that same mapping so they always agree.
+
+Feedback (requirement: show the targeted neighbour *before* release): the targeted
+tile gets a soft full-tile accent wash + thicker border (`dragTargeted`, the same
+calm overlay language as the blocker/sweep highlights — no ring/particle, per the
+calm-not-frantic rule), and the dragged tile itself peeks toward the finger. Both
+input methods gate on the same `canAcceptMove()` (in-progress, not mid-cascade, no
+overlay). Verified live (real Pan gestures under Expo web, driven via CDP) in
+`docs/verification/drag-swap/`.
+
+Note for whoever runs this on device: `react-native-gesture-handler` ships a
+native module, so the `expo-dev-client` build must be rebuilt once — web (used for
+the verification above) needs no rebuild.

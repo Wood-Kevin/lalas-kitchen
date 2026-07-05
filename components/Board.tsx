@@ -12,6 +12,7 @@ import {
 import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
+import { DRAG_NEIGHBOR_DELTA, resolveDragDirection } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
 import { getSpriteForMatchType, getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
@@ -112,6 +113,12 @@ interface ExitingEntry {
 
 const BOARD_HORIZONTAL_PADDING = 12;
 
+// A drag commits to a neighbour once the finger has travelled this fraction of
+// a tile toward it — well short of the neighbour's centre, so a swap doesn't
+// require dragging the whole way there, but far enough that a small wobble on a
+// tap-turned-drag doesn't fire an unintended swap.
+const DRAG_SWAP_THRESHOLD_FRACTION = 0.4;
+
 function isAdjacent(a: Position, b: Position): boolean {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
 }
@@ -146,6 +153,12 @@ export function Board({
     shouldShowBlockerTutorial(gameState.board, seenTutorials)
   );
   const [selected, setSelected] = useState<Position | null>(null);
+  // The neighbour a live drag is currently pointing at, or null. Drives the
+  // destination highlight on the targeted tile (see Tile's dragTargeted). Pure
+  // presentation — it never feeds applyMove; the release handler recomputes
+  // the target from the final drag vector so a fast release can't act on a
+  // stale value.
+  const [dragTarget, setDragTarget] = useState<Position | null>(null);
   const [exiting, setExiting] = useState<ExitingEntry[]>([]);
   const [spawnedIds, setSpawnedIds] = useState<Set<string>>(new Set());
   const [swapDurationIds, setSwapDurationIds] = useState<Set<string>>(new Set());
@@ -242,27 +255,24 @@ export function Board({
     };
   }, []);
 
-  function handleTilePress(pos: Position) {
-    if (gameState.status !== 'in_progress' || snapBack || showBlockerTutorial || animatingRef.current)
-      return;
+  // True only when a fresh move may be started: the level is live, nothing is
+  // mid-animation, and no overlay is up. Both input methods (tap and drag)
+  // gate on this identically. animatingRef is a ref (not state) so the check
+  // sees the in-flight cascade the instant it starts, before a re-render.
+  function canAcceptMove(): boolean {
+    return (
+      gameState.status === 'in_progress' &&
+      !snapBack &&
+      !showBlockerTutorial &&
+      !animatingRef.current
+    );
+  }
 
-    if (!selected) {
-      setSelected(pos);
-      return;
-    }
-    if (selected.row === pos.row && selected.col === pos.col) {
-      setSelected(null);
-      return;
-    }
-    if (!isAdjacent(selected, pos)) {
-      setSelected(pos);
-      return;
-    }
-
-    const posA = selected;
-    const posB = pos;
-    setSelected(null);
-
+  // The single move-commit path shared by tap-to-select and drag-to-swap: run
+  // applyMove for an adjacent pair and either snap back (rejected) or animate
+  // the resulting cascade. Both callers have already established the two cells
+  // are adjacent and a move is allowed.
+  function attemptSwap(posA: Position, posB: Position) {
     const result = applyMove(gameState, posA, posB);
 
     if (result.state === gameState) {
@@ -286,6 +296,65 @@ export function Board({
     const hasCombo = result.events.some((event) => event.type === 'combo_streak');
 
     animateCascade(gameState.board, result.state, result.steps, tappedIds, hasCombo);
+  }
+
+  function handleTilePress(pos: Position) {
+    if (!canAcceptMove()) return;
+
+    if (!selected) {
+      setSelected(pos);
+      return;
+    }
+    if (selected.row === pos.row && selected.col === pos.col) {
+      setSelected(null);
+      return;
+    }
+    if (!isAdjacent(selected, pos)) {
+      setSelected(pos);
+      return;
+    }
+
+    const posA = selected;
+    const posB = pos;
+    setSelected(null);
+    attemptSwap(posA, posB);
+  }
+
+  // Maps a drag vector originating on `origin` to the neighbour it points at,
+  // or null if it's below threshold or would run off the board edge. Shared by
+  // the live-highlight and release handlers so both agree on the target. The
+  // threshold scales with tileSize (see the Tile props below), so "far enough"
+  // stays proportional across screen sizes.
+  function dragNeighbor(origin: Position, dx: number, dy: number): Position | null {
+    const direction = resolveDragDirection(dx, dy, tileSize * DRAG_SWAP_THRESHOLD_FRACTION);
+    if (!direction) return null;
+    const delta = DRAG_NEIGHBOR_DELTA[direction];
+    const target = { row: origin.row + delta.dRow, col: origin.col + delta.dCol };
+    if (target.row < 0 || target.row >= rows || target.col < 0 || target.col >= cols) return null;
+    return target;
+  }
+
+  // Live during a drag: light up whichever neighbour the finger currently
+  // points at (or clear the highlight if none). Presentation only.
+  function handleDragMove(origin: Position, dx: number, dy: number) {
+    if (!canAcceptMove()) return;
+    const target = dragNeighbor(origin, dx, dy);
+    setDragTarget((prev) =>
+      target && prev && prev.row === target.row && prev.col === target.col ? prev : target
+    );
+  }
+
+  // On release: recompute the target from the final vector and, if there is
+  // one, run it through the exact same attemptSwap path a tap-swap uses.
+  function handleDragEnd(origin: Position, dx: number, dy: number) {
+    setDragTarget(null);
+    if (!canAcceptMove()) return;
+    const target = dragNeighbor(origin, dx, dy);
+    if (!target) return;
+    // Clear any half-finished tap selection so the two input methods can't
+    // leave a stale highlight behind after a drag commits a move.
+    setSelected(null);
+    attemptSwap(origin, target);
   }
 
   // Walks the per-pass board snapshots applyMove returned, animating each as
@@ -397,6 +466,7 @@ export function Board({
     setGameState(createGameState({ ...levelConfig, seed, lives }));
     setDisplayBoard(null);
     setSelected(null);
+    setDragTarget(null);
     setExiting([]);
     setSpawnedIds(new Set());
     setSwapDurationIds(new Set());
@@ -477,6 +547,15 @@ export function Board({
                     // will perform is made visible before the player commits.
                     direction={piece.type === 'striped' ? piece.direction : undefined}
                     onPress={() => handleTilePress({ row: r, col: c })}
+                    // Drag-to-swap, added alongside tap: a live drag from this
+                    // tile highlights and (on release) swaps toward the
+                    // neighbour it points at, reusing handleTilePress's exact
+                    // applyMove path. Disabled while an overlay is up or the
+                    // level isn't in progress; a plain tap is unaffected.
+                    dragEnabled={gameState.status === 'in_progress' && !showBlockerTutorial}
+                    dragTargeted={!!dragTarget && dragTarget.row === r && dragTarget.col === c}
+                    onDragMove={(dx, dy) => handleDragMove({ row: r, col: c }, dx, dy)}
+                    onDragEnd={(dx, dy) => handleDragEnd({ row: r, col: c }, dx, dy)}
                   />
                 );
               })

@@ -1,5 +1,9 @@
+// Must be the first import so gesture-handler installs its native handlers
+// before anything renders (its setup requirement on both native and web).
+import 'react-native-gesture-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Board } from './components/Board';
 import { Home } from './components/Home';
@@ -482,8 +486,11 @@ export default function App() {
   );
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={{ flex: 1 }}>
+    // GestureHandlerRootView must sit at the very top of the tree for the
+    // drag-to-swap Pan gestures in Board's tiles to receive touches.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1 }}>
         {screen === 'home' ? (
           <Home
             config={skinConfig}
@@ -550,7 +557,8 @@ export default function App() {
             unlockedRecipeCard={revealedRecipeCard}
           />
         )}
-      </SafeAreaView>
-    </SafeAreaProvider>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

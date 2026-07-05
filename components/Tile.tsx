@@ -1,12 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { ResolvedSprite } from './spriteAsset';
 import { BLOCKER_CLEAR_HIGHLIGHT_MS, SWEEP_GLOW_POP_MS } from './cascadeTiming';
 import { StripeDirection } from '../engine/matrix';
@@ -32,6 +34,23 @@ export interface TileProps {
   // DirectionBadge). Undefined for every ordinary piece, so no badge renders.
   direction?: StripeDirection;
   onPress: () => void;
+  // --- Drag-to-swap (an addition alongside tap-to-select, never a
+  // replacement) ---
+  // Whether this tile is currently the neighbour a live drag is pointing at.
+  // Board.tsx sets it from resolveDragDirection's output; drives the soft
+  // destination highlight so the player sees the target before releasing.
+  dragTargeted?: boolean;
+  // Turns the pan gesture on/off. Off during overlays / non-in-progress
+  // states so tiles can't be dragged when a move wouldn't be accepted anyway;
+  // the tap Pressable is unaffected either way. Defaults to on.
+  dragEnabled?: boolean;
+  // Fires continuously while a drag is active, with the finger's total offset
+  // from where it grabbed this tile (screen px). Board resolves it to a
+  // targeted neighbour for the live highlight.
+  onDragMove?: (dx: number, dy: number) => void;
+  // Fires once on release, with the final offset. Board resolves it to a
+  // neighbour and, if any, calls the same applyMove path a tap-swap uses.
+  onDragEnd?: (dx: number, dy: number) => void;
 }
 
 // A single animated board tile. Position is driven entirely by Reanimated
@@ -51,10 +70,20 @@ export function Tile({
   enterFromRow,
   direction,
   onPress,
+  dragTargeted,
+  dragEnabled = true,
+  onDragMove,
+  onDragEnd,
 }: TileProps) {
   const rowShared = useSharedValue(enterFromRow ?? row);
   const colShared = useSharedValue(col);
   const opacity = useSharedValue(enterFromRow !== undefined ? 0 : 1);
+  // Live finger-follow offset while this tile is being dragged. Layered as a
+  // transform on top of the row/col position, so the grid layout is untouched
+  // and the tile springs back to 0 on release; a committed swap then animates
+  // via the normal row/col path once Board applies the move.
+  const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
 
   useEffect(() => {
     rowShared.value = withTiming(row, { duration: durationMs });
@@ -65,6 +94,42 @@ export function Tile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, col, durationMs]);
 
+  // A pan that only activates after a few px of travel, so a plain tap never
+  // triggers it and falls straight through to the Pressable below — that's
+  // what keeps tap-to-select fully intact. onUpdate/onEnd run on the UI
+  // thread; the finger-follow is set there directly, and the target/commit
+  // decisions hop to JS via runOnJS since they touch React state / applyMove.
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(dragEnabled)
+        // Activation slop: below this a touch is a tap, above it a drag. Kept
+        // well under the swap threshold Board applies at release, so the tile
+        // starts following the finger before the swap is committed.
+        .minDistance(DRAG_ACTIVATION_SLOP)
+        .onUpdate((event) => {
+          'worklet';
+          // Clamp the follow so a long drag only ever peeks one tile toward
+          // the neighbour instead of sliding across the whole board.
+          const clamp = tileSize;
+          dragX.value = Math.max(-clamp, Math.min(clamp, event.translationX));
+          dragY.value = Math.max(-clamp, Math.min(clamp, event.translationY));
+          if (onDragMove) runOnJS(onDragMove)(event.translationX, event.translationY);
+        })
+        .onEnd((event) => {
+          'worklet';
+          if (onDragEnd) runOnJS(onDragEnd)(event.translationX, event.translationY);
+        })
+        .onFinalize(() => {
+          'worklet';
+          // Always snap back to rest — whether the swap committed (Board's
+          // row/col animation takes over) or not.
+          dragX.value = withTiming(0, { duration: DRAG_RETURN_MS });
+          dragY.value = withTiming(0, { duration: DRAG_RETURN_MS });
+        }),
+    [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY]
+  );
+
   const animatedStyle = useAnimatedStyle(() => ({
     position: 'absolute',
     top: rowShared.value * tileSize,
@@ -72,34 +137,59 @@ export function Tile({
     width: tileSize,
     height: tileSize,
     opacity: opacity.value,
+    transform: [{ translateX: dragX.value }, { translateY: dragY.value }],
+    // Lift the actively-dragged tile above its neighbours so its follow-offset
+    // is never occluded by an adjacent tile.
+    zIndex: dragX.value !== 0 || dragY.value !== 0 ? 2 : 0,
   }));
 
   return (
-    <Animated.View style={animatedStyle} testID={`tile-${pieceId}`}>
-      <Pressable
-        onPress={onPress}
-        style={[
-          styles.tile,
-          {
-            backgroundColor: panelColor,
-            borderColor: accentColor,
-            borderWidth: selected ? 3 : 1,
-          },
-        ]}
-      >
-        <SpriteContent sprite={sprite} accentColor={accentColor} />
-        {direction && (
-          <DirectionBadge
-            direction={direction}
-            tileSize={tileSize}
-            accentColor={accentColor}
-            panelColor={panelColor}
-          />
-        )}
-      </Pressable>
-    </Animated.View>
+    <GestureDetector gesture={pan}>
+      <Animated.View style={animatedStyle} testID={`tile-${pieceId}`}>
+        <Pressable
+          onPress={onPress}
+          style={[
+            styles.tile,
+            {
+              backgroundColor: panelColor,
+              borderColor: accentColor,
+              borderWidth: selected || dragTargeted ? 3 : 1,
+            },
+          ]}
+        >
+          <SpriteContent sprite={sprite} accentColor={accentColor} />
+          {direction && (
+            <DirectionBadge
+              direction={direction}
+              tileSize={tileSize}
+              accentColor={accentColor}
+              panelColor={panelColor}
+            />
+          )}
+          {dragTargeted && (
+            // Soft accent wash marking this tile as the drag's destination —
+            // the same calm, full-tile overlay language the blocker/sweep
+            // highlights use (no ring or particle), just shown live during a
+            // drag instead of on a clear. pointerEvents none so it never
+            // interferes with the gesture.
+            <View
+              pointerEvents="none"
+              testID={`drag-target-${pieceId}`}
+              style={[styles.dragTargetHighlight, { backgroundColor: accentColor }]}
+            />
+          )}
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
   );
 }
+
+// How far a finger must travel before a touch is treated as a drag rather than
+// a tap. Small, so dragging feels responsive; anything shorter stays a tap and
+// reaches the Pressable untouched.
+const DRAG_ACTIVATION_SLOP = 6;
+// How long the follow-offset takes to ease back to rest on release.
+const DRAG_RETURN_MS = 120;
 
 // The small corner badge that tells a player, at a glance, whether a striped
 // piece will sweep its row or its column before they commit the move. It
@@ -338,6 +428,18 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 8,
+  },
+  // Live drag-destination wash — same soft, full-tile accent overlay as the
+  // clear-time highlights, held at a low opacity so the target reads clearly
+  // without competing with the pieces (per CLAUDE.md's calm-not-frantic rule).
+  dragTargetHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    opacity: 0.28,
   },
   label: {
     fontSize: 20,
