@@ -1358,8 +1358,15 @@ reconciled with the later color bomb until this bug — the classic "two
 independently-correct systems that were never checked against each other once
 they interact." Fix: `ExitingEntry` carries the cleared piece's full `pieceType`
 and the exit tile resolves via `getSpriteForPiece`, exactly like a live tile. The
-transient mid-clear frame (the beat the settled-board capture above never looked
-at) is verified live for both a detonating bomb and a swept striped piece — see
+entry construction (`buildExitingEntry`) and the exit-sprite lookup
+(`exitingTileSprite`) were pulled out of `Board.tsx`'s inline JSX into a shared
+`components/exitingTile.ts` so the data flow is a single source of truth, unit-
+tested in `exitingTile.test.ts` — a regression guard asserting a color bomb and a
+striped piece both thread their full `type` through and resolve to their real
+sprite (`color_bomb` / `striped_tomato.webp`), never the matchType-only "?" or
+plain-base result a revert would reintroduce. The transient mid-clear frame (the
+beat the settled-board capture above never looked at) is also verified live for
+both a detonating bomb and a swept striped piece — see
 `docs/verification/exiting-tile-special-sprites/`.
 
 **Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** only exactly-5

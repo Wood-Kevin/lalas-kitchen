@@ -15,6 +15,7 @@ import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
 import { getSpriteForPiece } from './spriteMap';
+import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
@@ -91,33 +92,6 @@ export interface BoardProps {
   // or the persisted unlocked-cards list; it only renders whatever App.tsx
   // resolves.
   unlockedRecipeCard: RecipeCard | null;
-}
-
-interface ExitingEntry {
-  key: string;
-  pieceId: string;
-  matchType: string | undefined;
-  // The cleared piece's full engine type, carried so the exit animation
-  // resolves its sprite the same way a live tile does — via getSpriteForPiece,
-  // not matchType alone. A color bomb has no matchType, so a matchType-only
-  // lookup rendered its detonation frame as the "?" placeholder; a striped
-  // piece keeps its base matchType but a matchType-only lookup dropped its
-  // stripe overlay. Both need the type to resolve correctly (see the exit-tile
-  // render below and DECISIONS.md's two-sprite-path rendering note).
-  pieceType: string;
-  row: number;
-  col: number;
-  // From diff.cleared's own piece.type — a blocker cleared by adjacent
-  // damage rather than a direct match gets its own highlight beat (see
-  // Tile.tsx's ExitingTile). Reusing data diffBoards already computes, not
-  // a new engine field.
-  isBlockerClear: boolean;
-  // Set only on a tile swept by a striped piece's line clear — how long it
-  // waits before it brightens and pops, so the glow travels down the line
-  // instead of the whole row/column flashing at once. Derived purely from the
-  // pass's diff (see sweepAnimation.ts), no new engine data. Undefined for an
-  // ordinary match cell.
-  sweepDelayMs?: number;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -431,16 +405,9 @@ export function Board({
       // Each ExitingTile removes itself on completion (see removeExiting).
       setExiting((current) => [
         ...current,
-        ...diff.cleared.map(({ piece, from }) => ({
-          key: `${piece.id}-${moveId}`,
-          pieceId: piece.id,
-          matchType: piece.matchType,
-          pieceType: piece.type,
-          row: from.row,
-          col: from.col,
-          isBlockerClear: piece.type === 'blocker',
-          sweepDelayMs: sweepDelays.get(piece.id),
-        })),
+        ...diff.cleared.map(({ piece, from }) =>
+          buildExitingEntry(piece, from, moveId, sweepDelays.get(piece.id))
+        ),
       ]);
 
       previous = next;
@@ -641,7 +608,7 @@ export function Board({
                 row={entry.row}
                 col={entry.col}
                 tileSize={tileSize}
-                sprite={resolveSpriteAsset(getSpriteForPiece({ type: entry.pieceType, matchType: entry.matchType }, skinConfig), spriteAssets)}
+                sprite={resolveSpriteAsset(exitingTileSprite(entry, skinConfig), spriteAssets)}
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 durationMs={matchDurationMs}
