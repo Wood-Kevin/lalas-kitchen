@@ -267,6 +267,29 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
   return next;
 }
 
+// Whether a piece may be force-cleared by a special effect (a striped sweep,
+// an area-bomb blast, a color-bomb detonation, a combo, or the chain reaction
+// any of those can trigger). A blocker never force-clears — it only ever takes
+// adjacent damage (see applyAdjacentDamage) — and a void never clears at all,
+// since it's board SHAPE, not content (see matrix.ts's calculateCascades: a
+// void is a fixed floor gravity treats as permanent). Every clear-set builder
+// below used to spell out `type !== 'blocker'` on its own; on a rectangular
+// board that was equivalent to this, since void never existed. Once
+// non-rectangular boards shipped, every one of those call sites still let a
+// sweep/blast/chain reach straight through a void cell — nulling it via
+// cloneBoardWithGaps, which calculateCascades then reads as an ordinary gap
+// (not a void, since its isVoid check requires an actual void Piece, not
+// null) and refills with a spawned piece, permanently erasing the hole. The
+// swallowed void also lands in diffBoards' `cleared` list with no matchType,
+// so the exit-tile pipeline resolves it to the undefined/"?" placeholder on
+// its way out. One shared predicate, not five ad hoc `!== 'blocker'` checks
+// that could drift independently again the next time a non-content type is
+// added (see matrix.ts's parallel `swappable` guard in hasLegalMoves, which
+// already excludes both for the same reason).
+function isClearable(piece: Piece): boolean {
+  return piece.type !== 'blocker' && piece.type !== 'void';
+}
+
 // Every cell in a striped piece's sweep line — its whole row ('row') or whole
 // column ('col'). Pure grid geometry, blocker-agnostic: callers decide what to
 // do with a blocker on the line (resolveMatchEffects's addClear skips it; the
@@ -375,7 +398,7 @@ function expandChainClears(board: Board, seed: Position[], originKeys: Set<strin
 
   const add = (r: number, c: number): void => {
     if (r < 0 || r >= rows || c < 0 || c >= cols) return;
-    if (board[r][c].type === 'blocker') return;
+    if (!isClearable(board[r][c])) return;
     const key = keyOf(r, c);
     if (cleared.has(key)) return;
     cleared.add(key);
@@ -448,13 +471,18 @@ type AnchorSpec =
 //  - a fresh 5-long run CONVERTS one cell into a color bomb and clears the
 //    other four. (A color bomb doesn't act here — it only fires when the
 //    player swaps it, handled in applyMove. This branch just spawns it.);
-//  - a fresh 2x2 SQUARE of ordinary pieces (from `squares`) CONVERTS its
-//    top-left cell into an area bomb and clears the other three — but only if
-//    none of its four cells is part of any run this pass. A square overlapping
-//    a run is an L/T/larger shape, deferred (DEFERRED_COMPLEXITY.md): the run
-//    logic handles those cells and the square stands down. The spawned area
-//    bomb is colorless (drops its matchType, like a color bomb) and fires only
-//    when later swapped (resolveAreaBomb), not passively;
+//  - a fresh 2x2 SQUARE (from `squares`) CONVERTS its top-left cell into an
+//    area bomb and clears the other three — but only if none of its four cells
+//    is part of any run this pass. A square overlapping a run is an L/T/larger
+//    shape, deferred (DEFERRED_COMPLEXITY.md): the run logic handles those
+//    cells and the square stands down. The spawned area bomb is colorless
+//    (drops its matchType, like a color bomb) and fires only when later
+//    swapped (resolveAreaBomb), not passively. If one of the square's four
+//    cells is already a live striped piece (matrix.ts's checkSquares allows
+//    this through — see its squareEligible comment), no new area bomb spawns
+//    at all: that striped piece fires its own sweep instead, the same
+//    "an existing special fires itself rather than seeding a new one" rule
+//    the run branch above applies;
 //  - anything else (a plain 3-match, or a 6+ run) clears every cell.
 // Blockers are never added to the clear set here: they only ever fall to
 // adjacent damage (applyAdjacentDamage), so a striped sweep or area blast across
@@ -477,7 +505,23 @@ function resolveMatchEffects(
   const stripedTriggerKeys = new Set<string>();
 
   const addClear = (r: number, c: number): void => {
-    if (board[r][c].type !== 'blocker') clearedKeys.add(keyOf(r, c));
+    if (isClearable(board[r][c])) clearedKeys.add(keyOf(r, c));
+  };
+
+  // Fires every live striped piece among `triggers` (its own line sweep) and
+  // clears every cell in `allCells` alongside it. Shared by the run branch
+  // below and the square branch further down — both answer the same question
+  // ("a match already contains a live special — fire it, don't spawn a new
+  // special over it") the same way, so this is the one place that logic lives
+  // rather than being duplicated per shape.
+  const fireStripedTriggersAndClearAll = (triggers: Position[], allCells: Position[]): void => {
+    for (const p of triggers) {
+      stripedTriggerKeys.add(keyOf(p.row, p.col));
+      const piece = board[p.row][p.col];
+      const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
+      for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
+    }
+    for (const p of allCells) addClear(p.row, p.col);
   };
 
   // Every cell any run covers this pass — a square is only allowed to spawn an
@@ -498,13 +542,7 @@ function resolveMatchEffects(
     const striped = cells.filter((p) => board[p.row][p.col].type === 'striped');
 
     if (striped.length > 0) {
-      for (const p of striped) {
-        stripedTriggerKeys.add(keyOf(p.row, p.col));
-        const piece = board[p.row][p.col];
-        const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-        for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
-      }
-      for (const p of cells) addClear(p.row, p.col);
+      fireStripedTriggersAndClearAll(striped, cells);
     } else if (cells.length === 5) {
       const anchor = cells[0];
       anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'color_bomb' });
@@ -518,13 +556,21 @@ function resolveMatchEffects(
     }
   }
 
-  // Pure 2x2 squares → area bombs. Same anchor-conversion shape a 4-run uses
-  // for a striped piece: convert the top-left cell, clear the other three (so a
-  // square credits 3 toward objectives now; the bomb pays out the rest when it
-  // later fires). checkSquares already guaranteed all four cells are ordinary
-  // pieces, so none is a blocker to skip here.
+  // Pure 2x2 squares → area bombs — unless the square already contains a live
+  // striped piece, in which case that piece fires its own sweep instead (the
+  // same rule the run branch above applies): checkSquares now allows a
+  // striped corner through (see matrix.ts's squareEligible), so a square is no
+  // longer guaranteed to be four plain ordinary pieces. Otherwise, same
+  // anchor-conversion shape a 4-run uses for a striped piece: convert the
+  // top-left cell, clear the other three (so a square credits 3 toward
+  // objectives now; the bomb pays out the rest when it later fires).
   for (const square of squares) {
     if (square.positions.some((p) => runCovered.has(keyOf(p.row, p.col)))) continue;
+    const stripedCorners = square.positions.filter((p) => board[p.row][p.col].type === 'striped');
+    if (stripedCorners.length > 0) {
+      fireStripedTriggersAndClearAll(stripedCorners, square.positions);
+      continue;
+    }
     const anchor = square.positions[0];
     anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'area_bomb' });
     for (let i = 1; i < square.positions.length; i++) {
@@ -676,8 +722,11 @@ function resolveColorBomb(
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const piece = board[r][c];
-      // Blockers only ever fall to adjacent damage, never a direct clear.
-      if (piece.type === 'blocker') continue;
+      // Blockers only ever fall to adjacent damage, never a direct clear; a
+      // void is board shape, never content, and never clears at all (matters
+      // most for detonateWholeBoard below, which would otherwise sweep every
+      // void on a shaped board along with everything else).
+      if (!isClearable(piece)) continue;
       const isBomb = r === bombPos.row && c === bombPos.col;
       const matchesTarget =
         piece.type !== 'color_bomb' && targetMatchType !== undefined && piece.matchType === targetMatchType;
@@ -719,8 +768,8 @@ function resolveAreaBomb(
 ): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
-  const clearedPositions = areaBlastPositions(rows, cols, bombPos).filter(
-    (p) => board[p.row][p.col].type !== 'blocker'
+  const clearedPositions = areaBlastPositions(rows, cols, bombPos).filter((p) =>
+    isClearable(board[p.row][p.col])
   );
   // The area bomb itself is this effect's own trigger (it clears but doesn't
   // chain — its blast IS the seed). Any OTHER special caught in the 3x3 is not an
@@ -864,13 +913,14 @@ function resolveStripedBombCombo(
 }
 
 // Turns a set of "r,c" cell keys into the Position list resolveClearSet wants,
-// dropping any blocker cell so blockers only ever take adjacent damage (the one
-// blocker rule shared by every clearing mechanism).
+// dropping any cell that can't be force-cleared (see isClearable) — a blocker,
+// so it only ever takes adjacent damage, and a void, so a combo's sweep lines
+// can never eat through a shaped board's fixed holes.
 function keysToClearablePositions(keys: Set<string>, board: Board): Position[] {
   const out: Position[] = [];
   for (const k of keys) {
     const [r, c] = k.split(',').map(Number);
-    if (board[r][c].type !== 'blocker') out.push({ row: r, col: c });
+    if (isClearable(board[r][c])) out.push({ row: r, col: c });
   }
   return out;
 }

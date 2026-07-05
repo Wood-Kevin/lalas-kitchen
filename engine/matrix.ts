@@ -84,9 +84,11 @@ export interface Match {
 // rather than being folded into runsInLine. It has no orientation (a square
 // isn't a row or a column), and it must never be mistaken for a 4-long run,
 // which spawns a striped piece instead of an area bomb. positions[0] is the
-// top-left cell and is the anchor that becomes the area bomb, mirroring how a
-// run uses its first cell as the striped/bomb anchor (see gameState.ts's
-// resolveMatchEffects).
+// top-left cell — the anchor that becomes the area bomb, mirroring how a run
+// uses its first cell as the striped/bomb anchor — UNLESS one of the four
+// cells is already a live striped piece, in which case gameState.ts's
+// resolveMatchEffects fires that piece's own sweep instead of spawning a new
+// area bomb at all (see the squareEligible comment above).
 export interface Square {
   matchType: string | undefined;
   positions: Position[];
@@ -163,18 +165,28 @@ export function checkMatches(board: Board): Match[] {
   return matches;
 }
 
-// Finds every 2x2 block of four ORDINARY pieces sharing one matchType. Only
-// plain `type === 'normal'` cells seed a square: a blocker, a color bomb, or an
-// already-live special (striped/area_bomb) caught in a 2x2 region never
-// converts to — or is consumed by — an area bomb, exactly as the run path never
-// re-spawns a special over an existing one. This is the SPAWN scan; it's
-// independent of, and runs alongside, checkMatches (a pure 2x2 forms no
-// 3-in-a-row, so the run scan alone would miss it). Overlapping squares (a 2x3
-// region, say) are all returned, but such a region also contains a straight
-// run, so gameState.ts's resolveMatchEffects — which only spawns a bomb for a
-// square whose cells no run touches — stands those down and lets the run logic
-// handle them (L/T/larger shapes stay deferred). Pure: reads the board, returns
-// the squares found.
+// A corner may be a plain ordinary piece OR a live striped piece — a striped
+// piece caught in a square fires its own line sweep instead of a new area bomb
+// spawning (see gameState.ts's resolveMatchEffects), the same "an existing
+// special fires itself rather than seeding a new one" rule a run already
+// applies to a striped piece caught in it. A blocker or void never counts
+// (real playtesting confirmed this — see engine/DECISIONS.md's square+striped
+// entry); a color bomb or area bomb never counts either, but that's moot here
+// since both are colorless and piecesMatch already excludes them from ever
+// sharing a matchType with the other corners.
+function squareEligible(piece: Piece): boolean {
+  return piece.type === 'normal' || piece.type === 'striped';
+}
+
+// Finds every 2x2 block of four mutually-matching, square-eligible pieces
+// (see squareEligible above). This is the SPAWN scan; it's independent of, and
+// runs alongside, checkMatches (a pure 2x2 forms no 3-in-a-row, so the run
+// scan alone would miss it). Overlapping squares (a 2x3 region, say) are all
+// returned, but such a region also contains a straight run, so
+// gameState.ts's resolveMatchEffects — which only spawns a bomb for a square
+// whose cells no run touches — stands those down and lets the run logic
+// handle them (L/T/larger shapes stay deferred). Pure: reads the board,
+// returns the squares found.
 export function checkSquares(board: Board): Square[] {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
@@ -186,7 +198,7 @@ export function checkSquares(board: Board): Square[] {
       const tr = board[r][c + 1];
       const bl = board[r + 1][c];
       const br = board[r + 1][c + 1];
-      if (tl.type !== 'normal' || tr.type !== 'normal' || bl.type !== 'normal' || br.type !== 'normal') {
+      if (!squareEligible(tl) || !squareEligible(tr) || !squareEligible(bl) || !squareEligible(br)) {
         continue;
       }
       if (!piecesMatch(tl, tr) || !piecesMatch(tl, bl) || !piecesMatch(tl, br)) continue;

@@ -1454,7 +1454,9 @@ strictly simpler detection than intersecting runs meeting at a corner.
 (`checkMatches`) scans straight runs only, so a pure 2×2 (which contains no
 3-in-a-row) was invisible to the whole engine. A new pure scan `checkSquares`
 (`matrix.ts`) finds every 2×2 of four `type === 'normal'` cells sharing a
-matchType, alongside — never folded into — `checkMatches`. It gets its own
+matchType, alongside — never folded into — `checkMatches`. (This corner-type
+gate was later relaxed to also allow a live striped corner — see the
+"Squares: a live striped corner now counts" entry below.) It gets its own
 `Square` type (no `orientation`; a square is neither a row nor a column) so it's
 never mistaken for a 4-run, which would spawn a striped piece instead.
 
@@ -1620,6 +1622,49 @@ temporary `?harness=powder` gate, reverted after) — per-frame opacity/scale
 traces plus filmstrips in `docs/verification/area-bomb/powder/`. Still deferred:
 the per-link blast-chaining animation flash (unchanged — the engine still
 computes a chain's settled clear directly), see `DEFERRED_COMPLEXITY.md`.
+
+### Squares: a live striped corner now counts, firing itself instead of spawning a new bomb
+
+Real play surfaced a null result: a 2×2 of four same-color pieces did nothing
+when one of the four was already a live striped piece, even though it shared
+the square's matchType. `checkSquares` (`matrix.ts`) required every corner to
+be `type === 'normal'` — the same gate that (correctly) excludes a blocker or
+void also excluded an already-special piece, and an existing `matrix.test.ts`
+case explicitly asserted this ("a 2x2 that includes a non-normal piece
+(blocker/special) is not a square"), lumping the two together. That gate
+predates this question ever coming up in real play.
+
+**The fork, confirmed with the architect before building** (three real
+options, not an obvious fix): (a) a live special corner still counts, and the
+*existing* special fires its own effect instead of a new one spawning —
+mirroring the identical rule the run path already applies (a run containing a
+live striped piece fires it rather than spawning a second special over it);
+(b) leave it as-is, a silent non-event identical to a blocker/void corner; (c)
+convert the striped piece into a new area bomb without ever firing its sweep.
+(a) was chosen: it's consistent with the run precedent, and (c) would have
+silently destroyed an earned special without giving its effect — the exact
+"a special never just vanishes as ordinary content" failure mode chaining was
+built to prevent.
+
+**What changed.** `matrix.ts` gained a `squareEligible(piece)` predicate
+(`type === 'normal' || type === 'striped'`) replacing the old `type !==
+'normal'` gate — a blocker or void is still excluded outright; a color bomb or
+area bomb is moot (colorless, so `piecesMatch` already keeps it from sharing a
+matchType with the other corners). `gameState.ts`'s `resolveMatchEffects` now
+checks a detected square for any live striped corner; if found, that piece
+fires its own line sweep and every square cell clears alongside it — **no**
+new area bomb spawns. This reuses, rather than duplicates, the run branch's
+existing sweep-firing code: both now call one shared
+`fireStripedTriggersAndClearAll(triggers, allCells)` helper. A square with no
+striped corner is unaffected — the ordinary anchor-conversion path is
+unchanged.
+
+Confirmed with new cases in `engine/matrix.test.ts` (a striped corner is now
+detected; a blocker corner, and a color-bomb/area-bomb corner, still are not)
+and `engine/gameState.test.ts` (the sweep reaches beyond the square itself
+down the piece's full line, no area bomb spawns, the objective credits the
+matchType-matching cells). Verified live — see
+`docs/verification/square-striped-corner/`.
 
 # Phase 8 — dynamic denial-zone spread (blockers that grow if ignored)
 
@@ -1884,6 +1929,45 @@ already only eats ordinary cells; a blast/sweep that reaches a void simply
 doesn't clear it). Hand-authored shapes first, generator integration as its own
 later step — the same prove-it-with-real-content sequencing every other feature
 here followed.
+
+### Fixed: the "a blast/sweep simply doesn't clear a void" claim above didn't hold
+
+Real playtesting on a shaped board surfaced a "?" placeholder flashing as a
+special cleared, and — worse — a void corner of the board occasionally turning
+into ordinary playable content. The paragraph directly above already *asserted*
+a blast/sweep can't touch a void; the actual code never enforced that. The five
+places that build a special's swap-triggered clear set — `resolveMatchEffects`'s
+in-match striped sweep, `expandChainClears`'s chain expansion, `resolveAreaBomb`'s
+3×3 blast, `resolveColorBomb`'s whole-board detonation (the bomb+bomb swap), and
+`keysToClearablePositions` (the striped+striped cross and striped+bomb
+supercombo) — were all written before voids existed and each independently
+excluded only `'blocker'`, never `'void'`. On a rectangular board that was a
+no-op difference (no void ever existed to hit); on a shaped board, a sweep line
+or blast radius that geometrically overlaps a void cell added it straight into
+the effect's `clearedPositions`. `cloneBoardWithGaps` then nulled that cell, and
+`calculateCascades`'s `isVoid` check requires an actual void `Piece`, not
+`null` — so the nulled void read as an ordinary gap and got refilled by
+`spawnPiece()`, permanently erasing the hole. The swallowed void also landed in
+`diffBoards`' `cleared` list carrying no `matchType`, so the exiting-tile
+pipeline (`exitingTileSprite` → `getSpriteForPiece` → `getSpriteForMatchType`)
+resolved it to `undefined` → `spriteLabel`'s `'?'` placeholder — the same class
+of bug as the original color-bomb "?" (see the two-sprite-path entry above), but
+one layer upstream: that fix made the exit-tile pipeline honest about whatever
+type it's handed, it was never responsible for keeping a void out of the clear
+set in the first place.
+
+Fix: one shared `isClearable(piece)` predicate (`type !== 'blocker' && type !==
+'void'`) — the same pairing `matrix.ts`'s `hasLegalMoves` already uses for its
+`swappable` guard — replacing all five ad hoc `!== 'blocker'` checks, so a
+future non-content type only needs to be taught to this one place. Confirmed
+with three new `engine/gameState.test.ts` cases (a striped sweep, an area-bomb
+blast, and a color-bomb+color-bomb whole-board detonation, each crossing a
+void) and a live harness against the real Cutting Board shape (seed-accurate
+`voidCells`, real sprite art, the same scenario replayed on a plain rectangle
+for direct comparison) — see
+`docs/verification/void-specials-clear-fix/`. Still deferred, unchanged: void ×
+denial-spread interaction (a spread already only ever targets `'normal'` cells,
+so it was never exposed to this bug) and generator-driven shapes.
 
 ## Special-piece tutorial overlay: a data-driven sibling of the blocker tutorial, keyed by piece type
 

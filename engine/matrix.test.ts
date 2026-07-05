@@ -456,19 +456,56 @@ describe('checkSquares — 2x2 block detection', () => {
     ]);
   });
 
-  test('a 2x2 that includes a non-normal piece (blocker/special) is not a square', () => {
+  test('a 2x2 that includes a blocker is not a square', () => {
     const board = buildBoard([
       ['A', 'A', 'X'],
       ['A', 'A', 'Y'],
       ['C', 'D', 'E'],
     ]);
     // Turn one of the four into a blocker of the same matchType — piecesMatch
-    // would still reject it, but checkSquares also requires all four to be plain
-    // 'normal' cells, so a special/blocker in a 2x2 never seeds an area bomb.
+    // would still reject it, but checkSquares also requires a blocker corner
+    // to be excluded outright, so a blocker in a 2x2 never seeds an area bomb.
     board[1][1] = blockerPiece('A', '1-1', 2);
     expect(checkSquares(board)).toHaveLength(0);
+  });
 
+  // Real playtesting found a square with a live striped corner (same
+  // matchType as the other three) silently failed to form at all — this used
+  // to be lumped in with the blocker case above, but a striped piece is
+  // content, not a non-content sentinel, and the run path already lets an
+  // existing special fire itself instead of blocking a match outright (see
+  // engine/DECISIONS.md's square+striped entry). checkSquares now detects
+  // this shape; gameState.ts's resolveMatchEffects decides what happens to
+  // the striped corner (fires its own sweep, doesn't spawn a new area bomb —
+  // see its own tests).
+  test('a 2x2 with a live striped corner (same matchType as the other three) IS a square', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['A', 'A', 'Y'],
+      ['C', 'D', 'E'],
+    ]);
     board[1][1] = { id: '1-1', type: 'striped', matchType: 'A', direction: 'row' };
+    const squares = checkSquares(board);
+    expect(squares).toHaveLength(1);
+    expect(squares[0].matchType).toBe('A');
+    expect(sortPositions(squares[0])).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 0 },
+      { row: 1, col: 1 },
+    ]);
+  });
+
+  test('a 2x2 that includes a color bomb or area bomb is not a square (colorless, no matchType to share)', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['A', 'A', 'Y'],
+      ['C', 'D', 'E'],
+    ]);
+    board[1][1] = { id: '1-1', type: 'color_bomb' };
+    expect(checkSquares(board)).toHaveLength(0);
+
+    board[1][1] = { id: '1-1', type: 'area_bomb' };
     expect(checkSquares(board)).toHaveLength(0);
   });
 

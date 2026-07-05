@@ -1503,6 +1503,49 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.state.movesRemaining).toBe(9);
   });
 
+  // Real playtesting found that a 2x2 square didn't form at all when one of
+  // the four matching cells was already a live striped piece — checkSquares
+  // used to reject any non-'normal' corner outright, the same rule that
+  // excludes a blocker. Confirmed with the architect: a striped corner should
+  // count, and the square should fire the EXISTING striped piece's sweep
+  // rather than spawn a brand-new area bomb over it — the same "an existing
+  // special fires itself instead of seeding a new one" rule the run path
+  // already applies (see engine/DECISIONS.md's square+striped entry).
+  test('a 2x2 square with one striped corner (same matchType) fires the striped sweep, not a new area bomb', () => {
+    const board = distinctBoard(5, 5);
+    board[0][0] = piece('A', '0-0');
+    board[0][1] = { id: '0-1', type: 'striped', matchType: 'A', direction: 'col' };
+    board[1][0] = piece('A', '1-0');
+    board[1][2] = piece('A', '1-2');
+    // Pre-move sanity: (1,1) is still an unrelated grid piece, so no square
+    // (or run) exists yet.
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    // Complete the square by swapping (1,2)'s 'A' into (1,1).
+    const result = applyMove(stateWith(board, 'A'), { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // No new area bomb spawned, and the striped piece consumed itself firing
+    // its sweep rather than surviving or converting into something else.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    // The striped piece's own 'col' direction sweeps the WHOLE of column 1
+    // (rows 0-4), reaching beyond the square itself — proof it's genuinely
+    // firing its sweep, not just being folded into the square's 4 cells.
+    for (const id of ['0-1', '2-1', '3-1', '4-1']) expect(hasId(result.state.board, id)).toBe(false);
+    // The other two square corners (not otherwise on the swept column) also
+    // cleared as part of the same event.
+    expect(hasId(result.state.board, '0-0')).toBe(false);
+    expect(hasId(result.state.board, '1-0')).toBe(false);
+    // A cell outside both the square and the sweep survives untouched.
+    expect(hasId(result.state.board, '2-2')).toBe(true);
+    // Objective credit: the 4 matchType-'A' cells (the 3 ordinary square
+    // corners + the striped piece's own matchType) — the plain grid pieces
+    // swept from elsewhere on column 1 don't count toward it.
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
   test('swapping an area bomb with an ordinary piece fires the 3x3 blast immediately — no run needed, centered on the bomb', () => {
     const board = distinctBoard(5, 5);
     // A live COLORLESS area bomb at the center (2,2). No A's, no runs anywhere —
@@ -1915,5 +1958,101 @@ describe('applyMove — non-rectangular (void) board', () => {
     expect(result.state.movesRemaining).toBe(0);
     expect(result.state.status).toBe('paused_awaiting_input');
     expect(result.state.pauseReason).toBe('moves');
+  });
+
+  // Regression coverage for the bug the playtest protocol surfaced: a
+  // special's clear geometry (a striped sweep, an area-bomb blast, a
+  // color-bomb detonation, or the chain reaction any of those trigger) only
+  // ever excluded 'blocker' cells, the same way it did before voids existed.
+  // On a shaped board that let a sweep/blast reach straight through a void,
+  // which cloneBoardWithGaps then nulled and calculateCascades refilled as an
+  // ordinary gap — permanently erasing the hole (and, on its way out, handing
+  // the exiting-tile pipeline a void with no matchType, which resolves to the
+  // undefined/"?" placeholder exactly like the original color-bomb bug). Every
+  // clear-set builder now routes through the shared `isClearable` predicate,
+  // which excludes both.
+  describe('specials never clear through a void', () => {
+    test('a striped sweep whose line crosses a void leaves the void in place', () => {
+      // Row 0: A A X C void. Swapping (0,2)X with (1,2), a resting striped
+      // piece, forms a 3-run of 'A' at (0,0)-(0,2) that includes the striped
+      // piece, triggering its row sweep — straight through (0,4), the void.
+      const board = buildShapedBoard([
+        ['A', 'A', 'X', 'C', '.'],
+        ['D', 'E', 'Y', 'F', 'G'],
+        ['H', 'I', 'J', 'K', 'L'],
+      ]);
+      board[1][2] = { id: board[1][2].id, type: 'striped', matchType: 'A', direction: 'row' };
+      const state: GameState = {
+        board,
+        movesRemaining: 10,
+        lives: 5,
+        objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 1, currentCount: 0 }],
+        status: 'in_progress',
+        pauseReason: null,
+        totalCleared: {},
+        spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
+      };
+
+      const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+      expect(result.state.board[0][4].type).toBe('void');
+      // The rest of the swept row did clear and refill as ordinary content —
+      // the fix isn't "the sweep stopped working," only "it no longer eats
+      // the void."
+      expect(result.state.board[0][0].type).not.toBe('void');
+      expect(result.state.board[0][1].type).not.toBe('void');
+      expect(result.state.board[0][3].type).not.toBe('void');
+    });
+
+    test('an area-bomb blast overlapping a void leaves the void in place', () => {
+      // A 3x3-ish board with a void at (0,2), inside the blast radius of an
+      // area bomb resting at (1,1).
+      const board = buildShapedBoard([
+        ['A', 'B', '.'],
+        ['C', 'Q', 'D'],
+        ['E', 'F', 'G'],
+      ]);
+      board[1][1] = { id: board[1][1].id, type: 'area_bomb' };
+      const state: GameState = {
+        board,
+        movesRemaining: 10,
+        lives: 5,
+        objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 1, currentCount: 0 }],
+        status: 'in_progress',
+        pauseReason: null,
+        totalCleared: {},
+        spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
+      };
+
+      // Swap the bomb with an ordinary neighbor to fire its 3x3 blast.
+      const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 0 });
+
+      expect(result.state.board[0][2].type).toBe('void');
+    });
+
+    test('a color-bomb + color-bomb whole-board detonation leaves every void in place', () => {
+      const board = buildShapedBoard([
+        ['A', 'B', '.'],
+        ['C', 'D', 'E'],
+        ['.', 'F', 'G'],
+      ]);
+      board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+      board[1][2] = { id: board[1][2].id, type: 'color_bomb' };
+      const state: GameState = {
+        board,
+        movesRemaining: 10,
+        lives: 5,
+        objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 1, currentCount: 0 }],
+        status: 'in_progress',
+        pauseReason: null,
+        totalCleared: {},
+        spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
+      };
+
+      const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+      expect(result.state.board[0][2].type).toBe('void');
+      expect(result.state.board[2][0].type).toBe('void');
+    });
   });
 });
