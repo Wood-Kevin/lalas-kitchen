@@ -2256,3 +2256,119 @@ rendered 44,534 characters of real app HTML — not a blank page. The only
 404 was the browser's own automatic `/favicon.ico` probe at the domain
 root, unrelated to the export. See
 `docs/verification/web-export-subpath-paths/` for full request logs.
+
+## Sound/haptics stub layer
+
+CLAUDE.md's Design Constraints already presupposed a mute toggle existed
+("Sound defaults to off, with an easy one-tap mute") but investigation
+confirmed zero audio/haptics code, zero audio/haptics dependency, and no
+mute toggle in any screen existed anywhere — the constraint was aspirational,
+not built. This session built the stub infrastructure (service interfaces,
+`SaveData` flags, event wiring, a real Home toggle) with graceful no-op
+fallback everywhere a real asset doesn't exist yet, cheap to do now and
+expensive to retrofit once more event call sites depend on ad hoc timing.
+
+**Two independent flags, not one combined switch.** `SaveData.soundEnabled`
+and `SaveData.hapticsEnabled` are separate optional booleans, both defaulting
+to `false` (`App.tsx`'s `SOUND_ENABLED_DEFAULT`/`HAPTICS_ENABLED_DEFAULT`).
+Sound's off-default is directly dictated by CLAUDE.md's real user research
+(the target player finds game sound distracting); haptics has no equivalent
+documented complaint, but defaults off too for the same calm-by-default
+reasoning applied uniformly — a player opts into more sensory input rather
+than opting out of it. Independent, not combined, because they're different
+sensory channels: a player may want tactile confirmation without audio or
+vice versa.
+
+**`SoundService`/`HapticsService` mirror `services/adService.ts`'s
+interface-plus-factory shape**, but diverge from it in one load-bearing way.
+`adService.ts` safely imports both concrete adapters (`adMobAdService.ts`,
+`crazyGamesAdService.ts`) directly, because neither touches a real native
+SDK yet — both are pure stubs. Haptics is different: `expo-haptics` is a
+real, already-active native module, and its raw ESM `import` fails to parse
+under this repo's plain ts-jest config (confirmed empirically — the same
+Flow-syntax-style crash `services/defaultAdService.ts` avoids for
+`react-native`'s own import). So `services/hapticsService.ts`'s
+`selectHapticsService(platformOS, nativeService, webService)` takes both
+candidate services as plain injected params instead of importing
+`expoHapticsService` itself — that real import lives only in
+`services/defaultHapticsService.ts`, the one file (mirroring
+`defaultAdService.ts`) never imported by a test. `soundService.ts` didn't
+need this split: both platforms resolve to the same `silentSoundService`
+today (no sound assets exist, so no adapter touches a real audio backend
+yet), so its factory keeps `adService.ts`'s simpler single-platform-string
+signature.
+
+**The SaveData-flag gate lives at the call site, not inside the services.**
+`SoundService.play()`/`HapticsService.fire()` have no idea what a "flag" or
+"SaveData" is, the same separation `adService.ts` keeps from `lives`/grant
+logic — gating inside the service would couple a pure platform adapter to
+app-level persisted state for no reason.
+
+**`components/soundEffects.ts`'s `triggerPassEffects` is a plain function,
+not a React hook**, despite this session's brief naming it `useSoundEffects`.
+It holds no render state and calls no other hooks, so wrapping it in
+`useCallback`/`useState` would only add hook-call constraints (calling a
+`useCallback`-wrapping function outside a real component render throws
+React's "Invalid hook call") and force a new `@testing-library/react`
+dependency plus this repo's first jsdom test environment, just to validate
+branching logic a plain function tests directly. Confirmed with the
+architect before writing it this way — see the plan review. It's called
+once per cascade pass from `Board.tsx`'s `animateCascade`/`runStep(i)`, the
+only place `applyMove`'s `steps`/`events` are available without widening
+Board's prop surface (the same reason `appPersistence.ts`'s
+`didLevelJustEnd` re-derives level-end instead of threading `events` up to
+`App.tsx`).
+
+**Match/cascade/win signal is derived from `steps`/pass index, not a new
+engine event type.** `ApplyMoveResult.events` only ever contains
+`combo_streak` (4+ chained cascades) and `level_summary` (win/loss) — there
+is no per-ordinary-match or per-cascade-pass event. Adding one would be new
+engine computation the original ask didn't call for; deriving "was this the
+first pass" (`i === 0`) and "was this the final pass, and did it win"
+(`isFinalPass && finalState.status === 'won'`) from data `applyMove` already
+returns needed nothing new in `engine/gameState.ts` at all.
+
+**Cascade passes get sound but no haptic.** A haptic pulse on every fast
+pass of a long chain would read as a buzzy alarm — directly against
+CLAUDE.md's calm-not-frantic constraint. The haptic fires once, on the
+first pass only (the player's own swap); sound alone still lets a long
+chain register audibly when enabled.
+
+**The win sound fires in step with the winning clear itself** (the same
+`runStep(i)` call as every other pass's cue), not deferred to the existing
+`setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold)` later
+in the same function. That existing hold is specifically about the *visual*
+overlay card not popping over still-animating tiles — a legitimate
+visual-only concern. A win jingle cueing the instant the winning match
+happens is the natural analog of every other pass's audio cue; delaying it
+to match the overlay's hold would make the sound land noticeably after the
+pieces have already visibly cleared.
+
+**No distinct `combo_streak` sound** — out of scope per the original ask
+(match/cascade/win only); `ComboStreakBanner` already owns that visual
+acknowledgment. A fourth `SoundEffectId` is a small, obvious follow-up if a
+distinct combo cue is wanted later.
+
+**`expo-haptics` installed via a pinned-version `npm install`, not
+`npx expo install`.** `expo install` internally invokes `npm install
+--allow-scripts`, which this environment's npm config (`allow-scripts=
+@anthropic-ai/claude-code` in `~/.npmrc`) rejects for project-scoped
+installs. Installed the exact SDK-54-pinned version directly instead
+(`npm install expo-haptics@~15.0.8`, matching `expo/bundledNativeModules.json`'s
+pin) — same end result, no `expo install`-specific resolution logic
+skipped, since the version was already resolved by hand from the same
+source `expo install` itself reads.
+
+**`expo-audio`/`expo-av` are deliberately NOT installed this session.** No
+real sound files or playback backend exist yet — `silentSoundService` is
+the only concrete `SoundService`, and it's correct behavior (not a
+placeholder) with zero registered assets. `skins/lalas-kitchen/soundRegistry.ts`
+is an empty, hand-built `require()`-map placeholder (mirroring
+`spriteRegistry.ts`'s Metro-literal-string constraint) so dropping in real
+audio later is a one-line addition per effect, not a new pattern — installing
+a real audio package is deferred until real assets land (see
+`DEFERRED_COMPLEXITY.md`).
+
+Verified: all 329 existing + new tests pass (`npm test`); a live Home
+screenshot confirms the new Sound/Haptics toggle row renders and responds
+to a tap. See `docs/verification/sound-haptics-stub/`.

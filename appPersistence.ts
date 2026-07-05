@@ -57,6 +57,8 @@ export function buildSaveData(
   completedLevels: number[],
   seenTutorials: string[],
   unlockedRecipeCards: string[],
+  soundEnabled: boolean,
+  hapticsEnabled: boolean,
   state: Pick<GameState, 'lives'>,
   livesLastRegenAt?: number,
   now: () => number = Date.now
@@ -71,6 +73,8 @@ export function buildSaveData(
     completedLevels,
     seenTutorials,
     unlockedRecipeCards,
+    soundEnabled,
+    hapticsEnabled,
   };
 }
 

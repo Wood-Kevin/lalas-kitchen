@@ -145,7 +145,7 @@ describe('save/load wiring — real call sites, end to end', () => {
     expect(justEnded).toBe(true);
 
     if (justEnded) {
-      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], [], state), storage);
+      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], [], false, false, state), storage);
     }
 
     // --- "App reopened" ---
@@ -635,25 +635,59 @@ describe('grantInstantLife', () => {
 describe('buildSaveData — regen anchor', () => {
   test('writes the explicitly-passed livesLastRegenAt instead of always stamping "now"', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], [], { lives: 3 }, 1234567, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], [], false, false, { lives: 3 }, 1234567, fixedNow);
     expect(data.livesLastRegenAt).toBe(1234567);
     expect(data.lives).toBe(3);
   });
 
   test('falls back to now() when no explicit anchor is given, unchanged from before regen math existed', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], [], { lives: 3 }, undefined, fixedNow);
+    const data = buildSaveData('skin', 1, [], [], [], false, false, { lives: 3 }, undefined, fixedNow);
     expect(data.livesLastRegenAt).toBe(9999999);
   });
 
   test('writes the seenTutorials list passed in', () => {
-    const data = buildSaveData('skin', 1, [], ['blocker'], [], { lives: 3 });
+    const data = buildSaveData('skin', 1, [], ['blocker'], [], false, false, { lives: 3 });
     expect(data.seenTutorials).toEqual(['blocker']);
   });
 
   test('writes the unlockedRecipeCards list passed in', () => {
-    const data = buildSaveData('skin', 1, [], [], ['tomato_stew'], { lives: 3 });
+    const data = buildSaveData('skin', 1, [], [], ['tomato_stew'], false, false, { lives: 3 });
     expect(data.unlockedRecipeCards).toEqual(['tomato_stew']);
+  });
+});
+
+describe('buildSaveData — sound/haptics flags', () => {
+  test('writes soundEnabled through unchanged', () => {
+    const data = buildSaveData('skin', 1, [], [], [], true, false, { lives: 3 });
+    expect(data.soundEnabled).toBe(true);
+  });
+
+  test('writes hapticsEnabled through unchanged', () => {
+    const data = buildSaveData('skin', 1, [], [], [], false, true, { lives: 3 });
+    expect(data.hapticsEnabled).toBe(true);
+  });
+});
+
+describe('SaveData — sound/haptics backward compatibility', () => {
+  test('an old save with no sound/haptics fields still loads, defaults resolved by the caller (not buildSaveData)', async () => {
+    const storage = createInMemoryStorage();
+    const skinId = 'pre-sound-save';
+    const priorSave = {
+      skinId,
+      currentLevel: 1,
+      lives: 5,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: {},
+      powerUpCounts: {},
+      // Deliberately omits soundEnabled/hapticsEnabled — proves a save
+      // written before this session still deserializes cleanly.
+    };
+    await saveProgress(skinId, priorSave, storage);
+    const loaded = await loadSave(skinId, storage);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.soundEnabled).toBeUndefined();
+    expect(loaded?.hapticsEnabled).toBeUndefined();
   });
 });
 

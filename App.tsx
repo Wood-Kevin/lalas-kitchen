@@ -128,6 +128,15 @@ function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {
   return { ...base, lives };
 }
 
+// Sound defaults OFF per CLAUDE.md's Design Constraints — real user
+// research found the target player finds game sound distracting. Haptics
+// defaults off too, for the same calm-by-default reasoning, even though no
+// equivalent documented complaint exists specifically about haptics — see
+// engine/DECISIONS.md's sound/haptics stub-layer entry. Named constants
+// (not inlined) so either default is a one-line change later.
+const SOUND_ENABLED_DEFAULT = false;
+const HAPTICS_ENABLED_DEFAULT = false;
+
 type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook';
 
 export default function App() {
@@ -145,6 +154,12 @@ export default function App() {
   // engine/gameState.ts's SaveData.unlockedRecipeCards comment. Feeds both
   // Home's recipe-book teaser card and the RecipeBook collection screen.
   const [unlockedRecipeCards, setUnlockedRecipeCards] = useState<string[]>([]);
+  // Whether sound effects / haptic feedback should play — see
+  // engine/gameState.ts's SaveData.soundEnabled/hapticsEnabled comments.
+  // Real, re-rendering state (not ref-only) since Home's toggle rows read
+  // these directly to draw their on/off state.
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(SOUND_ENABLED_DEFAULT);
+  const [hapticsEnabled, setHapticsEnabled] = useState<boolean>(HAPTICS_ENABLED_DEFAULT);
   // The card the most recent win transition newly unlocked, or null for an
   // ordinary win — recomputed at every won transition in
   // handleBoardStateChange below, never left stale across levels (see that
@@ -166,6 +181,8 @@ export default function App() {
   const completedLevelsRef = useRef(completedLevels);
   const seenTutorialsRef = useRef(seenTutorials);
   const unlockedRecipeCardsRef = useRef(unlockedRecipeCards);
+  const soundEnabledRef = useRef(soundEnabled);
+  const hapticsEnabledRef = useRef(hapticsEnabled);
   // The account's persisted lives count — the single source of truth for
   // every level-start gate (Home's "Start cooking", an All Levels row, and
   // Board's internal "Play again") and the value that actually decrements
@@ -205,6 +222,8 @@ export default function App() {
       initialCompleted,
       save?.unlockedRecipeCards ?? []
     );
+    const initialSoundEnabled = save?.soundEnabled ?? SOUND_ENABLED_DEFAULT;
+    const initialHapticsEnabled = save?.hapticsEnabled ?? HAPTICS_ENABLED_DEFAULT;
 
     // Regen is computed once here from whatever the save last recorded —
     // a session could have been closed for hours or days, and this is
@@ -225,6 +244,8 @@ export default function App() {
     completedLevelsRef.current = initialCompleted;
     seenTutorialsRef.current = initialSeenTutorials;
     unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
+    soundEnabledRef.current = initialSoundEnabled;
+    hapticsEnabledRef.current = initialHapticsEnabled;
     livesRef.current = regenerated.lives;
     livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
     setLives(regenerated.lives);
@@ -232,6 +253,8 @@ export default function App() {
     setCompletedLevels(initialCompleted);
     setSeenTutorials(initialSeenTutorials);
     setUnlockedRecipeCards(initialUnlockedRecipeCards);
+    setSoundEnabled(initialSoundEnabled);
+    setHapticsEnabled(initialHapticsEnabled);
     setLevelConfig(null);
     // levelConfig stays null here — every session now opens on Home (see
     // resolveStartScreen), not straight into a board, so there's nothing
@@ -300,6 +323,8 @@ export default function App() {
         completedLevelsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
+        soundEnabledRef.current,
+        hapticsEnabledRef.current,
         { lives: livesRef.current },
         livesLastRegenAtRef.current
       )
@@ -493,6 +518,8 @@ export default function App() {
         completedLevelsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
+        soundEnabledRef.current,
+        hapticsEnabledRef.current,
         { lives: newLives },
         livesLastRegenAtRef.current
       )
@@ -518,6 +545,50 @@ export default function App() {
         completedLevelsRef.current,
         updated,
         unlockedRecipeCardsRef.current,
+        soundEnabledRef.current,
+        hapticsEnabledRef.current,
+        { lives: livesRef.current },
+        livesLastRegenAtRef.current
+      )
+    );
+  }, []);
+
+  // Home's Sound/Haptics toggle rows — persists immediately, the same
+  // shape as handleTutorialSeen above: a toggle flip must survive an app
+  // close on its own, not wait for a level to end (persistLatestState's
+  // usual didLevelJustEnd/background triggers).
+  const handleToggleSound = useCallback((next: boolean) => {
+    soundEnabledRef.current = next;
+    setSoundEnabled(next);
+    saveProgress(
+      skinConfig.skinId,
+      buildSaveData(
+        skinConfig.skinId,
+        levelIndexRef.current,
+        completedLevelsRef.current,
+        seenTutorialsRef.current,
+        unlockedRecipeCardsRef.current,
+        next,
+        hapticsEnabledRef.current,
+        { lives: livesRef.current },
+        livesLastRegenAtRef.current
+      )
+    );
+  }, []);
+
+  const handleToggleHaptics = useCallback((next: boolean) => {
+    hapticsEnabledRef.current = next;
+    setHapticsEnabled(next);
+    saveProgress(
+      skinConfig.skinId,
+      buildSaveData(
+        skinConfig.skinId,
+        levelIndexRef.current,
+        completedLevelsRef.current,
+        seenTutorialsRef.current,
+        unlockedRecipeCardsRef.current,
+        soundEnabledRef.current,
+        next,
         { lives: livesRef.current },
         livesLastRegenAtRef.current
       )
@@ -576,6 +647,10 @@ export default function App() {
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
             onOpenRecipeBook={handleOpenRecipeBook}
+            soundEnabled={soundEnabled}
+            hapticsEnabled={hapticsEnabled}
+            onToggleSound={handleToggleSound}
+            onToggleHaptics={handleToggleHaptics}
             // Dev-only: passed only in development so Home's hidden long-press
             // reset affordance exists solely for testing, never in a release
             // build a real player runs. See handleDevReset.
@@ -635,6 +710,8 @@ export default function App() {
             seenTutorials={seenTutorials}
             onTutorialSeen={handleTutorialSeen}
             unlockedRecipeCard={revealedRecipeCard}
+            soundEnabled={soundEnabled}
+            hapticsEnabled={hapticsEnabled}
           />
         )}
         </SafeAreaView>

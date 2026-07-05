@@ -1261,6 +1261,20 @@ export interface SaveData {
   // richer "unlocked at timestamp X" record, since nothing reads anything
   // beyond membership (see appPersistence.ts's unlockRecipeCard).
   unlockedRecipeCards?: string[];
+  // Whether in-game sound effects (match/cascade/win) should play. Optional
+  // for the same pre-existing-save-file reason as completedLevels/
+  // seenTutorials/unlockedRecipeCards above — a save written before this
+  // field existed still parses; App.tsx's applyLoadedSave resolves the real
+  // default (off, per CLAUDE.md's Design Constraints: the target player
+  // finds game sound distracting) at read time via `??`, never here.
+  soundEnabled?: boolean;
+  // Whether haptic feedback (a light tap on a successful match) should
+  // fire. Independent of soundEnabled — a different sensory channel, so a
+  // player can want tactile confirmation without audio or vice versa. Same
+  // optional-for-old-saves shape; App.tsx's applyLoadedSave resolves the
+  // real default (also off, for the same calm-by-default reasoning as
+  // sound — no documented user research exists for haptics specifically).
+  hapticsEnabled?: boolean;
 }
 
 // Small interface matching @react-native-async-storage/async-storage's

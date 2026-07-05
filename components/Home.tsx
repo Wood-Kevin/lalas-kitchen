@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SkinConfig } from './skinConfig';
 import { SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
@@ -24,6 +24,14 @@ export interface HomeProps {
   // The recipe book card's own tap target — opens the RecipeBook collection
   // screen (see App.tsx's handleOpenRecipeBook).
   onOpenRecipeBook: () => void;
+  // Sound/haptics toggle row state — App.tsx's soundEnabled/hapticsEnabled,
+  // both off by default (see CLAUDE.md's Design Constraints). Placed
+  // directly on Home, not a nested settings screen, per the build spec's
+  // explicit "not buried in a settings menu" instruction.
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
+  onToggleSound: (next: boolean) => void;
+  onToggleHaptics: (next: boolean) => void;
   // Dev-only, and provided ONLY in development (App.tsx gates it behind
   // __DEV__). When present, a long-press on the footer line triggers a full
   // save wipe + fresh restart. Undefined in every release build, so the footer
@@ -49,6 +57,10 @@ export function Home({
   onStartNext,
   onBrowseAllLevels,
   onOpenRecipeBook,
+  soundEnabled,
+  hapticsEnabled,
+  onToggleSound,
+  onToggleHaptics,
   onDevReset,
 }: HomeProps) {
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
@@ -103,6 +115,27 @@ export function Home({
           <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
         </View>
       </Pressable>
+
+      <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
+        <View style={styles.cardPadding}>
+          <View style={styles.toggleRow}>
+            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Sound</Text>
+            <Switch
+              value={soundEnabled}
+              onValueChange={onToggleSound}
+              trackColor={{ false: config.palette.border, true: config.palette.accent }}
+            />
+          </View>
+          <View style={styles.toggleRow}>
+            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Haptics</Text>
+            <Switch
+              value={hapticsEnabled}
+              onValueChange={onToggleHaptics}
+              trackColor={{ false: config.palette.border, true: config.palette.accent }}
+            />
+          </View>
+        </View>
+      </View>
 
       <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
         <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
@@ -223,6 +256,11 @@ const styles = StyleSheet.create({
   progressLine: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   nextRow: {
     flexDirection: 'row',

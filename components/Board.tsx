@@ -29,11 +29,14 @@ import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { SpecialTutorialOverlay } from './SpecialTutorialOverlay';
 import { adService } from '../services/defaultAdService';
+import { soundService } from '../services/defaultSoundService';
+import { hapticsService } from '../services/defaultHapticsService';
 import { PausedOverlay } from './PausedOverlay';
 import { canGrantBonusMoves, nextBonusGrantsUsed } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
+import { triggerPassEffects } from './soundEffects';
 
 export interface BoardProps {
   levelConfig: LevelConfig;
@@ -101,6 +104,13 @@ export interface BoardProps {
   // or the persisted unlocked-cards list; it only renders whatever App.tsx
   // resolves.
   unlockedRecipeCard: RecipeCard | null;
+  // Whether sound effects / haptic feedback should play — App.tsx's
+  // soundEnabled/hapticsEnabled, read fresh each render (a toggle flip on
+  // Home should take effect on the very next move, not just a future
+  // session). See components/soundEffects.ts's triggerPassEffects, called
+  // from animateCascade below.
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -134,6 +144,8 @@ export function Board({
   seenTutorials,
   onTutorialSeen,
   unlockedRecipeCard,
+  soundEnabled,
+  hapticsEnabled,
 }: BoardProps) {
   const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
   // Computed once at mount, from this level's initial board only — not
@@ -436,6 +448,24 @@ export function Board({
       // pass's diff alone — the swept striped piece survives into diff.cleared
       // still carrying its type/direction — so this stays presentation-only.
       const sweepDelays = sweepDelaysForClears(diff.cleared, SWEEP_TILE_STAGGER_MS);
+
+      // Sound/haptic cue for this pass, fired in the same tick the visual
+      // pop begins (not deferred to the terminal-overlay timeout below,
+      // which is specifically about the overlay card not popping over
+      // still-animating tiles — a win jingle should land with the winning
+      // clear itself). See components/soundEffects.ts's triggerPassEffects.
+      const isFinalPass = i + 1 === steps.length;
+      const finalOutcome = isFinalPass
+        ? finalState.status === 'won' || finalState.status === 'paused_awaiting_input'
+          ? finalState.status
+          : undefined
+        : undefined;
+      triggerPassEffects(i, isFinalPass, finalOutcome, {
+        soundEnabled,
+        hapticsEnabled,
+        soundService,
+        hapticsService,
+      });
 
       // Only the first pass carries the just-tapped pair, which uses the
       // snappier swap duration; every later pass is a passive fall.
