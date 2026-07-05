@@ -1,5 +1,13 @@
 # Special-piece tutorial overlay — verification
 
+**Update:** the color-bomb and area-bomb panels below were originally verified
+by feeding the harness a real resting `Piece` directly, not a genuine in-game
+spawn (see the "What's real in each panel" note below). All three specials —
+striped, color bomb, area bomb — are now additionally verified triggering
+their tutorial from a **genuine organic spawn** (a real 4-run / 5-run / 2×2
+square, forged by real tap gestures on the real running app) — see
+`organic-spawns/README.md`.
+
 `special-tutorial-filmstrip.png` verifies the **first-time tutorial overlay**
 for the three special pieces (striped, color bomb, area bomb) — the calm,
 once-ever "here's what this does" card shown the first time each special comes to
