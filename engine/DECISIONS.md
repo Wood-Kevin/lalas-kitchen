@@ -1370,7 +1370,73 @@ both a detonating bomb and a swept striped piece — see
 `docs/verification/exiting-tile-special-sprites/`.
 
 **Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** only exactly-5
-straight runs spawn a bomb (6+ still clears normally); L/T-shape triggers,
-bomb+striped combos (converting a color to striped and detonating), and sweep
-chaining are all still deferred — keeping the second special piece bounded and
-correct rather than half-building the genre's whole combo tree.
+straight runs spawn a bomb (6+ still clears normally); L/T-shape triggers and
+sweep chaining are still deferred. The bomb+striped combo that was listed here is
+now built — see the special-piece combos entry below.
+
+## Special-piece combos: striped+striped (cross) and striped+bomb (supercombo)
+
+The payoff of having both special pieces: swapping two special pieces directly
+into each other triggers a combined effect immediately, on the swap itself,
+rather than either piece waiting to be included in a later ordinary match. Two
+combos were built.
+
+- **striped + striped → a full cross.** Both sweeps fire at once, clearing the
+  entire row AND entire column through the swap (`resolveStripedCross`). The cross
+  is centered on `posA`; `posB` is its adjacent swap partner and lies on one of
+  the two lines. The combo overrides each piece's individual direction — two
+  stripeds always make a cross, even if both were row-clearers — matching the
+  genre.
+- **striped + color bomb → a supercombo.** Every non-blocker piece sharing the
+  striped piece's matchType is converted to a striped piece and fired at once
+  (`resolveStripedBombCombo`). Because a converted striped piece's only effect is
+  to sweep its line, the settled result is exactly the union of those sweeps,
+  which is computed directly (the same way `resolveColorBomb` computes its clear
+  set without staging the physical swap). Directions alternate row/col by
+  discovery order, so the effect clears both full rows and full columns. The
+  intermediate "everything flashes striped" frame is presentation polish, deferred
+  (see `DEFERRED_COMPLEXITY.md`).
+
+**Both bypass the snap-back, like the solo bomb.** A combo swap doesn't rely on
+forming a run, so it's always a legal, committed move — the same architectural
+bypass the color bomb already established (see the color-bomb entry). `applyMove`
+routes both combos through the same `resolveClearSet` tail every swap-triggered
+effect uses (blocker adjacent-damage, matchType counting, gap + refill, hand off
+to `resolveCascades` for chains), so nothing about objective crediting, cascade
+chaining, or the terminal-state machinery is special-cased for combos.
+
+**Branch precedence in `applyMove` is load-bearing.** The order is: (1)
+striped+bomb, (2) striped+striped, (3) solo color bomb, (4) ordinary swap. (1)
+MUST precede (3): a striped+bomb swap is also "bomb-involving," and a striped
+piece carries a matchType, so `resolveColorBomb` would accept it as an ordinary
+detonation partner and silently run the WEAKER single-type clear instead of the
+supercombo — checking it first is the only thing that guarantees the stronger
+effect. (2) MUST precede (4): two stripeds don't necessarily form a run, so the
+ordinary branch would snap them back instead of comboing.
+
+**`hasLegalMoves` extended the same way.** A striped+striped pair is always legal
+(the cross fires on the swap, no run required), so a board whose only move is a
+striped+striped combo isn't wrongly judged stuck and shuffled. A striped+bomb
+pair was already legal via the existing color-bomb clause (the bomb makes any
+swap involving it legal), so both combos are covered.
+
+**Blocker consistency holds.** Both combos build their clear set from non-blocker
+cells only; a blocker caught in a cross or a supercombo takes normal one-hit
+adjacent damage through the same `applyAdjacentDamage` call, never a force-clear —
+the one blocker rule shared by every clearing mechanism in the game.
+`gameState.test.ts`'s two combo-blocker tests prove a two-hit blocker survives
+with one hit remaining in each combo.
+
+**Shared geometry, one source.** The striped line sweep (whole row or whole
+column) is factored into `sweepLinePositions`, used by both the in-match sweep
+(`resolveMatchEffects`) and both combos, so the line geometry has one definition.
+
+Both combos verified live — see `docs/verification/special-piece-combos/` for the
+before → fire → after filmstrip of each.
+
+**Deliberate scope limits (see `DEFERRED_COMPLEXITY.md`):** sweep chaining (a
+special piece caught in a combo's clear just clears, it doesn't recursively fire),
+the bomb+bomb whole-board clear is unchanged (not a "combo" in this sense), and
+the intermediate convert-to-striped animation frame for the supercombo are all
+deferred; the combos are correct at the settled-board level, which is what the
+engine and objectives care about.

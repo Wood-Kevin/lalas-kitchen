@@ -247,12 +247,18 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // legal move even when swapPieces + checkMatches would find nothing — without
 // this, a board whose only move is a bomb swap would be wrongly judged stuck
 // and shuffled out from under the player.
+//
+// Two adjacent striped pieces are legal for the same reason: swapping them fires
+// the cross combo (see gameState.ts's resolveStripedCross) on the swap itself,
+// no run required. A striped+bomb pair is already covered by the color-bomb
+// clause above (the bomb makes the pair legal), so both combo swaps are handled.
 export function hasLegalMoves(board: Board): boolean {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
 
   const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
+    if (a.type === 'striped' && b.type === 'striped') return true;
     return checkMatches(swapped).length > 0;
   };
 

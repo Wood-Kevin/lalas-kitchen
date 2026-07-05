@@ -755,6 +755,143 @@ describe('applyMove — color bombs', () => {
   });
 });
 
+describe('applyMove — special piece combos', () => {
+  // Every cell distinct so no ordinary run can ever form (a run needs 3 of one
+  // matchType) — lets each test assert exactly which cells a combo cleared with
+  // zero incidental cascades muddying the result. Spawns use an 's' prefix that
+  // can never collide with a 'cRC' board cell, so the refill can't match either.
+  const distinctBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`c${r}${c}`, `${r}-${c}`))
+    );
+  const distinctSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 40 }, (_, i) => `s${i}`));
+  const countStriped = (board: Board): number => board.flat().filter((p) => p.type === 'striped').length;
+  const countColorBomb = (board: Board): number => board.flat().filter((p) => p.type === 'color_bomb').length;
+  const countMatchType = (board: Board, matchType: string): number =>
+    board.flat().filter((p) => p.matchType === matchType).length;
+  const hasId = (board: Board, id: string): boolean => board.flat().some((p) => p.id === id);
+  const findById = (board: Board, id: string): Piece | undefined => board.flat().find((p) => p.id === id);
+  // Original grid ids look like "r-c"; refill spawns look like "sN". Counting the
+  // survivors with grid ids is the "and nothing else cleared" assertion.
+  const survivingGridPieces = (board: Board): number =>
+    board.flat().filter((p) => /^\d+-\d+$/.test(p.id)).length;
+
+  const stateWith = (board: Board, targetMatchType: string): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType, targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: distinctSpawns(),
+  });
+
+  test('two striped pieces swapped clear a full cross (the swap cell\'s row and column) and nothing else', () => {
+    const board = distinctBoard(5, 5);
+    // Two adjacent striped pieces in row 2, given DIFFERENT directions on purpose
+    // — the cross overrides each piece's own direction, so a row-clearer plus a
+    // column-clearer still produce one full cross, not two parallel lines.
+    board[2][1] = { id: board[2][1].id, type: 'striped', matchType: 'c21', direction: 'row' };
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'c22', direction: 'col' };
+
+    const result = applyMove(stateWith(board, 'c21'), { row: 2, col: 1 }, { row: 2, col: 2 });
+
+    // The cross is centered on posA = (2,1): the whole of row 2 and the whole of
+    // column 1. Every one of those 9 cells is gone.
+    const crossIds = ['2-0', '2-1', '2-2', '2-3', '2-4', '0-1', '1-1', '3-1', '4-1'];
+    for (const id of crossIds) expect(hasId(result.state.board, id)).toBe(false);
+    // Off-cross cells survive — including (1,2), which shares neither row 2 nor
+    // column 1, proving the effect is a single cross, not a double sweep.
+    for (const id of ['0-0', '0-2', '1-2', '3-3', '4-4']) {
+      expect(hasId(result.state.board, id)).toBe(true);
+    }
+    // Exactly 9 of the 25 original pieces cleared — nothing extra cascaded.
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 9);
+    expect(countStriped(result.state.board)).toBe(0);
+    // A real, committed move even though the swap formed no ordinary run.
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a striped piece swapped with a color bomb converts every matching piece to striped and clears them all', () => {
+    const board = distinctBoard(5, 5);
+    // Three 'A' pieces scattered; one of them is the striped piece being swapped.
+    board[0][4] = piece('A', '0-4');
+    board[3][3] = piece('A', '3-3');
+    board[1][1] = { id: board[1][1].id, type: 'striped', matchType: 'A', direction: 'row' };
+    board[1][2] = { id: board[1][2].id, type: 'color_bomb' };
+
+    const result = applyMove(stateWith(board, 'A'), { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    // Every 'A' converted-and-fired, and none refilled: no 'A' left anywhere.
+    expect(countMatchType(result.state.board, 'A')).toBe(0);
+    // The bomb consumed itself; no leftover striped pieces (all fired).
+    expect(countColorBomb(result.state.board)).toBe(0);
+    expect(countStriped(result.state.board)).toBe(0);
+    // The decisive supercombo proof: non-'A' bystanders lying on a converted
+    // piece's sweep line are gone — a mere same-type clear (the solo-bomb effect
+    // a mis-ordered branch would run) would have LEFT these. Discovery order is
+    // row-major with alternating row/col directions, so (0,4)->row 0,
+    // (1,1)->column 1, (3,3)->row 3 all sweep.
+    for (const id of ['0-0', '2-1', '3-0']) expect(hasId(result.state.board, id)).toBe(false);
+    // Cells on no swept line survive.
+    for (const id of ['2-0', '2-4', '4-4']) expect(hasId(result.state.board, id)).toBe(true);
+    // All three A's credited to the objective.
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('hasLegalMoves treats both combo-forming swaps as legal even when no ordinary match would result', () => {
+    // A wholly distinct board has no run anywhere and no special piece — stuck.
+    const base = distinctBoard(3, 3);
+    expect(hasLegalMoves(base)).toBe(false);
+
+    // Two adjacent striped pieces make it playable — the cross fires on the swap.
+    const stripedBoard = distinctBoard(3, 3);
+    stripedBoard[1][0] = { id: '1-0', type: 'striped', matchType: 'c10', direction: 'row' };
+    stripedBoard[1][1] = { id: '1-1', type: 'striped', matchType: 'c11', direction: 'col' };
+    expect(hasLegalMoves(stripedBoard)).toBe(true);
+
+    // A striped piece next to a color bomb is likewise always legal.
+    const bombBoard = distinctBoard(3, 3);
+    bombBoard[1][0] = { id: '1-0', type: 'striped', matchType: 'c10', direction: 'row' };
+    bombBoard[1][1] = { id: '1-1', type: 'color_bomb' };
+    expect(hasLegalMoves(bombBoard)).toBe(true);
+  });
+
+  test('a blocker caught in a striped+striped cross takes one adjacent hit, is never force-cleared', () => {
+    const board = distinctBoard(5, 5);
+    board[2][1] = { id: board[2][1].id, type: 'striped', matchType: 'c21', direction: 'row' };
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'c22', direction: 'col' };
+    // A two-hit blocker at (2,3), sitting ON the swept row 2, flanked by cells
+    // that clear ((2,2) and (2,4)).
+    board[2][3] = { id: '2-3', type: 'blocker', matchType: 'lid', hitsRemaining: 2 };
+
+    const result = applyMove(stateWith(board, 'lid'), { row: 2, col: 1 }, { row: 2, col: 2 });
+
+    const lid = findById(result.state.board, '2-3');
+    expect(lid?.type).toBe('blocker');
+    expect(lid?.hitsRemaining).toBe(1); // one hit, not force-cleared
+    expect(result.state.objectives[0].currentCount).toBe(0); // it didn't clear
+  });
+
+  test('a blocker caught in a striped+bomb supercombo takes one adjacent hit, is never force-cleared', () => {
+    const board = distinctBoard(5, 5);
+    board[1][1] = { id: board[1][1].id, type: 'striped', matchType: 'A', direction: 'row' };
+    board[1][2] = { id: board[1][2].id, type: 'color_bomb' };
+    // A two-hit blocker at (1,4) on the swept row 1, flanked by cleared cells.
+    board[1][4] = { id: '1-4', type: 'blocker', matchType: 'lid', hitsRemaining: 2 };
+
+    const result = applyMove(stateWith(board, 'lid'), { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    const lid = findById(result.state.board, '1-4');
+    expect(lid?.type).toBe('blocker');
+    expect(lid?.hitsRemaining).toBe(1);
+    expect(result.state.objectives[0].currentCount).toBe(0);
+  });
+});
+
 describe('applyMove — mid-play stuck board recovery', () => {
   // Reproduces a genuine mid-play stuck board (confirmed via real mobile
   // playtesting, not a visual miscount): a cascade can settle into a board

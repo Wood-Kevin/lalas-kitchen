@@ -196,6 +196,27 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
   return next;
 }
 
+// Every cell in a striped piece's sweep line — its whole row ('row') or whole
+// column ('col'). Pure grid geometry, blocker-agnostic: callers decide what to
+// do with a blocker on the line (resolveMatchEffects's addClear skips it; the
+// combos filter it out before clearing, so it only ever takes adjacent damage).
+// The single source of the striped-line geometry, shared by the in-match sweep
+// (resolveMatchEffects) and both swap-triggered combos (applyMove).
+function sweepLinePositions(
+  rows: number,
+  cols: number,
+  pos: Position,
+  direction: StripeDirection
+): Position[] {
+  const out: Position[] = [];
+  if (direction === 'row') {
+    for (let c = 0; c < cols; c++) out.push({ row: pos.row, col: c });
+  } else {
+    for (let r = 0; r < rows; r++) out.push({ row: r, col: pos.col });
+  }
+  return out;
+}
+
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
 // colorless — see matrix.ts's Piece comment). Kept as a discriminated union
@@ -250,11 +271,8 @@ function resolveMatchEffects(
       for (const p of cells) {
         const piece = board[p.row][p.col];
         if (piece.type !== 'striped') continue;
-        if (piece.direction === 'row') {
-          for (let c = 0; c < cols; c++) addClear(p.row, c);
-        } else {
-          for (let r = 0; r < rows; r++) addClear(r, p.col);
-        }
+        const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
+        for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
       }
       for (const p of cells) addClear(p.row, p.col);
     } else if (cells.length === 5) {
@@ -396,6 +414,25 @@ function resolveColorBomb(
     }
   }
 
+  return resolveClearSet(board, clearedPositions, spawnPiece);
+}
+
+// The shared "clear exactly these cells, then let the board settle" pipeline —
+// the common tail of every swap-triggered effect that doesn't clear by forming
+// a run (the color bomb and both special-piece combos below). Given a set of
+// cells to clear, it: applies adjacent damage to any blockers beside them (only
+// ever a one-hit-per-call knock, never a force-clear — clearedPositions must
+// already EXCLUDE blocker cells, exactly as each caller builds it); counts every
+// cleared cell (and any blocker that reached zero) by matchType so objectives
+// credit correctly; gaps + refills; then hands the refilled board to the
+// ordinary resolveCascades so any chain matches the refill creates still cascade
+// normally. Returns the exact same shape resolveCascades does — the detonation
+// is step one — so applyMove treats every move kind identically from here on.
+function resolveClearSet(
+  board: Board,
+  clearedPositions: Position[],
+  spawnPiece: () => Piece
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
   const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, clearedPositions);
 
   const clearedByMatchType: Record<string, number> = {};
@@ -426,6 +463,85 @@ function resolveColorBomb(
   };
 }
 
+// Combo 1: two striped pieces swapped directly into each other. Both sweeps fire
+// at once, clearing a full cross — the entire row AND entire column through the
+// swap — instead of each piece waiting to be included in a later ordinary match.
+// The cross is centered on posA; posB is its adjacent swap partner, so it lies on
+// one of the two swept lines and clears regardless. The combo overrides each
+// piece's individual sweep direction (two stripeds always make a cross, even if
+// both happened to be row-clearers), matching the genre and the "entire row and
+// column" spec. Blocker cells are filtered out of the clear set — like every
+// other mechanism, a blocker on the cross only takes adjacent damage (see
+// resolveClearSet). Always a legal, committed move (it doesn't rely on a run) —
+// hasLegalMoves treats a striped+striped pair as legal for the same reason.
+function resolveStripedCross(
+  board: Board,
+  posA: Position,
+  posB: Position,
+  spawnPiece: () => Piece
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const keys = new Set<string>();
+  for (const p of sweepLinePositions(rows, cols, posA, 'row')) keys.add(`${p.row},${p.col}`);
+  for (const p of sweepLinePositions(rows, cols, posA, 'col')) keys.add(`${p.row},${p.col}`);
+  const cleared = keysToClearablePositions(keys, board);
+  return resolveClearSet(board, cleared, spawnPiece);
+}
+
+// Combo 2: a striped piece swapped directly with a color bomb — the supercombo.
+// Every non-blocker piece on the board sharing the striped piece's matchType is
+// converted into a striped piece and then fired, all at once. Because a converted
+// striped piece's only effect is to sweep its line, the settled result is exactly
+// the union of those sweeps, which is what we compute directly here (the same way
+// resolveColorBomb computes its clear set without physically staging the swap) —
+// the intermediate "everything flashes striped" frame is a presentation nicety,
+// deferred (see DEFERRED_COMPLEXITY.md). Directions alternate row/col by
+// discovery order so the supercombo clears both full rows and full columns rather
+// than one orientation. The bomb cell is consumed too. Blockers are filtered out
+// and only take adjacent damage. Always legal (the bomb already makes any swap
+// involving it legal in hasLegalMoves).
+function resolveStripedBombCombo(
+  board: Board,
+  stripedPos: Position,
+  bombPos: Position,
+  spawnPiece: () => Piece
+): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const targetMatchType = board[stripedPos.row][stripedPos.col].matchType;
+  const keys = new Set<string>();
+  keys.add(`${bombPos.row},${bombPos.col}`); // the bomb consumes itself
+  let converted = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const piece = board[r][c];
+      if (piece.type === 'blocker' || piece.type === 'color_bomb') continue;
+      if (targetMatchType === undefined || piece.matchType !== targetMatchType) continue;
+      // Convert this matching piece to a striped piece and fire it immediately.
+      const direction: StripeDirection = converted % 2 === 0 ? 'row' : 'col';
+      converted += 1;
+      for (const p of sweepLinePositions(rows, cols, { row: r, col: c }, direction)) {
+        keys.add(`${p.row},${p.col}`);
+      }
+    }
+  }
+  const cleared = keysToClearablePositions(keys, board);
+  return resolveClearSet(board, cleared, spawnPiece);
+}
+
+// Turns a set of "r,c" cell keys into the Position list resolveClearSet wants,
+// dropping any blocker cell so blockers only ever take adjacent damage (the one
+// blocker rule shared by every clearing mechanism).
+function keysToClearablePositions(keys: Set<string>, board: Board): Position[] {
+  const out: Position[] = [];
+  for (const k of keys) {
+    const [r, c] = k.split(',').map(Number);
+    if (board[r][c].type !== 'blocker') out.push({ row: r, col: c });
+  }
+  return out;
+}
+
 // Fires when a single move triggers this many chained cascades or more.
 const COMBO_STREAK_THRESHOLD = 4;
 
@@ -446,17 +562,39 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     return { state, events: [], steps: [] };
   }
 
-  // A color bomb activates on the swap itself, NOT by forming a match — so it
-  // bypasses the no-match snap-back check below entirely (a bomb swap is always
-  // a legal, committed move). This is the one genuinely different activation
-  // path from every other piece, which resolves via a resulting match.
-  const bombInvolved = pieceA.type === 'color_bomb' || pieceB.type === 'color_bomb';
+  // Special-piece swaps activate on the swap itself, NOT by forming a match, so
+  // they bypass the no-match snap-back check below entirely (always legal,
+  // committed moves — hasLegalMoves is extended to match). The branch ORDER here
+  // is load-bearing:
+  //
+  //   1. striped + color bomb  → supercombo (resolveStripedBombCombo)
+  //   2. striped + striped     → cross clear (resolveStripedCross)
+  //   3. color bomb + anything → solo bomb   (resolveColorBomb)
+  //   4. ordinary swap         → match-or-snap-back
+  //
+  // (1) MUST come before (3): a striped+bomb swap is also "bomb-involving," and a
+  // striped piece carries a matchType, so resolveColorBomb would happily accept
+  // it as an ordinary detonation partner and run the WEAKER single-type clear
+  // instead of the convert-every-matching-piece-to-striped supercombo. Checking
+  // it first is the only thing guaranteeing the stronger effect wins.
+  // (2) MUST come before (4): two striped pieces don't necessarily form a run, so
+  // the ordinary branch would snap them back instead of comboing.
+  const aStriped = pieceA.type === 'striped';
+  const bStriped = pieceB.type === 'striped';
+  const aBomb = pieceA.type === 'color_bomb';
+  const bBomb = pieceB.type === 'color_bomb';
   let resolved: { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] };
-  if (bombInvolved) {
-    // Identify which cell is the bomb being swapped; if both are bombs either
-    // assignment works (resolveColorBomb detonates the whole board regardless).
-    const bombPos = pieceA.type === 'color_bomb' ? posA : posB;
-    const otherPos = pieceA.type === 'color_bomb' ? posB : posA;
+  if ((aStriped && bBomb) || (aBomb && bStriped)) {
+    const stripedPos = aStriped ? posA : posB;
+    const bombPos = aBomb ? posA : posB;
+    resolved = resolveStripedBombCombo(state.board, stripedPos, bombPos, state.spawnPiece);
+  } else if (aStriped && bStriped) {
+    resolved = resolveStripedCross(state.board, posA, posB, state.spawnPiece);
+  } else if (aBomb || bBomb) {
+    // Solo bomb. If both are bombs either assignment works (resolveColorBomb
+    // detonates the whole board regardless).
+    const bombPos = aBomb ? posA : posB;
+    const otherPos = aBomb ? posB : posA;
     resolved = resolveColorBomb(state.board, bombPos, otherPos, state.spawnPiece);
   } else {
     const swapped = swapPieces(state.board, posA, posB);
@@ -539,8 +677,10 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // `steps` always ends exactly on state.board — a rescue shuffle folds into
   // that last beat rather than becoming a visible extra rearrangement, per
   // its "silent and immediate" intent (see DECISIONS.md). steps is always
-  // non-empty here: applyMove reached this point only because `swapped` had
-  // at least one match, so resolveCascades ran at least one pass.
+  // non-empty here: an ordinary swap reached this point only because `swapped`
+  // had at least one match (resolveCascades ran ≥1 pass), and every special
+  // swap (bomb / cross / supercombo) returns the detonation itself as step one
+  // via resolveClearSet — so there is always a final step to overwrite.
   const finalSteps = steps.slice();
   finalSteps[finalSteps.length - 1] = resolvedBoard;
 
