@@ -10,7 +10,11 @@ import {
   didLevelJustEnd,
   eligibleBlockerIds,
   findBlockerMatchType,
+  findSpecialPieceTutorial,
   findRecipeCardForLevel,
+  STRIPED_TUTORIAL_ID,
+  COLOR_BOMB_TUTORIAL_ID,
+  AREA_BOMB_TUTORIAL_ID,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
@@ -37,6 +41,20 @@ function piece(id: string, matchType: string): Piece {
 
 function blockerPiece(id: string, matchType: string): Piece {
   return { id, type: 'blocker', matchType, hitsRemaining: 1 };
+}
+
+// A striped piece keeps its base matchType plus a sweep direction; the two
+// bomb types are colorless (no matchType) — mirrors engine/matrix.ts's Piece.
+function stripedPiece(id: string, matchType: string): Piece {
+  return { id, type: 'striped', matchType, direction: 'row' };
+}
+
+function colorBombPiece(id: string): Piece {
+  return { id, type: 'color_bomb' };
+}
+
+function areaBombPiece(id: string): Piece {
+  return { id, type: 'area_bomb' };
 }
 
 function boardOf(rows: Piece[][]): Board {
@@ -682,6 +700,82 @@ describe('markTutorialSeen', () => {
 
   test('preserves existing entries when adding a different id', () => {
     expect(markTutorialSeen([BLOCKER_TUTORIAL_ID], 'powerup')).toEqual([BLOCKER_TUTORIAL_ID, 'powerup']);
+  });
+
+  // The same generic writer backs all three special-piece tutorials — proving
+  // it here guards against the ids ever drifting from what Board.tsx passes.
+  test('handles the special-piece tutorial ids exactly like any other id', () => {
+    let seen = markTutorialSeen([], STRIPED_TUTORIAL_ID);
+    seen = markTutorialSeen(seen, COLOR_BOMB_TUTORIAL_ID);
+    seen = markTutorialSeen(seen, AREA_BOMB_TUTORIAL_ID);
+    seen = markTutorialSeen(seen, STRIPED_TUTORIAL_ID); // re-dismiss is idempotent
+    expect(seen).toEqual([STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID]);
+  });
+});
+
+describe('findSpecialPieceTutorial', () => {
+  test('no special piece on the board — returns undefined (shows nothing)', () => {
+    const board = boardOf([
+      [piece('a', 'tomato'), piece('b', 'lemon')],
+      [piece('c', 'herb'), blockerPiece('d', 'cling')],
+    ]);
+    expect(findSpecialPieceTutorial(board, [])).toBeUndefined();
+  });
+
+  test('a striped piece the player has not seen — returns the striped tutorial and the piece', () => {
+    const striped = stripedPiece('s', 'tomato');
+    const board = boardOf([[piece('a', 'tomato'), striped]]);
+    expect(findSpecialPieceTutorial(board, [])).toEqual({ id: STRIPED_TUTORIAL_ID, piece: striped });
+  });
+
+  test('a color bomb the player has not seen — returns the color-bomb tutorial', () => {
+    const bomb = colorBombPiece('cb');
+    const board = boardOf([[piece('a', 'tomato'), bomb]]);
+    expect(findSpecialPieceTutorial(board, [])).toEqual({ id: COLOR_BOMB_TUTORIAL_ID, piece: bomb });
+  });
+
+  test('an area bomb the player has not seen — returns the area-bomb tutorial', () => {
+    const bomb = areaBombPiece('ab');
+    const board = boardOf([[piece('a', 'tomato'), bomb]]);
+    expect(findSpecialPieceTutorial(board, [])).toEqual({ id: AREA_BOMB_TUTORIAL_ID, piece: bomb });
+  });
+
+  test('each special shows exactly once — a seen special is skipped even while on the board', () => {
+    const striped = stripedPiece('s', 'tomato');
+    const board = boardOf([[striped]]);
+    expect(findSpecialPieceTutorial(board, [STRIPED_TUTORIAL_ID])).toBeUndefined();
+  });
+
+  test('dismissing one special does not suppress the others — color bomb still shows after striped seen', () => {
+    const striped = stripedPiece('s', 'tomato');
+    const bomb = colorBombPiece('cb');
+    const board = boardOf([[striped, bomb]]);
+    // Striped already dismissed; the un-seen color bomb is the next match.
+    expect(findSpecialPieceTutorial(board, [STRIPED_TUTORIAL_ID])).toEqual({
+      id: COLOR_BOMB_TUTORIAL_ID,
+      piece: bomb,
+    });
+  });
+
+  test('returns the first unseen special row-major when several are present', () => {
+    const area = areaBombPiece('ab');
+    const striped = stripedPiece('s', 'lemon');
+    const board = boardOf([
+      [piece('a', 'tomato'), area],
+      [striped, piece('b', 'herb')],
+    ]);
+    // area bomb sits earlier in row-major order, so it wins even though the
+    // SPECIAL_TUTORIAL_IDS list happens to name striped first.
+    expect(findSpecialPieceTutorial(board, [])).toEqual({ id: AREA_BOMB_TUTORIAL_ID, piece: area });
+  });
+
+  test('all three seen — returns undefined even with every special on the board', () => {
+    const board = boardOf([
+      [stripedPiece('s', 'tomato'), colorBombPiece('cb')],
+      [areaBombPiece('ab'), piece('a', 'lemon')],
+    ]);
+    const allSeen = [STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
+    expect(findSpecialPieceTutorial(board, allSeen)).toBeUndefined();
   });
 });
 

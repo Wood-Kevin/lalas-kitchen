@@ -1843,3 +1843,59 @@ already only eats ordinary cells; a blast/sweep that reaches a void simply
 doesn't clear it). Hand-authored shapes first, generator integration as its own
 later step — the same prove-it-with-real-content sequencing every other feature
 here followed.
+
+## Special-piece tutorial overlay: a data-driven sibling of the blocker tutorial, keyed by piece type
+
+The three special pieces (striped, color bomb, area bomb) each teach a genuinely
+different action — match it / swap it to detonate one color / swap it to blast a
+3×3 — but nothing ever explained them; a player forged their first striped piece
+and had to guess. The blocker already had exactly this: a one-time
+`BlockerTutorialOverlay` ("A Covered Dish") shown the first time a blocker appears,
+gated by `SaveData.seenTutorials`. This adds the same affordance for the specials.
+
+**Chosen: one data-driven overlay, not three files.** `components/SpecialTutorialOverlay.tsx`
+is a single component whose only per-piece differences are headline/subtext
+(`SPECIAL_TUTORIAL_CONTENT`, keyed by tutorial id) and the icon — collapsing the
+duplication per CLAUDE.md's "collapse the duplication" rule, rather than three
+near-identical copies of the blocker overlay. The copy lives beside the component
+that renders it (presentation), exactly the split the blocker overlay makes by
+hardcoding its own headline; persistence owns *which* tutorial and *whether* it's
+been seen.
+
+**Tutorial ids are the engine `PieceType` strings themselves** (`'striped'`,
+`'color_bomb'`, `'area_bomb'` — `STRIPED/COLOR_BOMB/AREA_BOMB_TUTORIAL_ID` in
+`appPersistence.ts`). That lets `findSpecialPieceTutorial` compare `piece.type`
+straight against the id with **no type→id mapping table** — the same "one shared
+constant every call site agrees on" reasoning as `BLOCKER_TUTORIAL_ID`. The
+overlay resolves the piece's icon through the **same `getSpriteForPiece` path**
+every live tile uses, so a striped piece shows the real `striped_<base>` art it
+was forged from and an un-arted piece falls back to the same text-label
+placeholder — never a hardcoded reference.
+
+**Not a mount-time check like the blocker's — re-derived after every committed
+move.** A blocker can exist on a level's *initial* board, so `shouldShowBlockerTutorial`
+runs once at mount. A special *never* does — the player forges it mid-level from
+a 4-run, a 5-run, or a 2×2 square — so `Board.tsx` re-runs `findSpecialPieceTutorial`
+in a post-move effect keyed on `gameState` (the same identity `onStateChange`
+uses), firing exactly when a move settles, never mid-cascade. It's skipped once
+the level has ended (so it never pops over the Won/Paused overlay) and while any
+other tutorial is already up (so two never stack).
+
+**`findSpecialPieceTutorial` returns only the FIRST unseen special, row-major.**
+If one move mints two different specials, showing both at once would stack
+overlays; instead the second's tutorial simply shows after the next move that
+leaves it on the board. The scan returns the `Piece` itself (not just the id) so
+the overlay can resolve its real sprite, exactly as the blocker overlay needs the
+real blocker `matchType`.
+
+**A session-level `dismissedSpecialTutorialsRef` guards the persist round-trip.**
+The persisted `seenTutorials` prop does update (App.tsx's `handleTutorialSeen`
+persists immediately via the same path the blocker uses), but there's a render
+gap before that round-trips back down as a fresh prop. Folding this session's
+dismissals into the seen check alongside the prop keeps a just-dismissed special
+from flashing back in that gap — the once-ever guarantee stays honest.
+
+**Persistence reuses `markTutorialSeen` unchanged**, idempotently, exactly like
+the blocker tutorial and `unlockRecipeCard` — no new persistence pattern. Verified
+live (real `applyMove` forging a striped, real `findSpecialPieceTutorial`, real
+`getSpriteForPiece` art, real copy), see `docs/verification/special-piece-tutorial/`.

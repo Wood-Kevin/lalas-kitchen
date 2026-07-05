@@ -1,4 +1,5 @@
 import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
+import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
 
 // Pure decision logic behind App.tsx's save/load wiring, split out the same
@@ -250,6 +251,60 @@ export function shouldShowBlockerTutorial(board: Board, seenTutorials: string[])
 // list with duplicates).
 export function markTutorialSeen(seenTutorials: string[], id: string): string[] {
   return seenTutorials.includes(id) ? seenTutorials : [...seenTutorials, id];
+}
+
+// The three special-piece tutorials' ids in `SaveData.seenTutorials`. Each id
+// is deliberately identical to the engine PieceType string it teaches (see
+// engine/matrix.ts's PieceType union) so the board scan below can compare
+// `piece.type` straight against the id with no type->id mapping table — the
+// same "one shared constant every call site agrees on" reasoning as
+// BLOCKER_TUTORIAL_ID.
+export const STRIPED_TUTORIAL_ID = 'striped';
+export const COLOR_BOMB_TUTORIAL_ID = 'color_bomb';
+export const AREA_BOMB_TUTORIAL_ID = 'area_bomb';
+
+// Scanned in this order within a cell is moot (a cell holds one piece); the
+// board scan itself is row-major, so this is just the set of piece types that
+// have a first-time tutorial.
+const SPECIAL_TUTORIAL_IDS: string[] = [
+  STRIPED_TUTORIAL_ID,
+  COLOR_BOMB_TUTORIAL_ID,
+  AREA_BOMB_TUTORIAL_ID,
+];
+
+// The matched special piece plus which tutorial it triggers. The piece itself
+// is returned (not just its id) so the overlay can resolve its real in-play
+// sprite via getSpriteForPiece — a striped piece needs its base matchType to
+// pick striped_<sprite>, exactly as BlockerTutorialOverlay needs the real
+// blocker matchType. Undefined return means "no unseen special on the board".
+export interface SpecialPieceTutorial {
+  id: string;
+  piece: Piece;
+}
+
+// Which special-piece tutorial (if any) should show right now: the first
+// special piece on the board, row-major, whose id the player hasn't already
+// dismissed. Deliberately NOT the mount-time, initial-board check
+// shouldShowBlockerTutorial uses — a striped/color-bomb/area-bomb piece never
+// exists on a level's starting board; the player forges it mid-level from a
+// 4-run, a 5-run, or a 2x2 square. So Board.tsx re-runs this after every
+// committed move (see its post-move effect), showing each special's one-time
+// explanation the first time that piece actually comes to rest on the board.
+// Returning only the FIRST unseen match keeps two overlays from stacking if a
+// single move mints two different specials; the second's tutorial simply shows
+// after the next move that leaves it on the board.
+export function findSpecialPieceTutorial(
+  board: Board,
+  seenTutorials: string[]
+): SpecialPieceTutorial | undefined {
+  for (const row of board) {
+    for (const piece of row) {
+      if (SPECIAL_TUTORIAL_IDS.includes(piece.type) && !seenTutorials.includes(piece.type)) {
+        return { id: piece.type, piece };
+      }
+    }
+  }
+  return undefined;
 }
 
 // The recipe card (if any) a given level number unlocks — a fixed lookup

@@ -9,7 +9,14 @@ import {
   createGameState,
   grantBonusMoves,
 } from '../engine/gameState';
-import { canStartLevel, findBlockerMatchType, shouldShowBlockerTutorial, BLOCKER_TUTORIAL_ID } from '../appPersistence';
+import {
+  canStartLevel,
+  findBlockerMatchType,
+  shouldShowBlockerTutorial,
+  BLOCKER_TUTORIAL_ID,
+  findSpecialPieceTutorial,
+  SpecialPieceTutorial,
+} from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
@@ -20,6 +27,7 @@ import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
+import { SpecialTutorialOverlay } from './SpecialTutorialOverlay';
 import { PausedOverlay } from './PausedOverlay';
 import { canGrantBonusMoves, nextBonusGrantsUsed } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
@@ -136,6 +144,18 @@ export function Board({
   const [showBlockerTutorial, setShowBlockerTutorial] = useState(() =>
     shouldShowBlockerTutorial(gameState.board, seenTutorials)
   );
+  // The special-piece tutorial currently showing (striped / color bomb / area
+  // bomb), or null. Unlike showBlockerTutorial this can't be a mount-time
+  // check: a special piece never exists on a level's initial board — the
+  // player forges it mid-level — so it's re-derived after every committed move
+  // (see the post-move effect below), not once at mount.
+  const [specialTutorial, setSpecialTutorial] = useState<SpecialPieceTutorial | null>(null);
+  // Ids dismissed during THIS Board's lifetime, folded into the seen check
+  // alongside the persisted `seenTutorials` prop. The prop does eventually
+  // update (App.tsx's handleTutorialSeen persists immediately), but this ref
+  // guarantees a just-dismissed special can't flash back in the render gap
+  // before that round-trips down as a fresh prop.
+  const dismissedSpecialTutorialsRef = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Position | null>(null);
   // The neighbour a live drag is currently pointing at, or null. Drives the
   // destination highlight on the targeted tile (see Tile's dragTargeted). Pure
@@ -232,6 +252,25 @@ export function Board({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
 
+  // Show a special piece's one-time tutorial the first time it comes to rest on
+  // the committed board. Keyed on gameState (the same identity onStateChange
+  // uses) so it fires exactly when a move settles, never mid-cascade — the
+  // player watches the piece land, then the calm explanation appears. Skipped
+  // once the level has ended (status !== in_progress) so it never pops over the
+  // Won/Paused overlay, and while another tutorial is already up so two never
+  // stack. Both the persisted prop and this session's dismissals feed the seen
+  // check, keeping the once-ever guarantee honest across the persist round-trip.
+  useEffect(() => {
+    if (gameState.status !== 'in_progress') return;
+    if (showBlockerTutorial || specialTutorial) return;
+    const seen = [...seenTutorials, ...dismissedSpecialTutorialsRef.current];
+    const match = findSpecialPieceTutorial(gameState.board, seen);
+    if (match) setSpecialTutorial(match);
+    // Only a committed gameState change should retrigger this — see the
+    // onStateChange effect above for the same deps reasoning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState]);
+
   const cascadeDurationMs = cascadeFallDurationMs(skinConfig.animationProfile.cascadeFallSpeed);
   const swapDurationMs = skinConfig.animationProfile.swapDurationMs;
   const matchDurationMs = skinConfig.animationProfile.matchDurationMs;
@@ -271,6 +310,7 @@ export function Board({
       gameState.status === 'in_progress' &&
       !snapBack &&
       !showBlockerTutorial &&
+      !specialTutorial &&
       !animatingRef.current
     );
   }
@@ -461,6 +501,16 @@ export function Board({
     onTutorialSeen(BLOCKER_TUTORIAL_ID);
   }
 
+  function handleDismissSpecialTutorial() {
+    if (specialTutorial) {
+      // Record it locally first (the post-move effect reads this ref), then
+      // persist through the same App-level path the blocker tutorial uses.
+      dismissedSpecialTutorialsRef.current.add(specialTutorial.id);
+      onTutorialSeen(specialTutorial.id);
+    }
+    setSpecialTutorial(null);
+  }
+
   function removeExiting(key: string) {
     setExiting((current) => current.filter((entry) => entry.key !== key));
   }
@@ -597,6 +647,7 @@ export function Board({
                     dragEnabled={
                       gameState.status === 'in_progress' &&
                       !showBlockerTutorial &&
+                      !specialTutorial &&
                       !snapBack &&
                       !displayBoard
                     }
@@ -647,6 +698,15 @@ export function Board({
           spriteAssets={spriteAssets}
           blockerMatchType={findBlockerMatchType(gameState.board)}
           onDismiss={handleDismissBlockerTutorial}
+        />
+      )}
+      {specialTutorial && (
+        <SpecialTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          tutorialId={specialTutorial.id}
+          piece={specialTutorial.piece}
+          onDismiss={handleDismissSpecialTutorial}
         />
       )}
       {gameState.status === 'paused_awaiting_input' && terminalOverlayReady && (
