@@ -604,6 +604,7 @@ export default function App() {
             lives={lives}
             livesLastRegenAt={livesLastRegenAtRef.current}
             onGrantLife={handleGrantLife}
+            adAvailable={adService.isRewardedAdAvailable()}
             onBack={handleGoHome}
           />
         ) : (

@@ -14,4 +14,9 @@ export const adMobAdService: AdService = {
   async requestBannerAd(): Promise<boolean> {
     return true;
   },
+  // Mobile has no CrazyGames-style launch-phase gap — AdMob is expected to
+  // work from day one, so this is unconditionally true.
+  isRewardedAdAvailable(): boolean {
+    return true;
+  },
 };

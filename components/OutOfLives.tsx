@@ -26,6 +26,12 @@ export interface OutOfLivesProps {
   // still renders correctly with the button omitted if that ever changes
   // back, without a crash.
   onGrantLife?: () => void;
+  // Whether tapping onGrantLife will actually show a real rewarded ad right
+  // now (services/adService.ts's isRewardedAdAvailable()) — false during
+  // CrazyGames' Basic Launch gap, when the refill is given for free instead.
+  // Only meaningful while onGrantLife is present; only changes the CTA's
+  // copy, never the grant itself.
+  adAvailable: boolean;
   onBack: () => void;
 }
 
@@ -35,7 +41,7 @@ export interface OutOfLivesProps {
 // them by context, not tone: this blocks a brand new level from starting
 // at all (account-level lives, not a mid-level pause), so there is no
 // objective chip and no "Play Again" (there is nothing yet to replay).
-export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGrantLife, onBack }: OutOfLivesProps) {
+export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGrantLife, adAvailable, onBack }: OutOfLivesProps) {
   const { max, regenMinutes, icon } = config.lives;
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
   const flameSprite = resolveSpriteAsset(icon, spriteAssets);
@@ -72,7 +78,9 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
 
         <Text style={[styles.headline, { color: text }]}>The Kitchen&apos;s Resting</Text>
         <Text style={[styles.subtext, { color: mutedText }]}>
-          Lives refill over time, up to 5. Come back soon, or watch a video for a full refill.
+          {adAvailable
+            ? 'Lives refill over time, up to 5. Come back soon, or watch a video for a full refill.'
+            : 'Lives refill over time, up to 5. Come back soon, or get a full refill now.'}
         </Text>
 
         <View style={[styles.countdownPill, { borderColor: secondaryAccent }]}>
@@ -87,7 +95,7 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
 
         {onGrantLife && (
           <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={onGrantLife}>
-            <Text style={styles.primaryButtonLabel}>Watch a video to refill your lives</Text>
+            <Text style={styles.primaryButtonLabel}>{adAvailable ? 'Watch a video to refill your lives' : 'Refill your lives'}</Text>
           </Pressable>
         )}
         <Pressable style={styles.secondaryLink} onPress={onBack}>

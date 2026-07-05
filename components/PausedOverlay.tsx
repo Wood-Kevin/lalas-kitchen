@@ -25,6 +25,12 @@ export interface PausedOverlayProps {
   // action — running out of grants stays a calm "start fresh" moment, never a
   // failure screen.
   canGrant: boolean;
+  // Whether tapping the grant button will actually show a real rewarded ad
+  // right now (services/adService.ts's isRewardedAdAvailable()) — false
+  // during CrazyGames' Basic Launch gap, when no ad exists to show and the
+  // grant is given for free instead. Only changes the CTA's copy; the tap
+  // handler and the grant itself are identical either way.
+  adAvailable: boolean;
   // Only 'moves' is grantable now — see pauseActions.ts's comment on why
   // the 'lives' branch was removed. Only called while canGrant is true.
   onGrant: (amount: number) => void;
@@ -50,7 +56,7 @@ const FLAME = '#F2793A';
 // running out is a status, not an error, per CLAUDE.md's "calm, not
 // frantic" constraint and this session's explicit "avoid harsh failure
 // language" requirement.
-export function PausedOverlay({ reason, movesRemaining, levelIndex, config, canGrant, onGrant, onPlayAgain, onExit }: PausedOverlayProps) {
+export function PausedOverlay({ reason, movesRemaining, levelIndex, config, canGrant, adAvailable, onGrant, onPlayAgain, onExit }: PausedOverlayProps) {
   const action = getPauseAction(reason);
   const flameScale = useSharedValue(1);
 
@@ -107,7 +113,9 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, canG
           // offer. When it's gone, Play Again takes over as the primary action
           // below so the screen always has one clear way forward.
           <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={() => onGrant(action.bonusAmount)}>
-            <Text style={styles.primaryButtonLabel}>Watch a video for {action.bonusAmount} more moves</Text>
+            <Text style={styles.primaryButtonLabel}>
+              {adAvailable ? `Watch a video for ${action.bonusAmount} more moves` : `Get ${action.bonusAmount} more moves`}
+            </Text>
           </Pressable>
         ) : (
           // Play Again promoted to the primary slot. Uses secondaryAccent (the

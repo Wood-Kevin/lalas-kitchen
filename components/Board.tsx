@@ -734,6 +734,7 @@ export function Board({
           levelIndex={levelIndex}
           config={skinConfig}
           canGrant={canGrantBonusMoves(bonusGrantsUsed)}
+          adAvailable={adService.isRewardedAdAvailable()}
           onGrant={handleGrant}
           onPlayAgain={handlePlayAgain}
           onExit={onExit}

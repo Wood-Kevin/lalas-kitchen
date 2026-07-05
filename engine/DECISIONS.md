@@ -2134,3 +2134,125 @@ with the real persisted save read back afterward as proof (`lives: 0` →
 `lives: 5`). See `docs/verification/ad-service/`. The AdMob/native path has no
 simulator available in this environment to drive live; it's covered by
 `selectAdService('ios'|'android')`'s unit test and direct code reading only.
+
+## CrazyGames Basic Launch gap: monetization disabled regardless of build, mobile unaffected
+
+CrazyGames games start in a "Basic Launch" phase where the platform disables
+all monetization outright — `requestAd()` returns an `adsDisabledBasicLaunch`
+error — until CrazyGames reviews the game and graduates it to "Full Launch."
+Mobile (AdMob) has no equivalent gap; it's expected to work from day one.
+Investigated first, per this session's brief: does the SDK expose a
+proactive way to check whether monetization is currently enabled, so the
+game could detect a graduation to Full Launch on its own? It does not — the
+only signal is `requestAd()`'s own `adError` callback reporting
+`adsDisabledBasicLaunch`, and that only fires *after* attempting a request
+that was doomed from the start (docs.crazygames.com's video-ads and ads-
+requirements pages, fetched directly). So this is exactly the "manually set
+build-time configuration flag" fork the brief anticipated, not a runtime
+read: `crazyGamesAdService.ts`'s `CRAZY_GAMES_MONETIZATION_ENABLED` (`false`
+today, matching the real Basic Launch state), flipped by hand the day
+CrazyGames actually notifies of Full Launch graduation.
+
+**The phase check lives entirely inside `crazyGamesAdService.ts`, not as a
+parallel system.** `requestRewardedAd()`/`requestBannerAd()` branch on the
+flag: disabled grants/declines directly (no ad exists to gate on), enabled
+falls through to the exact same stub `adMobAdService.ts` already used (still
+no real SDK wired in — unchanged from before this session). `AdService`
+gained one new synchronous method, `isRewardedAdAvailable()` — a plain
+getter, not async, since UI callers need it to pick button copy before the
+player taps anything, and awaiting a promise just to render a label would
+mean a pointless loading flicker. `adMobAdService.isRewardedAdAvailable()` is
+unconditionally `true`; CrazyGames' reflects the flag. `crazyGamesAdService.ts`
+is restructured as `createCrazyGamesAdService(monetizationEnabled: boolean)`,
+with the real exported singleton just that factory called with the flag —
+the factory shape (not a bare object) is what let
+`crazyGamesAdService.test.ts` exercise both phases deterministically without
+mutating module state.
+
+**Button copy is phase-aware, confirmed with the architect as a real fork**
+(a button that still says "Watch a video..." while silently granting for
+free — accurate as of the abstraction, but not honest to the actual player —
+was one legitimate direction; changing the copy was the other, chosen one).
+`PausedOverlay`/`OutOfLives` each gained an `adAvailable: boolean` prop (from
+`Board.tsx`/`App.tsx`'s `adService.isRewardedAdAvailable()`), swapping "Watch
+a video for N more moves"/"Watch a video to refill your lives" for "Get N
+more moves"/"Refill your lives" (and `OutOfLives`' subtext line) whenever
+`adAvailable` is false. Only the copy changes — the tap handler, the grant
+call, and the grant logic itself (`grantBonusMoves`, `grantInstantLife`) are
+identical either way.
+
+`requestBannerAd()` also went phase-aware (returns `false` when disabled,
+matching the honest "no banner exists to show" reality) even though no
+banner-ad UI exists to call it yet — kept in step with `requestRewardedAd()`
+since both now read the same flag, and leaving one phase-aware and the other
+not would be a latent inconsistency the moment a banner UI is built.
+
+Verified live via `expo start --web`, both phases, using the same
+`?harness=paused-grant` gate and `localStorage` save-patch precedent as the
+original ad-service session (both reverted after capture): with
+`CRAZY_GAMES_MONETIZATION_ENABLED = false` (today's real value), tapping
+"Get 5 more moves" on `PausedOverlay` took `movesRemaining` from 0 to 5 and
+resumed play with no ad attempted, and tapping "Refill your lives" on
+`OutOfLives` took the persisted save's `lives` from 0 to 5 (read back from
+`localStorage` afterward as proof); flipping the flag to `true` and repeating
+both flows switched the copy back to "Watch a video..." on both screens,
+matching AdMob's unconditional-`true` behavior exactly, before the flag was
+reverted to `false`. See `docs/verification/crazygames-basic-launch/`.
+
+## Web export subpath paths: expo's export is root-absolute, CrazyGames mounts under a folder
+
+`expo export -p web` writes `index.html`'s script tag and every asset
+reference inside the bundled JS as root-absolute paths (`/_expo/...`,
+`/assets/...`). That's correct for a deploy at a domain root, but CrazyGames
+(and most game-portal hosts) mount each game under its own subpath
+(`crazygames.com/game/lalas-kitchen/...`), where a root-absolute path
+resolves against the *domain* root instead of the game's own folder and
+404s. This is a real, previously-unaddressed gap in the CrazyGames deploy
+path this session's Basic Launch work landed next to, not a hypothetical —
+found while finishing that work's own loose ends.
+
+**`scripts/fix-web-export-paths.js`** is a small post-export Node script
+(`npm run export:web` runs `expo export -p web` then this script), not an
+Expo/Metro config change — Expo's web export has no documented option to
+emit relative paths, and vendoring or patching Expo's own config was judged
+higher-risk than a small idempotent post-process step. It rewrites any quote
+immediately followed by a leading `/` and a word character
+(`(["'])\/(\w)/g`) to `./`, matching by *context* rather than hardcoded
+folder names so it doesn't need updating if Expo's asset layout changes —
+and that same context rule is what keeps it safe: react-native-web's
+hydration marker string (`"/$`) and a bundled comment-formatter's block-
+comment marker (`"/*`) both have a non-word character immediately after the
+slash, so neither matches and neither gets corrupted. Confirmed against a
+real export, not just reasoned about — see
+`docs/verification/web-export-subpath-paths/`.
+
+The rewrite logic is split into a pure `rewriteRootAbsolutePaths(source)`
+function (string in, `{after, count}` out) from `rewriteFile`'s disk I/O,
+the same pure-function-first shape `engine/` uses, so
+`fix-web-export-paths.test.js` can exercise the regex directly against
+fixture strings — including the hydration and comment-formatter markers —
+without needing a real `dist/` on disk. The script still runs `main()`
+automatically when invoked directly (`require.main === module` guard), so
+`npm run export:web` behaves exactly as before.
+
+**Live verification, one level below server root, not the domain root:**
+ran a real `expo export -p web`, confirmed the real, unrewritten output
+actually contains root-absolute paths (30 of them: 1 in `index.html`, 29 in
+the bundled JS, one per sprite asset), ran the fix script and re-grepped the
+same real bundle to confirm zero remain and both marker strings survived
+untouched, then copied the rewritten export into a `webroot/game/` folder
+(one level below the server root, not the root itself) served by a plain
+static file server. Confirmed the bug first — a request for the export's JS
+bundle at the root-absolute path it would have used before the fix 404s
+against that server, exactly what a real browser would have hit pre-fix.
+Then drove a real headless Chrome over CDP (this project's established
+WSL2 approach — Windows `chrome.exe`, profile on a native Windows path since
+a `\\wsl.localhost` UNC profile path crashes Chrome's sandbox) to load
+`http://localhost:8899/game/` for real and captured every network request
+via `Network.responseReceived`: the HTML, the JS bundle, and both sprite
+assets the initial screen loads all resolved with a real 200 under
+`/game/`, `document.title` read back as `"Lala's Kitchen"`, and `#root`
+rendered 44,534 characters of real app HTML — not a blank page. The only
+404 was the browser's own automatic `/favicon.ico` probe at the domain
+root, unrelated to the export. See
+`docs/verification/web-export-subpath-paths/` for full request logs.

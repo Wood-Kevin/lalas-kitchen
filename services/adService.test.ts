@@ -19,8 +19,25 @@ describe('stub adapters', () => {
     await expect(crazyGamesAdService.requestRewardedAd()).resolves.toBe(true);
   });
 
-  test('both adapters instantly resolve a banner ad as shown', async () => {
+  test('AdMob instantly resolves a banner ad as shown', async () => {
     await expect(adMobAdService.requestBannerAd()).resolves.toBe(true);
-    await expect(crazyGamesAdService.requestBannerAd()).resolves.toBe(true);
+  });
+
+  test("CrazyGames' banner reflects today's real Basic Launch state (no banner to show)", async () => {
+    // See crazyGamesAdService.test.ts for both phases exercised directly.
+    await expect(crazyGamesAdService.requestBannerAd()).resolves.toBe(false);
+  });
+});
+
+describe('isRewardedAdAvailable', () => {
+  test('AdMob is always available — mobile has no launch-phase gap', () => {
+    expect(adMobAdService.isRewardedAdAvailable()).toBe(true);
+  });
+
+  test("CrazyGames reflects today's real Basic Launch state (disabled)", () => {
+    // See crazyGamesAdService.test.ts for both phases exercised directly via
+    // the factory — this just confirms the exported singleton matches
+    // today's actual CRAZY_GAMES_MONETIZATION_ENABLED flag.
+    expect(crazyGamesAdService.isRewardedAdAvailable()).toBe(false);
   });
 });

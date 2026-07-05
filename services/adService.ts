@@ -17,6 +17,15 @@ export interface AdService {
   // exists in the game yet — kept alongside requestRewardedAd so the
   // interface is ready the moment one is built, not bolted on later.
   requestBannerAd(): Promise<boolean>;
+  // Synchronous, UI-facing: will requestRewardedAd() actually gate on a real
+  // ad right now, or will it grant for free because no ad exists to show
+  // this phase (see crazyGamesAdService.ts's CrazyGames Basic Launch gap)?
+  // A plain getter, not async, since callers need it to choose button copy
+  // before the player taps anything — awaiting a promise just to render a
+  // label would mean a loading flicker for no reason. adMobAdService is
+  // always true (mobile ads work from day one); crazyGamesAdService reflects
+  // its own build-time monetization flag.
+  isRewardedAdAvailable(): boolean;
 }
 
 // Picks the real implementation for a given platform. Takes the platform as
