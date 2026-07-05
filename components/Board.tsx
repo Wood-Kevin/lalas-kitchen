@@ -633,6 +633,11 @@ export function Board({
                     // spread is never silent. Undefined on levels without the
                     // mechanic and on every non-warned tile.
                     spreadWarning={piece.spreadWarning}
+                    // Only an area bomb carries the ambient powder wisp; every
+                    // other piece passes false so no wisp renders. Same
+                    // per-type-from-engine pattern as `direction` above — the
+                    // wisp is presentation only, the engine never sees it.
+                    powderWisp={piece.type === 'area_bomb'}
                     onPress={() => handleTilePress({ row: r, col: c })}
                     // Drag-to-swap, added alongside tap: a live drag from this
                     // tile highlights and (on release) swaps toward the
@@ -678,6 +683,11 @@ export function Board({
                 durationMs={matchDurationMs}
                 isBlockerClear={entry.isBlockerClear}
                 sweepDelayMs={entry.sweepDelayMs}
+                // A detonating area bomb lands in diff.cleared carrying its
+                // type, so its exit tile puffs powder outward as the 3×3 it
+                // fired clears alongside it. Derived from the cleared piece's
+                // type, the same way isBlockerClear is — no new engine data.
+                isPowderBurst={entry.pieceType === 'area_bomb'}
                 onExited={() => removeExiting(entry.key)}
               />
             ))}

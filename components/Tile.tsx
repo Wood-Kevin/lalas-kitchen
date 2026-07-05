@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
+  Easing,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -42,6 +43,12 @@ export interface TileProps {
   // change — per CLAUDE.md's brief against unexplained effects. Undefined on
   // every other tile, and on every level without the dynamic spread mechanic.
   spreadWarning?: boolean;
+  // Set only on a resting area bomb (engine type 'area_bomb'). Drives the calm,
+  // continuously-looping powder wisp that drifts up from the tied top of the
+  // bag, signalling "this is a volatile bundle" without competing with ordinary
+  // tiles for attention (see PowderWispOverlay). Undefined/false on every other
+  // piece, so no wisp renders. Presentation only — invisible to the engine.
+  powderWisp?: boolean;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -88,6 +95,7 @@ export function Tile({
   enterFromRow,
   direction,
   spreadWarning,
+  powderWisp,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -237,6 +245,7 @@ export function Tile({
             />
           )}
           {spreadWarning && <SpreadWarningOverlay tileSize={tileSize} accentColor={accentColor} />}
+          {powderWisp && <PowderWispOverlay tileSize={tileSize} />}
         </Pressable>
       </Animated.View>
     </GestureDetector>
@@ -360,6 +369,96 @@ function SpreadWarningOverlay({
   );
 }
 
+// One calm loop of a single powder wisp drifting up from the bag's tied top.
+// Matches SteamWisp's established wisp motion exactly — a rise-and-fade cycle
+// (opacity envelope + upward translate, no scale spike, no burst) so the area
+// bomb's ambient effect reads as a sibling of the app's other wisps rather
+// than a new visual language. Reusing SteamWisp's 1800ms/Easing.out(quad)
+// pacing is deliberate: per the brief, no unchecked new timing.
+const POWDER_WISP_CYCLE_MS = 1800;
+// The soft pale-tan of every wisp in this app (WonOverlay/PausedOverlay steam,
+// via SteamWisp). Reused so powder and steam read as the same calm material.
+const POWDER_WISP_COLOR = '#E9D9AE';
+
+function PowderWisp({
+  tileSize,
+  delayMs,
+  offsetX,
+}: {
+  tileSize: number;
+  delayMs: number;
+  offsetX: number;
+}) {
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.value = withDelay(
+      delayMs,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: POWDER_WISP_CYCLE_MS, easing: Easing.out(Easing.quad) }),
+          withTiming(0, { duration: 0 })
+        ),
+        -1,
+        false
+      )
+    );
+  }, [delayMs, progress]);
+
+  // Same envelope shape SteamWisp uses: fade in over the first ~15% of the
+  // cycle, then fade out across the rest while drifting upward. Scaled to the
+  // tile so the drift stays a small, consistent fraction of the piece on any
+  // board size — the wisp rises about a third of a tile and never leaves the
+  // cell's airspace, keeping it subtle.
+  const rise = tileSize * 0.34;
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity:
+      (progress.value < 0.15
+        ? progress.value / 0.15
+        : 1 - (progress.value - 0.15) / 0.85) * 0.7,
+    transform: [{ translateY: -rise * progress.value }],
+  }));
+
+  const wispWidth = Math.max(2, Math.round(tileSize * 0.09));
+  const wispHeight = Math.max(6, Math.round(tileSize * 0.26));
+  // Both wisps are absolutely positioned so they share the bag-knot anchor
+  // (top-centre) and rise independently, overlapping in the air; offsetX gives
+  // them a small horizontal separation so the drift reads as a natural plume,
+  // not a single bar. Left/top are px from the tile's own box.
+  return (
+    <Animated.View
+      style={[
+        styles.powderWisp,
+        {
+          width: wispWidth,
+          height: wispHeight,
+          borderRadius: wispWidth,
+          backgroundColor: POWDER_WISP_COLOR,
+          top: Math.round(tileSize * 0.14),
+          left: Math.round(tileSize / 2 - wispWidth / 2 + offsetX),
+        },
+        animatedStyle,
+      ]}
+    />
+  );
+}
+
+// The area bomb's ambient effect: a soft wisp of powder drifting gently and
+// continuously up from the tied top of the bag while it rests unmatched on the
+// board. Two wisps on a half-cycle stagger so there is always some powder in
+// the air (the "continuous" part) without either wisp being large or fast
+// enough to compete with ordinary tiles — per CLAUDE.md's calm-not-frantic,
+// plays-with-sound-off brief. Anchored near the top-centre of the tile (the
+// bag's knot) and pointerEvents none so it never touches the piece's gesture.
+function PowderWispOverlay({ tileSize }: { tileSize: number }) {
+  const spread = tileSize * 0.07;
+  return (
+    <View pointerEvents="none" testID="powder-wisp" style={styles.powderWispFill}>
+      <PowderWisp tileSize={tileSize} delayMs={0} offsetX={-spread} />
+      <PowderWisp tileSize={tileSize} delayMs={POWDER_WISP_CYCLE_MS / 2} offsetX={spread} />
+    </View>
+  );
+}
+
 export interface ExitingTileProps {
   pieceId: string;
   row: number;
@@ -382,6 +481,13 @@ export interface ExitingTileProps {
   // is what makes the glow read as a beam travelling rather than a flat wash.
   // Undefined for an ordinary match cell, which clears immediately as before.
   sweepDelayMs?: number;
+  // True when this exiting piece is a detonating area bomb (engine type
+  // 'area_bomb' — it lands in diff.cleared, carrying its type, whenever it
+  // fires its 3×3 blast). Drives the powder poof that puffs outward from the
+  // bag as it clears, so the burst visibly reads as the cause of the
+  // surrounding 3×3 clearing rather than an unrelated flourish. Derived the
+  // same way isBlockerClear is (piece.type check), no new engine data.
+  isPowderBurst?: boolean;
   onExited: () => void;
 }
 
@@ -400,6 +506,7 @@ export function ExitingTile({
   durationMs,
   isBlockerClear,
   sweepDelayMs,
+  isPowderBurst,
   onExited,
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
@@ -407,8 +514,33 @@ export function ExitingTile({
   // Animates for a blocker clear or a striped sweep; stays at 0 (invisible)
   // for an ordinary match cell.
   const highlightOpacity = useSharedValue(0);
+  // The powder-poof cloud for a detonating area bomb — a soft cloud that
+  // expands past the tile and fades as the bag clears. Its own shared values,
+  // kept off the bag's shrink transform (the cloud lives in a sibling view, so
+  // it grows outward while the bag shrinks away underneath it). At rest for
+  // every non-area-bomb exit.
+  const burstScale = useSharedValue(0.4);
+  const burstOpacity = useSharedValue(0);
 
   useEffect(() => {
+    if (isPowderBurst) {
+      // Puff outward from the bag on the same clock as the clear (durationMs):
+      // a quick swell to full, then an ease-out expansion past the tile's
+      // bounds into the 3×3 it's about to clear, fading as it grows. One soft
+      // cloud, no particles/flash — per CLAUDE.md's calm-not-frantic brief and
+      // the blocker/sweep overlays' soft-wash language. Starts at the front of
+      // the clear so the burst reads as the cause, not an afterthought.
+      burstOpacity.value = withSequence(
+        withTiming(0.85, { duration: Math.round(durationMs * 0.25) }),
+        withTiming(0, { duration: Math.round(durationMs * 0.75) })
+      );
+      burstScale.value = withTiming(2.1, {
+        duration: durationMs,
+        easing: Easing.out(Easing.quad),
+      });
+      // Fall through to the ordinary pop-and-shrink below for the bag sprite
+      // itself — an area bomb is never a blocker or a swept tile.
+    }
     if (sweepDelayMs !== undefined) {
       // A striped sweep tile: sit still until the beam reaches it (sweepDelayMs),
       // then brighten-and-swell (the "pop"), then shrink away like any cleared
@@ -483,24 +615,57 @@ export function ExitingTile({
     opacity: highlightOpacity.value,
   }));
 
+  // The poof lives in a SEPARATE positioned view, not inside the tile above —
+  // the tile's own transform shrinks the bag to 0, and the cloud must instead
+  // grow outward while that happens. Scales about the cell's centre, so it
+  // expands symmetrically into the surrounding 3×3.
+  const burstStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: row * tileSize,
+    left: col * tileSize,
+    width: tileSize,
+    height: tileSize,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: burstOpacity.value,
+    transform: [{ scale: burstScale.value }],
+  }));
+
   return (
-    <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
-      <Animated.View style={[styles.tile, { backgroundColor: panelColor, borderColor: accentColor }]}>
-        <SpriteContent sprite={sprite} accentColor={accentColor} />
-        {isBlockerClear && (
-          <Animated.View
-            style={[styles.blockerHighlight, { backgroundColor: accentColor }, highlightStyle]}
-            testID={`blocker-highlight-${pieceId}`}
-          />
-        )}
-        {sweepDelayMs !== undefined && (
-          <Animated.View
-            style={[styles.sweepGlow, { backgroundColor: accentColor }, highlightStyle]}
-            testID={`sweep-glow-${pieceId}`}
-          />
-        )}
+    <>
+      <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
+        <Animated.View style={[styles.tile, { backgroundColor: panelColor, borderColor: accentColor }]}>
+          <SpriteContent sprite={sprite} accentColor={accentColor} />
+          {isBlockerClear && (
+            <Animated.View
+              style={[styles.blockerHighlight, { backgroundColor: accentColor }, highlightStyle]}
+              testID={`blocker-highlight-${pieceId}`}
+            />
+          )}
+          {sweepDelayMs !== undefined && (
+            <Animated.View
+              style={[styles.sweepGlow, { backgroundColor: accentColor }, highlightStyle]}
+              testID={`sweep-glow-${pieceId}`}
+            />
+          )}
+        </Animated.View>
       </Animated.View>
-    </Animated.View>
+      {isPowderBurst && (
+        <Animated.View style={burstStyle} pointerEvents="none" testID={`powder-burst-${pieceId}`}>
+          <View
+            style={[
+              styles.powderBurstCloud,
+              {
+                width: tileSize,
+                height: tileSize,
+                borderRadius: tileSize / 2,
+                backgroundColor: POWDER_WISP_COLOR,
+              },
+            ]}
+          />
+        </Animated.View>
+      )}
+    </>
   );
 }
 
@@ -593,6 +758,30 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     opacity: 0.85,
     transform: [{ rotate: '24deg' }],
+  },
+  // The powder-wisp overlay's container — a plain full-tile frame the two
+  // absolutely-positioned wisps anchor inside. No layout of its own; each wisp
+  // carries its own top/left.
+  powderWispFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  // A single soft powder wisp — a small rounded pale-tan sliver, opacity/
+  // position animated only (no scale spike), the same calm material as
+  // SteamWisp. Absolutely positioned so it and its sibling share the knot
+  // anchor and overlap as they rise.
+  powderWisp: {
+    position: 'absolute',
+  },
+  // The detonation poof — one soft round pale-tan cloud (same powder material
+  // as the wisp), sized to the tile and scaled outward by burstStyle into the
+  // 3×3 it clears. A plain soft disc, no ring/particles, per the calm brief.
+  powderBurstCloud: {
+    opacity: 0.75,
   },
   label: {
     fontSize: 20,

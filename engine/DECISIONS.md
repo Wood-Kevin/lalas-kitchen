@@ -1580,6 +1580,47 @@ cleared *neighbours* still credit by their own matchType. A 2×2 spawn still cre
 Verified live — see `docs/verification/area-bomb/active/` for the swap-triggered
 filmstrip (area bomb + ordinary piece → immediate 3×3 blast, no matching run).
 
+### Area bomb: two powder animations (idle drift + trigger poof), presentation only
+
+The area bomb had no motion of its own — it sat as a static sack and, on
+detonation, its own cell exited through the ordinary pop-and-shrink like any
+cleared tile. Two calm powder moments were added, both **purely presentational**
+(the engine is untouched; no new `Piece` field, no config change), following the
+Playtest-Feedback habit of reusing this app's established timing rather than
+inventing new pacing.
+
+**Reuse over invention.** Both effects lean on conventions already in the tree:
+- The **idle wisp** reuses `SteamWisp`'s exact motion recipe — a rise-and-fade
+  loop, `1800ms`, `Easing.out(Easing.quad)`, opacity/position only (no scale
+  spike) — so the bag's ambient powder reads as the same calm material as the
+  steam on the Won/Paused overlays. It lives in `Tile.tsx`'s new
+  `PowderWispOverlay`/`PowderWisp`, gated by a `powderWisp` prop that `Board.tsx`
+  sets with `piece.type === 'area_bomb'` — the same per-type-from-engine pattern
+  as `direction` (striped) and `spreadWarning`. Two wisps on a half-cycle
+  stagger keep powder continuously in the air; opacity is capped at `0.7` and
+  the rise scales with the tile (`× 0.34`) so it never competes with ordinary
+  tiles, per the calm-not-frantic brief.
+- The **trigger poof** reuses the clear's own `matchDurationMs` (300ms) clock —
+  no bespoke duration. It's the `isPowderBurst` branch of `ExitingTile`: a soft
+  cloud whose `scale` swells `0.4 → 2.1` (ease-out) while `opacity` peaks `0.85`
+  then fades, so it puffs outward past the tile into the 3×3 **as those cells
+  clear**. `Board.tsx` sets `isPowderBurst={entry.pieceType === 'area_bomb'}` —
+  a detonating area bomb always lands in `diff.cleared` carrying its type, the
+  same way `isBlockerClear` is derived.
+
+**One load-bearing structural choice.** The poof is rendered in a **sibling
+view** of the shrinking bag, not a child of it — the exiting bag's own transform
+drives `scale → 0`, and a child cloud would be shrunk to nothing along with it.
+As a sibling positioned on the same cell, the cloud grows outward while the bag
+shrinks away underneath, which is what makes the burst read as the *cause* of
+the surrounding clear rather than a flourish on top of it.
+
+Verified live against the real `Tile`/`ExitingTile` + real Reanimated (a
+temporary `?harness=powder` gate, reverted after) — per-frame opacity/scale
+traces plus filmstrips in `docs/verification/area-bomb/powder/`. Still deferred:
+the per-link blast-chaining animation flash (unchanged — the engine still
+computes a chain's settled clear directly), see `DEFERRED_COMPLEXITY.md`.
+
 # Phase 8 — dynamic denial-zone spread (blockers that grow if ignored)
 
 ## Investigation first: a static denial zone needs zero new engine logic
