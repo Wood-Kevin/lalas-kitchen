@@ -6,6 +6,7 @@ import {
   shuffle,
   hasLegalMoves,
   applyAdjacentDamage,
+  findSpreadTarget,
   Board,
   Piece,
 } from './matrix';
@@ -508,5 +509,59 @@ describe('checkSquares — 2x2 block detection', () => {
     const shuffled = shuffle(board, seededRng(7));
     expect(checkMatches(shuffled)).toHaveLength(0);
     expect(checkSquares(shuffled)).toHaveLength(0);
+  });
+});
+
+describe('findSpreadTarget (denial-zone spread frontier)', () => {
+  test('returns the first blocker (row-major) paired with its first ordinary neighbor (up before right)', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['D', 'E', 'F'],
+      ['G', 'H', 'I'],
+    ]);
+    // Blocker at (2,0): scanned first. Its neighbors in offset order are up
+    // (1,0) then right (2,1) — both ordinary, so 'up' wins.
+    board[2][0] = blockerPiece('X', 'blk', 1);
+    expect(findSpreadTarget(board)).toEqual({
+      source: { row: 2, col: 0 },
+      target: { row: 1, col: 0 },
+    });
+  });
+
+  test('skips neighbors that are not ordinary and picks the first ordinary one', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['D', 'E', 'F'],
+      ['G', 'H', 'I'],
+    ]);
+    // Blocker at (1,1) surrounded by: up (0,1) a color bomb, down (2,1) another
+    // blocker, left (1,0) ordinary, right (1,2) ordinary. Up/down are ineligible
+    // (not 'normal'), so the first ordinary in offset order — left (1,0) — wins.
+    board[1][1] = blockerPiece('X', 'blk1', 1);
+    board[0][1] = colorBombPiece('cb');
+    board[2][1] = blockerPiece('X', 'blk2', 1);
+    // (1,1) is the first blocker in row-major order, so it's the source.
+    expect(findSpreadTarget(board)).toEqual({
+      source: { row: 1, col: 1 },
+      target: { row: 1, col: 0 },
+    });
+  });
+
+  test('returns null when the zone is fully enclosed (no blocker borders an ordinary cell)', () => {
+    // Every cell is a blocker — nothing can spread. Also covers a board with no
+    // ordinary neighbor anywhere.
+    const board: Board = [
+      [blockerPiece('X', 'b00', 1), blockerPiece('X', 'b01', 1)],
+      [blockerPiece('X', 'b10', 1), blockerPiece('X', 'b11', 1)],
+    ];
+    expect(findSpreadTarget(board)).toBeNull();
+  });
+
+  test('returns null on a board with no blockers at all', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['C', 'D'],
+    ]);
+    expect(findSpreadTarget(board)).toBeNull();
   });
 });

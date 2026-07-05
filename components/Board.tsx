@@ -570,6 +570,12 @@ export function Board({
                     // is the one place the row/column sweep a striped piece
                     // will perform is made visible before the player commits.
                     direction={piece.type === 'striped' ? piece.direction : undefined}
+                    // Set on the ordinary cell a denial zone is about to spread
+                    // into, for the one move before the spread (engine sets it in
+                    // stepDenialZone). Drives the calm crack/dimming warning so a
+                    // spread is never silent. Undefined on levels without the
+                    // mechanic and on every non-warned tile.
+                    spreadWarning={piece.spreadWarning}
                     onPress={() => handleTilePress({ row: r, col: c })}
                     // Drag-to-swap, added alongside tap: a live drag from this
                     // tile highlights and (on release) swaps toward the

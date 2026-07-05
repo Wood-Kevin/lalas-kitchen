@@ -456,6 +456,20 @@ const BLOCKER_MIN_LEVEL_NUMBER: Record<string, number> = {
   pot_lid: 7,
 };
 
+// The dynamic denial-zone spread mechanic (a blocker zone that grows into an
+// adjacent cell if left unaddressed — see engine/gameState.ts's
+// DenialSpreadState) is gated to generated levels at or past this number, the
+// same difficulty-ramp shape pot_lid uses above. Deliberately later than
+// pot_lid (7): a zone that actively grows is a tougher idea than a static
+// double-hit blocker, so it stays out until the player has met blockers (level
+// 3), the tougher pot_lid (level 7), and had generatedBlockerCount ramp to its
+// 4-blocker cap (level 9) — by level 10 there's a real, multi-cell zone for the
+// mechanic to act on. Below this number, blockers are purely static (a cluster
+// is a denial zone that never spreads), which needs zero engine logic — the
+// existing blocker contract already IS "cells clearable only by matches landing
+// on them." See CLAUDE.md's Data Model Notes.
+const DENIAL_SPREAD_MIN_LEVEL_NUMBER = 10;
+
 // Which of a skin's blocker ids are allowed to appear at all at this
 // generated-level-number — id order preserved from the input array so
 // buildGeneratedLevelConfig's own rotation stays deterministic per level.
@@ -525,6 +539,12 @@ export function buildGeneratedLevelConfig(
       : undefined;
   const blockerCount = chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
 
+  // The spread mechanic only means anything with blockers to spread FROM, so
+  // it's enabled solely on a gated level that actually placed a zone — never on
+  // a blocker-less board, where the flag would be inert anyway.
+  const denialSpread =
+    blockerCount > 0 && chosenBlocker && levelNumber >= DENIAL_SPREAD_MIN_LEVEL_NUMBER;
+
   return {
     seed: generatedLevelSeed(levelIndex),
     rows,
@@ -535,5 +555,6 @@ export function buildGeneratedLevelConfig(
     ...(blockerCount > 0 && chosenBlocker
       ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
       : {}),
+    ...(denialSpread ? { denialSpread: true } : {}),
   };
 }

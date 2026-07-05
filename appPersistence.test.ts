@@ -437,6 +437,25 @@ describe('buildGeneratedLevelConfig', () => {
       expect(config.blockerCount).toBeUndefined();
     }
   });
+
+  test('enables dynamic denial-zone spread only past its threshold (generated level number 10)', () => {
+    // generatedLevelNumber = levelIndex - HAND_BUILT_COUNT (3).
+    // Level number 9 (levelIndex 12): blockers present, but below
+    // DENIAL_SPREAD_MIN_LEVEL_NUMBER (10) — no spread.
+    const below = buildGeneratedLevelConfig(12, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
+    expect(below.blockerCount).toBeGreaterThan(0);
+    expect(below.denialSpread).toBeUndefined();
+    // Level number 10 (levelIndex 13): at the threshold with blockers — spread on.
+    const at = buildGeneratedLevelConfig(13, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
+    expect(at.blockerCount).toBeGreaterThan(0);
+    expect(at.denialSpread).toBe(true);
+  });
+
+  test('never enables spread on a blocker-less skin, even well past the threshold', () => {
+    // Nothing to spread from, so the flag would be inert — it's never set.
+    const config = buildGeneratedLevelConfig(21, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
+    expect(config.denialSpread).toBeUndefined();
+  });
 });
 
 describe('eligibleBlockerIds', () => {

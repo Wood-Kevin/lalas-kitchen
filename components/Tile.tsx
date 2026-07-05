@@ -5,6 +5,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
+  withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
@@ -34,6 +35,13 @@ export interface TileProps {
   // that replaces the visual signal the old stripe overlay used to carry (see
   // DirectionBadge). Undefined for every ordinary piece, so no badge renders.
   direction?: StripeDirection;
+  // Set on the one ordinary cell a denial zone is about to spread into, for the
+  // single move before the spread lands (see engine/gameState.ts's
+  // stepDenialZone). Drives a calm "growing crack + dimming glow" overlay so the
+  // spread is always something the player sees coming, never a silent, sudden
+  // change — per CLAUDE.md's brief against unexplained effects. Undefined on
+  // every other tile, and on every level without the dynamic spread mechanic.
+  spreadWarning?: boolean;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -79,6 +87,7 @@ export function Tile({
   durationMs,
   enterFromRow,
   direction,
+  spreadWarning,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -227,6 +236,7 @@ export function Tile({
               style={[styles.dragTargetHighlight, { backgroundColor: accentColor }]}
             />
           )}
+          {spreadWarning && <SpreadWarningOverlay tileSize={tileSize} accentColor={accentColor} />}
         </Pressable>
       </Animated.View>
     </GestureDetector>
@@ -288,6 +298,64 @@ function DirectionBadge({
       >
         {glyph}
       </Text>
+    </View>
+  );
+}
+
+// How long one breath of the warning glow takes (fade up, fade down). Slow and
+// gentle on purpose — a calm "this is coming" pulse, not an urgent flashing
+// alarm, per CLAUDE.md's calm-not-frantic brief for this specific player.
+const SPREAD_WARNING_PULSE_MS = 900;
+
+// The visible warning that a denial zone is about to spread INTO this cell,
+// shown for the one move before the spread lands. Combines the two cues
+// CLAUDE.md's brief names — a "dimming glow" (a steady dark wash, so the cell
+// visibly reads as being consumed) and a "growing crack" (a thin diagonal
+// fissure in the accent color) — plus a slow accent breath over the top so the
+// warning gently pulses rather than sitting inert. The dark wash and the crack
+// are steady (not opacity-animated), so a still screenshot always shows the
+// warning unambiguously regardless of where the breath is in its cycle.
+// pointerEvents none throughout: the warned cell is still an ordinary, tappable,
+// matchable piece (matching it is how a player defuses the spread), so the
+// overlay must never intercept the gesture.
+function SpreadWarningOverlay({
+  tileSize,
+  accentColor,
+}: {
+  tileSize: number;
+  accentColor: string;
+}) {
+  const breath = useSharedValue(0.18);
+  useEffect(() => {
+    breath.value = withRepeat(
+      withTiming(0.5, { duration: SPREAD_WARNING_PULSE_MS }),
+      -1,
+      true
+    );
+  }, [breath]);
+  const breathStyle = useAnimatedStyle(() => ({ opacity: breath.value }));
+
+  // A single thin diagonal bar reads as a crack/fissure across the tile. Scales
+  // with the tile so it stays a consistent fraction across screen sizes.
+  const crackWidth = Math.max(2, Math.round(tileSize * 0.05));
+  const crackLength = Math.round(tileSize * 0.62);
+
+  return (
+    <View pointerEvents="none" testID="spread-warning" style={styles.spreadWarningFill}>
+      <View style={styles.spreadWarningDim} />
+      <Animated.View
+        style={[styles.spreadWarningGlow, { backgroundColor: accentColor }, breathStyle]}
+      />
+      <View
+        style={[
+          styles.spreadCrack,
+          {
+            width: crackWidth,
+            height: crackLength,
+            backgroundColor: accentColor,
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -489,6 +557,42 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 8,
     opacity: 0.28,
+  },
+  // The spread warning's layers. A full-tile container that centers the crack;
+  // a steady dark "dimming" wash so the doomed cell reads as shadowed; a slow
+  // breathing accent glow above it; and a thin diagonal crack line. The dim +
+  // crack are steady so a still frame always shows the warning.
+  spreadWarningFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spreadWarningDim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.32)',
+  },
+  spreadWarningGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  spreadCrack: {
+    borderRadius: 2,
+    opacity: 0.85,
+    transform: [{ rotate: '24deg' }],
   },
   label: {
     fontSize: 20,

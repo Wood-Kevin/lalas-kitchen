@@ -130,10 +130,25 @@ Board dimensions and objectives live per level, not in this skin file, since boa
 
 ---
 
+## Phase 8: Dynamic Denial-Zone Spread (`engine/matrix.ts`, `engine/gameState.ts`, `appPersistence.ts`, `components/Tile.tsx`)
+
+**Goal:** On harder levels, make a blocker denial zone that's left unaddressed *grow* into an adjacent cell — a calm, telegraphed area-denial pressure built on the existing blocker system, not a replacement for it. (A *static* denial zone needs no engine work at all: it's just a cluster of the Phase 6 blockers, since "cells clearable only by matches landing on them" is already the blocker contract. Only the dynamic layer is new.)
+
+**Build:**
+- Gated to generated levels at or past `DENIAL_SPREAD_MIN_LEVEL_NUMBER` (10) in `appPersistence.ts`, the same `generatedLevelNumber` gate shape `pot_lid` uses (`buildGeneratedLevelConfig` sets an optional `denialSpread: boolean` on the `LevelConfig`). Below the threshold the level's blockers stay purely static — `GameState.denialSpread` is `undefined` and `applyMove` skips the spread branch, identical to every earlier level.
+- Timing is a **proportion of the level's own move budget**, not a fixed number: `createGameState` derives `spreadInterval = max(2, round(movesLimit × SPREAD_MOVE_FRACTION))` (`SPREAD_MOVE_FRACTION = 0.25`) into `DenialSpreadState`, so the pressure feels the same on an 18-move and a 30-move level.
+- Each committed move, `applyMove` decides the zone was *addressed* by whether total blocker `hitsRemaining` dropped (any blocker damaged/cleared); addressed resets the spread clock. Otherwise the clock advances: at `interval - 1` the deterministic frontier cell (`matrix.ts`'s `findSpreadTarget`) is flagged with a new optional `spreadWarning: boolean` `Piece` field; at `interval` that cell becomes a blocker (inheriting the zone's `matchType`/`blockerHitsToClear`). Spread only ever targets ordinary cells, and runs before the existing `hasLegalMoves → shuffle` rescue.
+- The warning renders as a calm crack + dimming glow (`components/Tile.tsx`'s `SpreadWarningOverlay`, a slow breath — never a flashing alarm), wired via `Board.tsx`'s `spreadWarning` prop. The warned cell stays ordinary and matchable, so clearing it (which damages the adjacent blocker) defuses the spread.
+
+**Full reasoning and the deferred edges (spread never eats specials, no chaining/merging, no clustered generation) live in `engine/DECISIONS.md`'s Phase 8 section and `DEFERRED_COMPLEXITY.md`. Verified live: `docs/verification/denial-zone-spread/`.**
+
+---
+
 ## What's Explicitly Out of Scope for V1
 
 Skip these until the core loop is proven fun and stable:
 - Special piece behaviors beyond blockers, the striped row/column clearer, the color bomb, the special-piece combos, and the area bomb (all built: the striped piece; the color bomb — a straight 5-run that detonates every piece of one type on swap; the striped+striped cross and striped+bomb super-combos; and the area bomb — a 2×2 square that spawns a colorless bomb clearing a 3×3 when swapped; see `engine/DECISIONS.md`'s striped-piece, color-bomb, special-piece combos, and area-bomb entries; blocker clearing was built in Phase 6, below). Still deferred: sweep/blast/detonation chaining, `area + special` combos (an area bomb swapped into another special — currently a snap-back), and L/T-shape triggers (including an L/T-formed color bomb or area bomb, vs. the built straight-5 and pure-2×2 triggers) — no longer the whole "row clearers" line it used to be.
+- Area-denial / spreading-blocker mechanics beyond the built dynamic denial-zone spread (Phase 8 above): the gated zone that grows if ignored is built; still deferred are spread consuming/interacting with specials, spread chaining/merging, and clustered blocker generation. See `DEFERRED_COMPLEXITY.md`.
 - Recipe box meta layer and its event listener (build the engine's summary event emitter when a level ends, but wire up the actual UI later). Brought into V1 scope and built in a later session: `skinConfig.recipeCards` is a fixed 9-card curated set, each tied to one milestone level number (`appPersistence.ts`'s `findRecipeCardForLevel`); winning a milestone level reveals the card inside the existing win overlay and adds it to `SaveData.unlockedRecipeCards` (same shape as `seenTutorials`); a "My Recipe Book" screen off Home shows the fixed 3x3 grid, filled vs. dashed-empty — no stars, tiers, or locks. See `CLAUDE.md`'s Data Model Notes for the full mapping and `engine/DECISIONS.md` for the reasoning. No longer in this list.
 - Cloud asset delivery / CDN-based skin loading (only matters once there are multiple skins to distribute)
 - Score-threshold level objectives (a numeric score threshold, distinct from counting matched pieces, is still unbuilt). Multi-target objectives were built in a later session — `GameState`/`LevelConfig`'s `objectives` is an array; see this file's Phase 3 note above and `engine/DECISIONS.md` — no longer in this list.

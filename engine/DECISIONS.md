@@ -1579,3 +1579,111 @@ cleared *neighbours* still credit by their own matchType. A 2×2 spawn still cre
 
 Verified live — see `docs/verification/area-bomb/active/` for the swap-triggered
 filmstrip (area bomb + ordinary piece → immediate 3×3 blast, no matching run).
+
+# Phase 8 — dynamic denial-zone spread (blockers that grow if ignored)
+
+## Investigation first: a static denial zone needs zero new engine logic
+
+The session brief asked to confirm, before building anything, whether a calm
+static denial zone — several cells blocked off, clearable only through matches
+landing on them — is *already* achievable purely through level content, by
+clustering existing blockers. It is. The `blocker` type already implements
+exactly that contract: `piecesMatch` excludes it from every run, `applyMove`
+rejects any swap that touches it, and the only way to remove one is adjacent
+match damage (`applyAdjacentDamage`). "Cells clearable only by matches landing on
+them" is the blocker, verbatim. Clustering blockers into a contiguous region is a
+*placement* choice (level content), not a mechanic — so **every level below the
+difficulty threshold uses this static version unchanged, with no new engine
+code**. Only the *dynamic* layer below is new.
+
+## The dynamic layer: gate it exactly like `pot_lid`, don't invent a parallel gate
+
+Spread is gated to generated levels at or past `DENIAL_SPREAD_MIN_LEVEL_NUMBER`
+(10) in `appPersistence.ts` — the same shape as `pot_lid`'s
+`BLOCKER_MIN_LEVEL_NUMBER` gate, a function of `generatedLevelNumber` alone.
+Chosen later than `pot_lid` (7): a zone that actively grows is a tougher idea
+than a static double-hit blocker, so it waits until the player has met blockers
+(3), `pot_lid` (7), and the 4-blocker `generatedBlockerCount` cap (9) — by level
+10 there's a real multi-cell zone for it to act on. The gate only flips
+`denialSpread: true` on a level that actually placed blockers, so it's never inert
+on a blocker-less board. `createGameState` turns the flag into the concrete
+`DenialSpreadState`; below the threshold that state is simply absent
+(`undefined`), and `applyMove` skips the whole spread branch — the exact
+"static blockers, unchanged" behavior of every pre-existing level.
+
+## Timing is a proportion of the level's own move budget, not a universal number
+
+`spreadInterval = max(2, round(movesLimit × SPREAD_MOVE_FRACTION))` with
+`SPREAD_MOVE_FRACTION = 0.25` (in `gameState.ts`, the engine tuning seam — the
+*which-levels* gate lives separately in `appPersistence.ts`). A quarter of the
+budget: an 18-move level spreads every 5 unaddressed moves, a 30-move level every
+8, a real level-10 board (20 moves) every 5. So the pressure reads the same
+regardless of level length rather than feeling harsher on short levels. The
+`max(2, …)` floor guarantees `spreadInterval - 1` (the warning move) is always a
+real, visible move, so requirement 3 (a warning always precedes a spread) can
+never be skipped by a tiny budget.
+
+## "Addressed" = the zone lost blocker health this move — a derived signal, no new plumbing
+
+Rather than thread a "was a blocker hit?" boolean out through every clear path,
+`applyMove` compares total blocker `hitsRemaining` before the move
+(`state.board`) to after the cascade settles (`cascadedBoard`). A match can only
+ever lower it (matches never add blockers; spread runs *after* this check), so a
+strict decrease is an unambiguous "the player engaged the zone" — any blocker
+damaged or cleared. Addressed → the spread clock resets to 0 and any pending
+warning is cancelled. This is why matching the cracked warning cell defuses the
+spread: that cell is adjacent to the blocker by construction, so clearing it deals
+adjacent damage, which reads as addressing.
+
+## Warning on the frontier cell, spread in place, id reused — a legible cause→consequence
+
+`findSpreadTarget` (a pure `matrix.ts` scan, sibling to `hasLegalMoves`) returns
+the deterministic frontier: the first blocker in row-major order that borders an
+ordinary (`'normal'`) cell, paired with its first ordinary neighbor in
+`ADJACENT_OFFSETS` order (up, down, left, right). Only `'normal'` cells are
+eligible — a spread never eats a player-earned special (striped/bomb) and never
+double-places onto a blocker. `stepDenialZone` (in `gameState.ts`, called before
+the legal-move rescue so a spread-created blocker is covered by the same
+`hasLegalMoves → shuffle` guarantee as everything else) does three things by the
+clock:
+
+- **reset** (addressed) — clock to 0, warnings cleared;
+- **warn** (clock hits `interval - 1`) — flag the frontier cell with
+  `spreadWarning: true` (a new optional `Piece` field), for the one move before
+  the spread;
+- **spread** (clock hits `interval`) — convert the frontier cell to a blocker
+  inheriting the source blocker's `matchType` and the level's `blockerHitsToClear`,
+  **reusing the target cell's id** so the tile morphs into a blocker in place
+  (`boardDiff` sees no clear/spawn — the cell was denied, it didn't leave), then
+  reset the clock.
+
+The warning is recomputed from scratch each move (cleared, then re-marked), so it
+never lingers past its one move. The warned cell stays an *ordinary, matchable*
+piece — `spreadWarning` is presentation-only, invisible to `piecesMatch` — which
+is what lets a player clear it to defuse the growth. A fully enclosed zone
+(`findSpreadTarget` null) holds at the threshold rather than resetting, so it
+grows the instant a neighbor opens up. Blockers caught in a spread are never
+force-anything — a spread only ever *adds* a blocker to an ordinary cell.
+
+## The warning visual: a calm crack + dimming glow, not an alarm
+
+`components/Tile.tsx`'s `SpreadWarningOverlay` renders a steady dark dimming wash
+(the doomed cell reads as shadowed) plus a thin diagonal accent crack, with a slow
+~900ms accent breath over the top. The dim and crack are steady (not
+opacity-animated), so a still screenshot always shows the warning unambiguously.
+Deliberately a slow breath, not a flashing alarm, per CLAUDE.md's calm-not-frantic
+brief for this specific player. Wired through `Board.tsx` via a `spreadWarning`
+prop off `piece.spreadWarning`.
+
+Verified live — see `docs/verification/denial-zone-spread/` for the real-`applyMove`
+filmstrip (calm zone → cracked-and-dimmed frontier warning → the frontier cell
+become a blocker), on the real gated level-10 timing.
+
+## Still deferred (logged in `DEFERRED_COMPLEXITY.md`)
+
+Spread eats only ordinary cells (never specials); a spread blocker doesn't itself
+chain or merge zones beyond becoming one more ordinary blocker; and clustered
+*generation* (making the generator place blockers contiguously rather than
+scattered by `fisherYates`) is not built — a static zone's contiguity is a
+hand-authored-level concern today, and the dynamic layer naturally grows
+contiguity on its own. None were asked for.

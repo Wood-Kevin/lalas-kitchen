@@ -8,7 +8,7 @@ import {
   saveProgress,
   createInMemoryStorage,
 } from './gameState';
-import { Board, Piece, checkMatches, checkSquares, hasLegalMoves } from './matrix';
+import { Board, Piece, Position, checkMatches, checkSquares, hasLegalMoves } from './matrix';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
@@ -1440,5 +1440,202 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
     // A real move happened.
     expect(result.state.movesRemaining).toBe(9);
+  });
+});
+
+describe('applyMove — dynamic denial-zone spread', () => {
+  // A blocker piece with an explicit hit count. matchType is carried purely so
+  // a spread cell can inherit it (blockers never join runs — piecesMatch
+  // excludes them), never for matching.
+  const blocker = (id: string, matchType: string, hits: number): Piece => ({
+    id,
+    type: 'blocker',
+    matchType,
+    hitsRemaining: hits,
+  });
+
+  // A 4x4 board with ONE blocker at (3,0). Its only open frontier is the
+  // ordinary cell directly above it at (2,0) — findSpreadTarget scans up first,
+  // so (2,0) is the deterministic spread target. Swapping SWAP_A/SWAP_B forms a
+  // 3-in-a-row of 'A' along the top row (cols 1-3), far from the blocker, so the
+  // move is legal and NEVER damages the zone (it stays unaddressed). Rebuilt
+  // fresh each move by unaddressedMove so the identical legal move repeats while
+  // the spread clock carries forward on GameState.
+  const SWAP_A: Position = { row: 0, col: 3 };
+  const SWAP_B: Position = { row: 1, col: 3 };
+  const freshZoneBoard = (): Board => [
+    [piece('P', 'p0'), piece('A', 'a1'), piece('A', 'a2'), piece('C', 'c3')],
+    [piece('Q', 'q0'), piece('R', 'r1'), piece('S', 's2'), piece('A', 'a3')],
+    [piece('P', 'p2'), piece('S', 's3'), piece('R', 'r2'), piece('T', 't3')],
+    [blocker('blk', 'Z', 1), piece('T', 't0'), piece('P', 'p1'), piece('Q', 'q1')],
+  ];
+
+  const countBlockers = (board: Board): number =>
+    board.flat().filter((p) => p.type === 'blocker').length;
+  const countWarnings = (board: Board): number =>
+    board.flat().filter((p) => p.spreadWarning === true).length;
+
+  const makeSpreadState = (spreadInterval: number | null): GameState => ({
+    board: freshZoneBoard(),
+    movesRemaining: 50,
+    lives: 5,
+    // Unreachable target, so the level never wins mid-run and the spread clock
+    // can keep advancing.
+    objectives: [{ type: 'collect', targetMatchType: 'never', targetCount: 999, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: queueSpawnPiece(['M', 'N', 'O', 'M', 'N', 'O']),
+    denialSpread:
+      spreadInterval === null
+        ? undefined
+        : { movesUnaddressed: 0, spreadInterval, blockerHitsToClear: 1 },
+  });
+
+  // One unaddressed move: reset board + spawn queue so the same legal top-row
+  // match repeats, carrying the spread clock (and movesRemaining) forward.
+  const unaddressedMove = (state: GameState): GameState => {
+    const seeded: GameState = {
+      ...state,
+      board: freshZoneBoard(),
+      spawnPiece: queueSpawnPiece(['M', 'N', 'O', 'M', 'N', 'O']),
+    };
+    return applyMove(seeded, SWAP_A, SWAP_B).state;
+  };
+
+  test('below the difficulty threshold (no denialSpread state) a zone never spreads, no matter how many moves pass', () => {
+    let state = makeSpreadState(null);
+    expect(state.denialSpread).toBeUndefined();
+    // Ten unaddressed moves — well past any interval a real level would use.
+    for (let i = 0; i < 10; i++) {
+      state = unaddressedMove(state);
+      expect(countBlockers(state.board)).toBe(1);
+      expect(countWarnings(state.board)).toBe(0);
+    }
+  });
+
+  test('a gated zone spreads into its frontier cell exactly on the interval-th unaddressed move (18-move budget → interval 5)', () => {
+    // interval 5 is what createGameState derives from an 18-move budget (see the
+    // proportional-derivation test below).
+    let state = makeSpreadState(5);
+    const boards: Board[] = [];
+    for (let i = 0; i < 5; i++) {
+      state = unaddressedMove(state);
+      boards.push(state.board);
+    }
+
+    // Moves 1-3: clock ticking, nothing visible yet.
+    for (let i = 0; i < 3; i++) {
+      expect(countBlockers(boards[i])).toBe(1);
+      expect(countWarnings(boards[i])).toBe(0);
+    }
+    // Move 4 (interval-1): the warning appears — still one blocker, no spread.
+    expect(countBlockers(boards[3])).toBe(1);
+    expect(countWarnings(boards[3])).toBe(1);
+    // Move 5 (interval): the zone spreads — a second blocker exists, warning gone,
+    // clock reset.
+    expect(countBlockers(boards[4])).toBe(2);
+    expect(countWarnings(boards[4])).toBe(0);
+    expect(state.denialSpread?.movesUnaddressed).toBe(0);
+  });
+
+  test('the spread interval scales with the level move budget (30-move budget → interval 8, not 5)', () => {
+    // Same mechanic, wider interval: with a 30-move budget the derived interval
+    // is 8, so the zone must NOT have spread by move 5 (when the 18-move level
+    // already did), warns at move 7, and spreads at move 8. This is the direct
+    // proof the timing is proportional, not a fixed universal number.
+    let state = makeSpreadState(8);
+    const boards: Board[] = [];
+    for (let i = 0; i < 8; i++) {
+      state = unaddressedMove(state);
+      boards.push(state.board);
+    }
+
+    // Move 5: an 18-move level spreads here; a 30-move level must not.
+    expect(countBlockers(boards[4])).toBe(1);
+    expect(countWarnings(boards[4])).toBe(0);
+    // Move 6: still nothing.
+    expect(countBlockers(boards[5])).toBe(1);
+    expect(countWarnings(boards[5])).toBe(0);
+    // Move 7 (interval-1): warning.
+    expect(countBlockers(boards[6])).toBe(1);
+    expect(countWarnings(boards[6])).toBe(1);
+    // Move 8 (interval): spread.
+    expect(countBlockers(boards[7])).toBe(2);
+    expect(countWarnings(boards[7])).toBe(0);
+  });
+
+  test('createGameState derives the spread interval proportionally from movesLimit (18 → 5, 30 → 8)', () => {
+    const base = {
+      seed: 1,
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['a', 'b', 'c', 'd', 'e', 'f'],
+      lives: 5,
+      objectives: [{ targetMatchType: 'a', targetCount: 10 }],
+      denialSpread: true,
+    };
+    const s18 = createGameState({ ...base, movesLimit: 18 });
+    const s30 = createGameState({ ...base, movesLimit: 30 });
+    expect(s18.denialSpread?.spreadInterval).toBe(5);
+    expect(s30.denialSpread?.spreadInterval).toBe(8);
+    // A quarter of the budget: 18 and 30 are 12 apart, their intervals 3 apart —
+    // the pressure genuinely scales with level length rather than being fixed.
+  });
+
+  test('the warning state is distinguishable from the pre-warning board before any spread occurs', () => {
+    let state = makeSpreadState(5);
+    let preWarning: Board = state.board;
+    let warning: Board = state.board;
+    for (let i = 0; i < 4; i++) {
+      state = unaddressedMove(state);
+      if (i === 2) preWarning = state.board; // move 3: no warning yet
+      if (i === 3) warning = state.board; // move 4: warning shown
+    }
+    // Neither has spread yet (blocker count unchanged), but the boards differ:
+    // exactly one cell is flagged on the warning board and none on the prior one.
+    expect(countBlockers(preWarning)).toBe(1);
+    expect(countBlockers(warning)).toBe(1);
+    expect(countWarnings(preWarning)).toBe(0);
+    expect(countWarnings(warning)).toBe(1);
+    // The warned cell is still an ordinary, matchable piece — the crack is a
+    // preview, not the blocker itself yet.
+    const warned = warning.flat().find((p) => p.spreadWarning === true);
+    expect(warned?.type).toBe('normal');
+  });
+
+  test('addressing the zone (damaging a blocker) resets the spread clock instead of spreading', () => {
+    // A board where the swap forms a 3-run in row 2 (cols 0-2). Clearing (2,0),
+    // adjacent to the blocker at (3,0), deals it one hit — "addressing" the zone.
+    // The blocker has 2 hits so it survives (still a blocker) but its health
+    // drops, which the engine reads as engagement.
+    const addressingBoard = (): Board => [
+      [piece('G', 'g0'), piece('H', 'h0'), piece('M', 'm00'), piece('I', 'i0')],
+      [piece('J', 'j1'), piece('K', 'k1'), piece('M', 'm01'), piece('L', 'l1')],
+      [piece('M', 'm20'), piece('M', 'm21'), piece('Z', 'z2'), piece('N', 'n2')],
+      [blocker('blk', 'Z', 2), piece('O', 'o3'), piece('P', 'p3'), piece('Q', 'q3')],
+    ];
+    const state: GameState = {
+      board: addressingBoard(),
+      movesRemaining: 50,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'never', targetCount: 999, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['R', 'S', 'U', 'R', 'S', 'U']),
+      // On the brink: one more unaddressed move would spread.
+      denialSpread: { movesUnaddressed: 4, spreadInterval: 5, blockerHitsToClear: 2 },
+    };
+
+    // Swap (2,2)Z <-> (1,2)M forms M,M,M across row 2, clearing (2,0)/(2,1)/(2,2).
+    const result = applyMove(state, { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    // The zone was addressed: clock reset to 0, no spread, no warning, and still
+    // exactly one blocker (the damaged original, now at 1 hit — not cleared, not
+    // multiplied).
+    expect(result.state.denialSpread?.movesUnaddressed).toBe(0);
+    expect(countBlockers(result.state.board)).toBe(1);
+    expect(countWarnings(result.state.board)).toBe(0);
   });
 });

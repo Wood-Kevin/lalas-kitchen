@@ -13,6 +13,7 @@ import {
   hasLegalMoves,
   shuffle,
   applyAdjacentDamage,
+  findSpreadTarget,
 } from './matrix';
 import { generateLevel } from './generator';
 
@@ -30,6 +31,31 @@ export interface Objective {
   targetMatchType: string;
   targetCount: number;
   currentCount: number;
+}
+
+// The dynamic denial-zone spread mechanic's per-level runtime state. Present on
+// GameState (and enabled via LevelConfig.denialSpread) ONLY for levels past the
+// difficulty threshold that gates it — see appPersistence.ts's
+// DENIAL_SPREAD_MIN_LEVEL_NUMBER, gated the same way pot_lid is. Absent
+// (undefined) on every level below the threshold, which keeps blockers purely
+// static: a cluster of blockers is a denial zone that never grows, identical to
+// every level built before this mechanic. See engine/DECISIONS.md's
+// denial-zone-spread entry and CLAUDE.md's Data Model Notes.
+export interface DenialSpreadState {
+  // Unaddressed moves since the zone last took damage (or last spread). Reset
+  // to 0 the moment any blocker is hit or cleared this move ("addressing" the
+  // zone), which also cancels any pending warning.
+  movesUnaddressed: number;
+  // The move count at which an unaddressed zone spreads. NOT a fixed universal
+  // number — createGameState sets it to a proportion of the level's own move
+  // budget (SPREAD_MOVE_FRACTION), so the pressure feels the same whether a
+  // level grants 18 moves or 30. Always >= 2, so spreadInterval - 1 (the
+  // warning move) is always a real, visible move before the spread lands.
+  spreadInterval: number;
+  // The hitsRemaining a freshly spread blocker is born with — the level's own
+  // blockerHitsToClear, so a spread-in cell is exactly as tough to clear as a
+  // generator-placed one.
+  blockerHitsToClear: number;
 }
 
 export type GameStatus = 'in_progress' | 'paused_awaiting_input' | 'won';
@@ -76,6 +102,11 @@ export interface GameState {
   // calculateCascades(board, spawnPiece). GameState is transient/in-memory
   // only (see SaveData below), so a non-serializable field here is fine.
   spawnPiece: () => Piece;
+  // Present only when the dynamic denial-zone spread mechanic is enabled for
+  // this level (LevelConfig.denialSpread, gated in appPersistence.ts).
+  // undefined means blockers never spread — every level below the threshold,
+  // and every level built before this mechanic existed. See DenialSpreadState.
+  denialSpread?: DenialSpreadState;
 }
 
 export interface ComboStreakEvent {
@@ -156,7 +187,25 @@ export interface LevelConfig {
   blockerCount?: number;
   blockerMatchType?: string;
   blockerHitsToClear?: number;
+  // When true, this level's denial zone spreads if left unaddressed — the
+  // dynamic layer, gated past a difficulty threshold in appPersistence.ts
+  // (buildGeneratedLevelConfig). Omitted/false means blockers are purely
+  // static, the default for every level below the threshold and every level
+  // built before this mechanic. createGameState turns this flag into the
+  // concrete DenialSpreadState (interval scaled to movesLimit).
+  denialSpread?: boolean;
 }
+
+// What fraction of a level's move budget an untouched denial zone is allowed to
+// sit before it spreads. A quarter of the budget: an 18-move level spreads
+// every 5 unaddressed moves, a 30-move level every 8 — proportional, so the
+// pressure reads the same regardless of level length (see DenialSpreadState's
+// spreadInterval). Deliberately gentle per CLAUDE.md's calm-pacing brief: the
+// zone can only grow a handful of times across a whole level even if totally
+// ignored, and any single hit on the zone resets the clock. This is the one
+// place the spread cadence is tuned; the WHICH-levels gate lives separately in
+// appPersistence.ts.
+const SPREAD_MOVE_FRACTION = 0.25;
 
 export function createGameState(config: LevelConfig): GameState {
   const board = generateLevel(config.seed, {
@@ -187,6 +236,17 @@ export function createGameState(config: LevelConfig): GameState {
     // deterministic per level while decorrelating it from the board-fill
     // sequence. See DECISIONS.md.
     spawnPiece: createSeededSpawnPiece(config.seed + 1, config.pieceTypeIds),
+    // Only levels flagged for the dynamic mechanic carry spread state; every
+    // other level leaves this undefined and its blockers stay static. The
+    // interval is derived from THIS level's movesLimit so the cadence scales
+    // with level length; max(2, ...) guarantees a warning move exists.
+    denialSpread: config.denialSpread
+      ? {
+          movesUnaddressed: 0,
+          spreadInterval: Math.max(2, Math.round(config.movesLimit * SPREAD_MOVE_FRACTION)),
+          blockerHitsToClear: config.blockerHitsToClear ?? 1,
+        }
+      : undefined,
   };
 }
 
@@ -634,6 +694,95 @@ function keysToClearablePositions(keys: Set<string>, board: Board): Position[] {
   return out;
 }
 
+// Total blocker hitsRemaining across the board — the denial zone's "health."
+// Compared before vs after a move resolves to decide whether the zone was
+// ADDRESSED this move (any blocker hit or cleared lowers it). Matches can only
+// ever lower it (a match never adds a blocker; spread runs after this check), so
+// a strict decrease is an unambiguous "the player engaged the zone" signal.
+function blockerHealth(board: Board): number {
+  let total = 0;
+  for (const row of board) {
+    for (const cell of row) {
+      if (cell.type === 'blocker') total += cell.hitsRemaining ?? 1;
+    }
+  }
+  return total;
+}
+
+// Strips the transient spreadWarning flag off every cell that carries it,
+// returning a new board only when something changed (so an unwarned board keeps
+// its identity). The warning is recomputed from scratch each move, so it's
+// always cleared first rather than mutated in place.
+function clearSpreadWarnings(board: Board): Board {
+  let changed = false;
+  const next = board.map((row) =>
+    row.map((cell) => {
+      if (!cell.spreadWarning) return cell;
+      changed = true;
+      const { spreadWarning, ...rest } = cell;
+      return rest;
+    })
+  );
+  return changed ? next : board;
+}
+
+// Advances the denial zone one move. Pure: takes the settled post-cascade board
+// plus the current spread state and whether the zone was addressed this move,
+// returns the next board (with a warning marked, a cell spread, or neither) and
+// the next spread state. The three outcomes:
+//   - addressed        → reset the clock to 0, cancel any warning
+//   - reaches interval  → SPREAD: the frontier ordinary cell becomes a blocker
+//   - reaches interval-1→ WARNING: the frontier cell is flagged (growing crack)
+// Any prior warning is always cleared first, then recomputed, so a warning never
+// lingers past the one move it's meant to precede.
+function stepDenialZone(
+  board: Board,
+  denial: DenialSpreadState,
+  addressed: boolean
+): { board: Board; denial: DenialSpreadState } {
+  const cleared = clearSpreadWarnings(board);
+
+  if (addressed) {
+    return { board: cleared, denial: { ...denial, movesUnaddressed: 0 } };
+  }
+
+  const movesUnaddressed = denial.movesUnaddressed + 1;
+
+  if (movesUnaddressed >= denial.spreadInterval) {
+    const spot = findSpreadTarget(cleared);
+    if (!spot) {
+      // Zone fully boxed in — nowhere to grow. Hold at the threshold rather
+      // than resetting, so it spreads the instant a neighbor opens up instead
+      // of making the player wait out another full interval.
+      return { board: cleared, denial: { ...denial, movesUnaddressed: denial.spreadInterval } };
+    }
+    const source = cleared[spot.source.row][spot.source.col];
+    const targetPiece = cleared[spot.target.row][spot.target.col];
+    const nextBoard = cleared.map((row) => row.slice());
+    nextBoard[spot.target.row][spot.target.col] = {
+      // Reuse the target cell's id so the tile morphs into a blocker in place
+      // (boardDiff sees no clear/spawn) — the cell was denied, it didn't leave.
+      id: targetPiece.id,
+      type: 'blocker',
+      matchType: source.matchType,
+      hitsRemaining: denial.blockerHitsToClear,
+    };
+    return { board: nextBoard, denial: { ...denial, movesUnaddressed: 0 } };
+  }
+
+  if (movesUnaddressed === denial.spreadInterval - 1) {
+    const spot = findSpreadTarget(cleared);
+    if (spot) {
+      const targetPiece = cleared[spot.target.row][spot.target.col];
+      const nextBoard = cleared.map((row) => row.slice());
+      nextBoard[spot.target.row][spot.target.col] = { ...targetPiece, spreadWarning: true };
+      return { board: nextBoard, denial: { ...denial, movesUnaddressed } };
+    }
+  }
+
+  return { board: cleared, denial: { ...denial, movesUnaddressed } };
+}
+
 // Fires when a single move triggers this many chained cascades or more.
 const COMBO_STREAK_THRESHOLD = 4;
 
@@ -726,6 +875,22 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
 
   const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps } = resolved;
 
+  // Dynamic denial-zone spread (gated levels only — state.denialSpread is
+  // undefined everywhere else, so blockers stay static). Runs on the settled
+  // post-cascade board and BEFORE the legal-move rescue below, so a
+  // spread-created blocker is covered by the same hasLegalMoves guarantee as
+  // everything else. "Addressed" = the zone lost blocker health this move (any
+  // blocker damaged or cleared, comparing the pre-move board to the settled
+  // one), which resets the spread clock and cancels any pending warning.
+  let denialSpread = state.denialSpread;
+  let settledBoard = cascadedBoard;
+  if (denialSpread) {
+    const addressed = blockerHealth(cascadedBoard) < blockerHealth(state.board);
+    const stepped = stepDenialZone(cascadedBoard, denialSpread, addressed);
+    settledBoard = stepped.board;
+    denialSpread = stepped.denial;
+  }
+
   // A settled cascade can leave a board with zero legal moves — confirmed
   // during real mobile playtesting as a genuine mid-play stuck state, not
   // just a theoretical edge case. `generateLevel` (generator.ts) already
@@ -735,7 +900,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // points it can be violated. No event fires for this — a shuffle should
   // read as silent and immediate to the player, not an announced
   // interruption, per CLAUDE.md's calm-pacing constraint.
-  const resolvedBoard = hasLegalMoves(cascadedBoard) ? cascadedBoard : shuffle(cascadedBoard);
+  const resolvedBoard = hasLegalMoves(settledBoard) ? settledBoard : shuffle(settledBoard);
 
   const totalCleared = { ...state.totalCleared };
   for (const [matchType, count] of Object.entries(clearedByMatchType)) {
@@ -788,6 +953,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     status,
     pauseReason,
     totalCleared,
+    denialSpread,
   };
 
   // resolveCascades' last step is the pre-rescue cascadedBoard; the state

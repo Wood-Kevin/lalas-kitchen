@@ -35,6 +35,16 @@ export interface Piece {
   // gave a player no way to see which color a passive bomb was, so making it
   // colorless makes that question moot (see engine/DECISIONS.md's area-bomb
   // reversal entry).
+  //
+  // Only meaningful when type === 'normal' AND the level has the dynamic
+  // denial-zone spread mechanic enabled (see gameState.ts's DenialSpreadState).
+  // True for exactly one move on the ordinary cell a blocker is about to spread
+  // into: the "growing crack" warning the player sees the move before the zone
+  // grows (components/Tile.tsx renders it). It never affects matching — a warned
+  // piece is still an ordinary, matchable, swappable piece; matching it (which
+  // necessarily damages the adjacent blocker) is exactly how a player defuses
+  // the warning. Absent on every level without the spread mechanic.
+  spreadWarning?: boolean;
 }
 
 export type Board = Piece[][];
@@ -272,6 +282,40 @@ export function applyAdjacentDamage(board: Board, clearedPositions: Position[]):
   }
 
   return { board: newBoard, newlyClearedBlockers };
+}
+
+// The deterministic next cell a denial zone will spread into, for the dynamic
+// spread mechanic (see gameState.ts's stepDenialZone). Scans row-major for the
+// first blocker that borders an ordinary ('normal') cell and returns that
+// blocker (source) paired with its first ordinary neighbor in ADJACENT_OFFSETS
+// order (target). Returns null when no blocker touches an ordinary piece — the
+// zone is fully boxed in by edges, other blockers, or special pieces, so it has
+// nowhere to grow this move.
+//
+// Only 'normal' cells are eligible targets, never a special (striped/bomb) or
+// another blocker: a spread turns a plain matchable piece into a blocker, so it
+// can never consume a piece the player earned, and can never double-place onto
+// an existing blocker. Pure geometry — the caller decides what to do with the
+// result (mark a warning on the target, or convert it).
+export function findSpreadTarget(
+  board: Board
+): { source: Position; target: Position } | null {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (board[r][c].type !== 'blocker') continue;
+      for (const offset of ADJACENT_OFFSETS) {
+        const nr = r + offset.row;
+        const nc = c + offset.col;
+        if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+        if (board[nr][nc].type === 'normal') {
+          return { source: { row: r, col: c }, target: { row: nr, col: nc } };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function fisherYates<T>(items: T[], rng: () => number): T[] {
