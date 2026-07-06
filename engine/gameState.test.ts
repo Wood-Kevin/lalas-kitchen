@@ -7,6 +7,7 @@ import {
   loadSave,
   saveProgress,
   clearSave,
+  saveKey,
   createInMemoryStorage,
   countFiredSpecials,
 } from './gameState';
@@ -1525,6 +1526,31 @@ describe('save/load round trip', () => {
     const storage = createInMemoryStorage();
     const loaded = await loadSave('never-saved', storage);
     expect(loaded).toBeNull();
+  });
+
+  // saveKey used to hardcode 'lalas-kitchen' as part of the key regardless of
+  // the skinId argument — a skin-specific literal living inside otherwise
+  // generic engine storage infra, failing CLAUDE.md's Leak Test. It never
+  // actually caused two skins' saves to collide (skinId was already the
+  // unique suffix), but the "namespace" wasn't genuinely generic — it was one
+  // skin's name. This confirms skinId is what actually discriminates one key
+  // from another, with no leaked skin name doing that job instead.
+  test('saveKey derives a genuinely distinct key per skinId, with no hardcoded skin name involved', () => {
+    const keyForSkinA = saveKey('skin-a');
+    const keyForSkinB = saveKey('skin-b');
+
+    // Not just two strings that happen to differ — confirm they aren't
+    // colliding on a shared hardcoded prefix by coincidence.
+    expect(keyForSkinA).not.toEqual(keyForSkinB);
+
+    // The namespace portion itself must carry no skin/product name — that's
+    // the actual leak being fixed here, not the (already-fine) uniqueness.
+    expect(keyForSkinA).not.toMatch(/lalas-kitchen/);
+    expect(keyForSkinB).not.toMatch(/lalas-kitchen/);
+
+    // skinId is what actually determines the key, end to end.
+    expect(keyForSkinA.endsWith('skin-a')).toBe(true);
+    expect(keyForSkinB.endsWith('skin-b')).toBe(true);
   });
 
   // The dev-only reset (App.tsx's handleDevReset) leans on clearSave returning

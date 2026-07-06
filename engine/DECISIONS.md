@@ -350,6 +350,35 @@ the same `AsyncStorageLike` instance (a real device's AsyncStorage is a
 single shared namespace) can't collide with unrelated keys some other part
 of the app might someday store under a bare skin id like `"lalas-kitchen"`.
 
+### Fixed: the namespace tag itself was a leaked skin name
+
+The `lalas-kitchen:` prefix above was never actually load-bearing for
+uniqueness — `skinId` was already the thing that made one key distinct from
+another — but it meant a specific skin's product name lived inside otherwise
+generic engine storage infra, failing CLAUDE.md's own Leak Test the exact
+same way a hardcoded `"tomato"` in `engine/matrix.ts` would. `saveKey` now
+derives its namespace from a generic `SAVE_KEY_NAMESPACE = 'save'` constant
+— `` `save:${skinId}` `` — so the engine genuinely has no opinion on which
+skin it's saving for, only `skinId` does. `saveKey` is also now exported
+(was a private module-level function before), specifically so it's a single
+testable source of truth: `engine/asyncStorage.test.ts` used to independently
+hardcode the expected key as its own second literal
+(`'lalas-kitchen:save:lalas-kitchen'`) rather than calling the real function
+— exactly the kind of duplicated-decision drift CLAUDE.md's Playtest
+Feedback Protocol warns about — and now calls `saveKey('lalas-kitchen')`
+instead. No other file in the codebase reconstructs this key independently.
+
+No migration was needed for this cutover: no real device save exists yet
+worth preserving (this is still a local, unpublished project — see
+CLAUDE.md's Definition of Done), so the old key format simply stops being
+read or written, with nothing to carry forward. Confirmed with a new
+`engine/gameState.test.ts` test (two different skinIds produce genuinely
+distinct keys, with no `lalas-kitchen` substring appearing in either), and
+every existing save/load round-trip test for the current single skin passes
+unmodified — the key's *value* changed, but every caller still goes through
+`loadSave`/`saveProgress`/`clearSave` consistently, so round-trip behavior
+for one skin was never observable-different. 409 tests pass (`npm test`).
+
 ---
 
 # Phase 4 — dual resume paths (moves and lives)

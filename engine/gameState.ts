@@ -1525,8 +1525,19 @@ export function createInMemoryStorage(): AsyncStorageLike {
 // needed here.
 const defaultStorage: AsyncStorageLike = AsyncStorage;
 
-function saveKey(skinId: string): string {
-  return `lalas-kitchen:save:${skinId}`;
+// Generic namespace tag for this save format — deliberately not a skin/product
+// name (that would fail CLAUDE.md's Leak Test the same way the old hardcoded
+// 'lalas-kitchen' literal did: engine code carrying a specific skin's name).
+// skinId is the only thing that varies the key, so it's the sole thing that
+// determines which skin's data a key resolves to — the same "engine never
+// knows the skin" boundary every other part of this pipeline already holds.
+const SAVE_KEY_NAMESPACE = 'save';
+
+// Exported so it's a single, directly testable source of truth for the real
+// key format — not a private detail other files (tests included) would
+// otherwise need to reconstruct by hand and risk drifting from.
+export function saveKey(skinId: string): string {
+  return `${SAVE_KEY_NAMESPACE}:${skinId}`;
 }
 
 export async function loadSave(

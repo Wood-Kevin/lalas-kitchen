@@ -11,7 +11,7 @@
 // exactly the code path that needs it. See appPersistence.test.ts for the
 // same round trip exercised against `createInMemoryStorage` instead, which
 // needs no environment other than plain Node.
-import { loadSave, saveProgress, SaveData } from './gameState';
+import { loadSave, saveProgress, saveKey, SaveData } from './gameState';
 
 describe('save/load against the real default storage (no explicit storage arg)', () => {
   beforeEach(() => {
@@ -32,8 +32,10 @@ describe('save/load against the real default storage (no explicit storage arg)',
 
     // Reading straight from localStorage, bypassing loadSave entirely,
     // proves this landed in real persisted browser storage — not just that
-    // some Promise resolved.
-    const raw = window.localStorage.getItem('lalas-kitchen:save:lalas-kitchen');
+    // some Promise resolved. Derives the raw key via the real saveKey rather
+    // than a second hardcoded literal, so this test can't silently drift from
+    // the actual key format.
+    const raw = window.localStorage.getItem(saveKey('lalas-kitchen'));
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw as string)).toEqual(data);
   });
