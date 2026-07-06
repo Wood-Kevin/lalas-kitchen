@@ -2582,3 +2582,83 @@ a real audio package is deferred until real assets land (see
 Verified: all 329 existing + new tests pass (`npm test`); a live Home
 screenshot confirms the new Sound/Haptics toggle row renders and responds
 to a tap. See `docs/verification/sound-haptics-stub/`.
+
+# How-to-play onboarding tutorial: the genuine first-time mechanic explanation
+
+Every tutorial built so far — the blocker card, the three special-piece
+cards, `chain_reaction` — assumes the player already knows how to swap tiles
+to make a match. Nothing ever explained the base swap-to-match mechanic
+itself. This adds that card: the one shown before all the others, the very
+first time a genuinely fresh save's level 1 loads, teaching tap/drag-to-swap
+and matching three or more.
+
+**Confirmed nothing like this already existed before building it.** Searched
+the whole tree for `howToPlay`/`onboarding`/`welcome` (case-insensitive) —
+zero hits beyond an unrelated `Home.tsx` welcome-back copy string. The
+blocker tutorial and the four special-piece/chain-reaction tutorials were the
+entire tutorial surface.
+
+**Reused `SpecialTutorialOverlay`, not a new file.** That component already
+generalized once beyond "one card per special piece" when `chain_reaction`
+was added with a `piece: null` fallback (no single piece to anchor an icon
+to, since the moment it celebrates has no one piece). This tutorial has the
+exact same shape — no single piece to point at, since it explains the
+mechanic itself, before any piece has even been swapped — so it's a fifth
+`SPECIAL_TUTORIAL_CONTENT` entry (`how_to_play`, headline "Tap and Swap"),
+not a sixth near-identical overlay file. Its icon falls back to the same
+`spriteLabel('how_to_play')` → `"HO"` placeholder convention every un-arted
+tutorial already uses.
+
+**The actual hard problem: `levelIndex === 1` alone is the wrong gate.**
+`shouldShowBlockerTutorial` and `shouldShowChainReactionTutorial` are both
+plain once-ever boolean gates over signals that are already correct — a
+board either has a blocker or it doesn't; a move either fired 2+ specials or
+it didn't. But "is this level 1" is NOT the same as "is this a genuinely
+fresh save": a player who already finished level 1 (or well past it) and
+later replays it — from All Levels, or Board's own "Play again" — also has
+`levelIndex === 1`, despite already knowing how to play. Gating on
+`levelIndex` alone would incorrectly resurface an onboarding card for an
+experienced player. `appPersistence.ts`'s `shouldShowOnboardingTutorial`
+therefore also requires `completedLevels.length === 0` — the account has
+never won anything, ever, on this save. That's the real "genuinely fresh
+save" signal: `completedLevels` is never empty again once the player has won
+anything, so a returning player revisiting level 1 can never trip this,
+while a truly fresh install always can, exactly once, until dismissed.
+
+**A new `Board` prop, not a value Board derives from data it doesn't have.**
+`shouldShowBlockerTutorial` reads the level's own board — data `Board`
+already owns. `shouldShowOnboardingTutorial` needs `completedLevels`, which
+`Board` never previously received (only `levelIndex` and `seenTutorials`
+were already props). Rather than have `App.tsx` precompute the boolean
+itself (the shape `unlockedRecipeCard` uses, since that value genuinely
+depends on win-transition-specific bookkeeping only `App.tsx` has), this
+follows `shouldShowBlockerTutorial`'s existing precedent instead: thread the
+one new persisted list `Board` needs (`completedLevels`) through as a plain
+prop, and let `Board`'s own mount-time `useState` initializer make the same
+kind of self-contained decision `showBlockerTutorial` already does.
+
+**Takes top priority over every other tutorial, by construction, not a new
+priority system.** `showOnboardingTutorial`'s mount-time check runs before a
+single move is possible, and `canAcceptMove`/`dragEnabled` both gate on it
+alongside the existing blocker/special checks — so no move can ever be made,
+and therefore no special piece can ever spawn and no blocker's tutorial gate
+can ever matter, until it's dismissed. The post-move special-tutorial effect
+and both overlay render blocks additionally check `!showOnboardingTutorial`
+defensively, mirroring the "two tutorials never stack" guarantee the
+chain_reaction entry already established, even though today's actual level 1
+content (no blockers) means the blocker tutorial could never coincide with
+it in practice.
+
+**Verified live against the real app, not a synthetic harness — including
+the once-ever guarantee across a genuine relaunch, not just a single
+mount.** Driven over CDP against the real running Expo-web app (per the
+established WSL2 screenshot procedure): `localStorage.clear()` for a
+genuinely fresh save (not the dev-only reset flow, which presumes a prior
+save existed to reset from), a real click on Home's "Start cooking", and a
+screenshot of the real rendered overlay over the real level 1 board. A
+second run confirmed the full round trip: dismiss → the real persisted save
+immediately shows `seenTutorials: ["how_to_play"]` with `completedLevels: []`
+→ a full page reload (a genuine relaunch, not a re-render) → re-entering
+level 1 the same way shows no overlay at all, board immediately interactive.
+All 370 tests pass (`npm test`). See
+`docs/verification/how-to-play-tutorial/`.

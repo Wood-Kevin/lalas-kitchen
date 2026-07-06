@@ -31,6 +31,8 @@ import {
   shouldShowBlockerTutorial,
   shouldShowChainReactionTutorial,
   CHAIN_REACTION_TUTORIAL_ID,
+  shouldShowOnboardingTutorial,
+  HOW_TO_PLAY_TUTORIAL_ID,
   shouldSpendLifeOnLoss,
   startingLives,
   unlockRecipeCard,
@@ -725,6 +727,35 @@ describe('shouldShowBlockerTutorial', () => {
   });
 });
 
+describe('shouldShowOnboardingTutorial', () => {
+  test('true on a genuinely fresh save\'s level 1 — nothing completed, never seen', () => {
+    expect(shouldShowOnboardingTutorial(1, [], [])).toBe(true);
+  });
+
+  test('false once the player has already dismissed it', () => {
+    expect(shouldShowOnboardingTutorial(1, [], [HOW_TO_PLAY_TUTORIAL_ID])).toBe(false);
+  });
+
+  test('false replaying level 1 after already completing it — not a genuinely fresh save', () => {
+    expect(shouldShowOnboardingTutorial(1, [1], [])).toBe(false);
+  });
+
+  test('false replaying level 1 after completing a later level, even if level 1 itself is not in the list', () => {
+    // Any non-empty completedLevels means the player has already won
+    // something, and therefore already knows how to play.
+    expect(shouldShowOnboardingTutorial(1, [3], [])).toBe(false);
+  });
+
+  test('false on any level past 1, regardless of completedLevels/seenTutorials', () => {
+    expect(shouldShowOnboardingTutorial(2, [], [])).toBe(false);
+  });
+
+  test('dismissing the other tutorials does not suppress this one — distinct id', () => {
+    const seen = [BLOCKER_TUTORIAL_ID, STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
+    expect(shouldShowOnboardingTutorial(1, [], seen)).toBe(true);
+  });
+});
+
 describe('markTutorialSeen', () => {
   test('adds a new tutorial id', () => {
     expect(markTutorialSeen([], BLOCKER_TUTORIAL_ID)).toEqual([BLOCKER_TUTORIAL_ID]);
@@ -736,6 +767,11 @@ describe('markTutorialSeen', () => {
 
   test('preserves existing entries when adding a different id', () => {
     expect(markTutorialSeen([BLOCKER_TUTORIAL_ID], 'powerup')).toEqual([BLOCKER_TUTORIAL_ID, 'powerup']);
+  });
+
+  test('handles HOW_TO_PLAY_TUTORIAL_ID exactly like any other id', () => {
+    expect(markTutorialSeen([], HOW_TO_PLAY_TUTORIAL_ID)).toEqual([HOW_TO_PLAY_TUTORIAL_ID]);
+    expect(markTutorialSeen([HOW_TO_PLAY_TUTORIAL_ID], HOW_TO_PLAY_TUTORIAL_ID)).toEqual([HOW_TO_PLAY_TUTORIAL_ID]);
   });
 
   // The same generic writer backs all three special-piece tutorials — proving

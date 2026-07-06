@@ -8,18 +8,27 @@ import { spriteLabel } from './spriteLabel';
 
 // The calm one-line explanation shown the first time each special piece comes
 // to rest on the board, keyed by the same id findSpecialPieceTutorial returns
-// (identical to the engine PieceType) — plus one more, `chain_reaction`
-// (appPersistence.ts's CHAIN_REACTION_TUTORIAL_ID), keyed the same way even
-// though it isn't a PieceType: it's the fourth tutorial, for the moment more
-// than one special fires together. Copy lives here, beside the only thing
-// that renders it, rather than in appPersistence.ts — the persistence layer
-// owns WHICH tutorial and WHETHER it's been seen; the wording is presentation.
-// That's the same split BlockerTutorialOverlay makes by hardcoding its own
-// headline/subtext. Tone matches "A Covered Dish": warm, plain, one action,
-// no urgency (see CLAUDE.md's calm-not-frantic brief) — chain_reaction's copy
-// leans into noticing the moment rather than re-explaining any one piece's
-// mechanic, since the player has already seen each piece's own card by then.
+// (identical to the engine PieceType) — plus two more, keyed the same way even
+// though neither is a PieceType: `chain_reaction` (appPersistence.ts's
+// CHAIN_REACTION_TUTORIAL_ID), for the moment more than one special fires
+// together, and `how_to_play` (HOW_TO_PLAY_TUTORIAL_ID), the genuine onboarding
+// card teaching the base swap-to-match mechanic itself, shown before any of
+// the others (see appPersistence.ts's shouldShowOnboardingTutorial). Copy
+// lives here, beside the only thing that renders it, rather than in
+// appPersistence.ts — the persistence layer owns WHICH tutorial and WHETHER
+// it's been seen; the wording is presentation. That's the same split
+// BlockerTutorialOverlay makes by hardcoding its own headline/subtext. Tone
+// matches "A Covered Dish": warm, plain, one action, no urgency (see
+// CLAUDE.md's calm-not-frantic brief) — chain_reaction's copy leans into
+// noticing the moment rather than re-explaining any one piece's mechanic,
+// since the player has already seen each piece's own card by then, and
+// how_to_play's copy is the one card that doesn't assume the player already
+// knows how to make a match at all.
 export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtext: string }> = {
+  how_to_play: {
+    headline: 'Tap and Swap',
+    subtext: 'Tap or drag a tile toward a neighbor to swap them. Line up three or more matching ingredients to clear them.',
+  },
   striped: {
     headline: 'A Striped Treat',
     subtext: 'Match a striped piece to sweep its whole row or column clear.',
@@ -64,12 +73,15 @@ export interface SpecialTutorialOverlayProps {
   // never a hardcoded reference. A striped piece's icon therefore reflects the
   // base ingredient it was forged from.
   //
-  // Null for the chain_reaction tutorial: that card celebrates a MOMENT (more
-  // than one special firing together), not any single piece — by the time the
-  // move settles, the specials that fired are already cleared, so there's no
-  // resting piece to point getSpriteForPiece at. Falls back to the same
-  // text-label placeholder convention every un-arted piece already uses (see
-  // the icon fallback below), never a hardcoded sprite reference.
+  // Null for the chain_reaction and how_to_play tutorials: chain_reaction
+  // celebrates a MOMENT (more than one special firing together), not any
+  // single piece — by the time the move settles, the specials that fired are
+  // already cleared, so there's no resting piece to point getSpriteForPiece
+  // at. how_to_play explains the base mechanic itself, before any piece has
+  // even been swapped, so there's likewise no single piece to anchor to.
+  // Both fall back to the same text-label placeholder convention every
+  // un-arted piece already uses (see the icon fallback below), never a
+  // hardcoded sprite reference.
   piece: Piece | null;
   onDismiss: () => void;
 }

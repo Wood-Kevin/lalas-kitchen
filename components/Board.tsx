@@ -18,6 +18,8 @@ import {
   SpecialPieceTutorial,
   shouldShowChainReactionTutorial,
   CHAIN_REACTION_TUTORIAL_ID,
+  shouldShowOnboardingTutorial,
+  HOW_TO_PLAY_TUTORIAL_ID,
 } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
@@ -88,6 +90,13 @@ export interface BoardProps {
   // exposing existing data to WonOverlay/PausedOverlay for their "LEVEL N"
   // label, not new state.
   levelIndex: number;
+  // The account's persisted completed-level history — read once at mount
+  // alongside `levelIndex`/`seenTutorials` to decide whether the onboarding
+  // tutorial should show (see appPersistence.ts's
+  // shouldShowOnboardingTutorial): `levelIndex === 1` alone can't tell a
+  // genuinely fresh save from an experienced player replaying level 1, but
+  // an empty `completedLevels` can.
+  completedLevels: number[];
   // The account's persisted one-time-tutorial-seen list (App.tsx's
   // seenTutorials, loaded from SaveData) — read once at mount to decide
   // whether the blocker tutorial should show (see appPersistence.ts's
@@ -143,6 +152,7 @@ export function Board({
   lives,
   onOutOfLives,
   levelIndex,
+  completedLevels,
   seenTutorials,
   onTutorialSeen,
   unlockedRecipeCard,
@@ -150,6 +160,15 @@ export function Board({
   hapticsEnabled,
 }: BoardProps) {
   const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
+  // Computed once at mount, from this level's own starting props — same
+  // "genuinely fresh save" gate as appPersistence.ts's
+  // shouldShowOnboardingTutorial (levelIndex === 1 and nothing ever
+  // completed yet, not re-derived from anything mid-level). Takes priority
+  // over every other tutorial (see canAcceptMove/the render order below):
+  // it teaches the base mechanic every other tutorial already assumes.
+  const [showOnboardingTutorial, setShowOnboardingTutorial] = useState(() =>
+    shouldShowOnboardingTutorial(levelIndex, completedLevels, seenTutorials)
+  );
   // Computed once at mount, from this level's initial board only — not
   // re-derived on every render as blockers get cleared mid-level (see
   // appPersistence.ts's shouldShowBlockerTutorial for why). Surviving a
@@ -277,7 +296,7 @@ export function Board({
   // check, keeping the once-ever guarantee honest across the persist round-trip.
   useEffect(() => {
     if (gameState.status !== 'in_progress') return;
-    if (showBlockerTutorial || specialTutorial) return;
+    if (showOnboardingTutorial || showBlockerTutorial || specialTutorial) return;
     const seen = [...seenTutorials, ...dismissedSpecialTutorialsRef.current];
     const match = findSpecialPieceTutorial(gameState.board, seen);
     if (match) setSpecialTutorial(match);
@@ -324,6 +343,7 @@ export function Board({
     return (
       gameState.status === 'in_progress' &&
       !snapBack &&
+      !showOnboardingTutorial &&
       !showBlockerTutorial &&
       !specialTutorial &&
       !animatingRef.current
@@ -568,6 +588,11 @@ export function Board({
     setGameState((current) => grantBonusMoves(current, amount));
   }
 
+  function handleDismissOnboardingTutorial() {
+    setShowOnboardingTutorial(false);
+    onTutorialSeen(HOW_TO_PLAY_TUTORIAL_ID);
+  }
+
   function handleDismissBlockerTutorial() {
     setShowBlockerTutorial(false);
     onTutorialSeen(BLOCKER_TUTORIAL_ID);
@@ -723,6 +748,7 @@ export function Board({
                     // fold its own offset. A plain tap is unaffected either way.
                     dragEnabled={
                       gameState.status === 'in_progress' &&
+                      !showOnboardingTutorial &&
                       !showBlockerTutorial &&
                       !specialTutorial &&
                       !snapBack &&
@@ -774,7 +800,16 @@ export function Board({
           </View>
         )}
       </View>
-      {showBlockerTutorial && (
+      {showOnboardingTutorial && (
+        <SpecialTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          tutorialId={HOW_TO_PLAY_TUTORIAL_ID}
+          piece={null}
+          onDismiss={handleDismissOnboardingTutorial}
+        />
+      )}
+      {!showOnboardingTutorial && showBlockerTutorial && (
         <BlockerTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
@@ -782,7 +817,7 @@ export function Board({
           onDismiss={handleDismissBlockerTutorial}
         />
       )}
-      {specialTutorial && (
+      {!showOnboardingTutorial && specialTutorial && (
         <SpecialTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}

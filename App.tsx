@@ -707,6 +707,11 @@ export default function App() {
             // this, not its frozen levelConfig.lives (see Board.tsx).
             lives={lives}
             onOutOfLives={() => setScreen('outOfLives')}
+            // Threaded through so Board can tell a genuinely fresh save's
+            // level 1 (completedLevels empty) apart from an experienced
+            // player replaying it later — see appPersistence.ts's
+            // shouldShowOnboardingTutorial.
+            completedLevels={completedLevels}
             seenTutorials={seenTutorials}
             onTutorialSeen={handleTutorialSeen}
             unlockedRecipeCard={revealedRecipeCard}

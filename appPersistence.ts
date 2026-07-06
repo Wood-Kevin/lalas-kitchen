@@ -218,6 +218,33 @@ export function markLevelCompleted(completedLevels: number[], levelIndex: number
     : [...completedLevels, levelIndex].sort((a, b) => a - b);
 }
 
+// The one-time onboarding tutorial's id in `SaveData.seenTutorials` — the
+// genuine first-time "how to play" card, teaching the base swap-to-match
+// mechanic itself. Distinct from every tutorial below: those all assume the
+// player already knows how to swap tiles (a covered dish, a striped piece,
+// a color bomb — each explains one specific obstacle or special on top of
+// that base mechanic). This is the one that comes before all of them.
+export const HOW_TO_PLAY_TUTORIAL_ID = 'how_to_play';
+
+// The onboarding tutorial should show exactly once ever: the very first time
+// a genuinely fresh account's level 1 loads, before the player has completed
+// anything. Deliberately NOT just `levelIndex === 1` — a player who has
+// already finished level 1 (or further) and later replays it from All Levels
+// or Board's "Play again" would also have levelIndex === 1, despite already
+// knowing how to play. `completedLevels.length === 0` is the actual
+// "genuinely fresh save" signal: a returning player's completedLevels is
+// never empty once they've won anything, even if they navigate back to
+// level 1, so this can never resurface for someone who already knows the
+// mechanic. Checked at mount, from the level's starting props, the same
+// shape as shouldShowBlockerTutorial below (not re-derived mid-level).
+export function shouldShowOnboardingTutorial(
+  levelIndex: number,
+  completedLevels: number[],
+  seenTutorials: string[]
+): boolean {
+  return levelIndex === 1 && completedLevels.length === 0 && !seenTutorials.includes(HOW_TO_PLAY_TUTORIAL_ID);
+}
+
 // The one-time blocker tutorial's id in `SaveData.seenTutorials` — a plain
 // constant, not re-typed as a string literal at every call site, so
 // Board.tsx/App.tsx/tests all agree on the exact same id.
