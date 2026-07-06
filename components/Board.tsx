@@ -25,12 +25,22 @@ import { findAnyLegalMove } from '../engine/matrix';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
-import { sweepDelaysForClears } from './sweepAnimation';
+import {
+  SpecialEffectDescriptor,
+  buildPassAnimation,
+  resolveSpecialEffectDescriptor,
+} from './specialEffectAnimation';
 import { resetIdleHintTimer } from './stuckHintTiming';
 import { getSpriteForPiece } from './spriteMap';
 import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
-import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
+import {
+  cascadeFallDurationMs,
+  terminalOverlayHoldMs,
+  SWEEP_TILE_STAGGER_MS,
+  COLOR_BOMB_WAVE_MS,
+  SUPERCOMBO_CONVERT_MS,
+} from './cascadeTiming';
 import { Hud } from './Hud';
 import { resolveLevelDisplayName } from './levelProgress';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
@@ -439,6 +449,12 @@ export function Board({
     // Fired when the chain finishes animating (see animateCascade), so the
     // acknowledgment lands on the completed streak, not its first pass.
     const hasCombo = result.events.some((event) => event.type === 'combo_streak');
+    // Which swap-triggered effect (if any) this move fired — derived purely
+    // from the pre-move board's two swapped cells (see
+    // specialEffectAnimation.ts), the same read-only classification
+    // isBlockerClear/isPowderBurst already use. Only ever meaningful for the
+    // first cascade pass (see animateCascade/runStep).
+    const effectDescriptor = resolveSpecialEffectDescriptor(gameState.board, posA, posB);
 
     animateCascade(
       gameState.board,
@@ -446,7 +462,8 @@ export function Board({
       result.steps,
       tappedIds,
       hasCombo,
-      result.multiSpecialFired
+      result.multiSpecialFired,
+      effectDescriptor
     );
   }
 
@@ -521,7 +538,8 @@ export function Board({
     steps: BoardMatrix[],
     tappedIds: Set<string>,
     hasCombo: boolean,
-    multiSpecialFired: boolean
+    multiSpecialFired: boolean,
+    effectDescriptor: SpecialEffectDescriptor | undefined
   ) {
     animatingRef.current = true;
     // Re-gate the terminal overlay for this move: even if a prior move left it
@@ -535,12 +553,19 @@ export function Board({
       const next = steps[i];
       const diff = diffBoards(previous, next);
 
-      // Which cleared tiles belong to a striped piece's line sweep, and how
-      // long each should wait so the glow travels tile-by-tile down the line
-      // rather than the whole row/column popping together. Derived from this
-      // pass's diff alone — the swept striped piece survives into diff.cleared
-      // still carrying its type/direction — so this stays presentation-only.
-      const sweepDelays = sweepDelaysForClears(diff.cleared, SWEEP_TILE_STAGGER_MS);
+      // Which cleared tiles belong to a striped piece's line sweep, a color
+      // bomb's radial ripple, or the supercombo's convert-then-sweep-together
+      // beats, and how long each should wait — all derived from this pass's
+      // diff alone, so this stays presentation-only (see
+      // specialEffectAnimation.ts's buildPassAnimation). effectDescriptor only
+      // ever applies to the first pass (i === 0) — every swap-triggered effect
+      // activates on the swap itself; later passes are always ordinary
+      // cascade refills.
+      const passAnimation = buildPassAnimation(diff.cleared, i, effectDescriptor, {
+        perTileStaggerMs: SWEEP_TILE_STAGGER_MS,
+        radialWaveMs: COLOR_BOMB_WAVE_MS,
+        supercomboConvertMs: SUPERCOMBO_CONVERT_MS,
+      });
 
       // Sound/haptic cue for this pass, fired in the same tick the visual
       // pop begins (not deferred to the terminal-overlay timeout below,
@@ -570,7 +595,14 @@ export function Board({
       setExiting((current) => [
         ...current,
         ...diff.cleared.map(({ piece, from }) =>
-          buildExitingEntry(piece, from, moveId, sweepDelays.get(piece.id))
+          buildExitingEntry(
+            piece,
+            from,
+            moveId,
+            passAnimation.sweepDelays.get(piece.id),
+            passAnimation.radialDelays.get(piece.id),
+            passAnimation.convertedFlashIds.has(piece.id)
+          )
         ),
       ]);
 
@@ -858,6 +890,8 @@ export function Board({
                 // fired clears alongside it. Derived from the cleared piece's
                 // type, the same way isBlockerClear is — no new engine data.
                 isPowderBurst={entry.pieceType === 'area_bomb'}
+                radialDelayMs={entry.radialDelayMs}
+                convertedFlash={entry.convertedFlash}
                 onExited={() => removeExiting(entry.key)}
               />
             ))}

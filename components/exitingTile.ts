@@ -31,8 +31,26 @@ export interface ExitingEntry {
   // waits before it brightens and pops, so the glow travels down the line
   // instead of the whole row/column flashing at once. Derived purely from the
   // pass's diff (see sweepAnimation.ts), no new engine data. Undefined for an
-  // ordinary match cell.
+  // ordinary match cell. Also reused, with a UNIFORM value across every
+  // converted piece, as the supercombo's synchronized beat-2 delay (see
+  // specialEffectAnimation.ts's buildPassAnimation) — the same "pop after this
+  // delay" contract, just fed a fixed value instead of a distance-based one.
   sweepDelayMs?: number;
+  // Set only on a color bomb detonation's cleared tiles — how long this tile
+  // waits before its radial ripple pop, staggered by real distance from the
+  // swapped bomb so the wave visibly reaches across the whole board rather
+  // than the board-spanning clear reading as one flat vanish (see
+  // specialEffectAnimation.ts's radialDelaysForClears). Undefined for every
+  // other clear, including a color bomb reached via chaining (not this
+  // effect's own swap-triggered origin) — see DEFERRED_COMPLEXITY.md.
+  radialDelayMs?: number;
+  // Set only on the supercombo's own converted pieces (never the bomb cell
+  // itself) — plays a brief "this just became a special" flicker BEFORE the
+  // synchronized sweepDelayMs pop begins, so the two real beats (convert, then
+  // sweep together) both read on screen instead of collapsing into one
+  // instant (see specialEffectAnimation.ts's supercomboConvertedIds and
+  // engine/DECISIONS.md's now-resolved convert-to-striped-flash entry).
+  convertedFlash?: boolean;
 }
 
 // Builds one exiting-tile entry from a cleared piece. The crux for the sprite
@@ -45,7 +63,9 @@ export function buildExitingEntry(
   piece: Piece,
   from: Position,
   moveId: number,
-  sweepDelayMs: number | undefined
+  sweepDelayMs: number | undefined,
+  radialDelayMs?: number,
+  convertedFlash?: boolean
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -56,6 +76,8 @@ export function buildExitingEntry(
     col: from.col,
     isBlockerClear: piece.type === 'blocker',
     sweepDelayMs,
+    radialDelayMs,
+    convertedFlash,
   };
 }
 

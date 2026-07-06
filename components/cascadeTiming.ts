@@ -60,6 +60,36 @@ export const SWEEP_TILE_STAGGER_MS = 55;
 // stage that stretches the clear. See ExitingTile's sweep branch.
 export const SWEEP_GLOW_POP_MS = 110;
 
+// The color bomb detonation's radial ripple spends its whole travel budget
+// here, regardless of board size (see specialEffectAnimation.ts's
+// radialDelaysForClears, which normalizes distance-from-bomb to this fixed
+// total rather than a fixed per-tile stagger) — a bomb's reach is the WHOLE
+// board, and a per-tile constant like SWEEP_TILE_STAGGER_MS would make the
+// wave's total travel time balloon on a larger/shaped level. Chosen close to
+// SWEEP_TILE_STAGGER_MS's own worst-case linear-sweep travel time (~385ms on
+// this app's largest board) so a board-spanning detonation reads as roughly
+// the same calm "one beat" weight as a single line sweep, not slower just
+// because it covers more area.
+export const COLOR_BOMB_WAVE_MS = 280;
+
+// The supercombo's two beats share one timing knob: the "conversion" flash
+// plays for exactly this long, and the synchronized pop-and-shrink for every
+// converted piece begins the instant it ends (see specialEffectAnimation.ts's
+// buildPassAnimation, which sets every converted piece's sweepDelayMs to this
+// same value — a UNIFORM delay, deliberately not staggered by distance, since
+// the point of beat 2 is that everything fires TOGETHER, not that it travels).
+// Kept short — a quick, legible flicker rather than a held pause — so the two
+// beats read as one fluid gesture (convert, then release) rather than the
+// move visibly stalling before it resolves.
+export const SUPERCOMBO_CONVERT_MS = 170;
+
+// The conversion flash's own pulse rate within SUPERCOMBO_CONVERT_MS — a
+// double-blink (up/down/up/down) rather than one smooth brighten, since a
+// flicker reads as "this is becoming something new" in a way a single steady
+// glow (the sweep/radial pop's own language, reused elsewhere) doesn't. Four
+// even beats fit inside SUPERCOMBO_CONVERT_MS exactly.
+export const SUPERCOMBO_FLASH_PULSE_MS = SUPERCOMBO_CONVERT_MS / 4;
+
 // How long the terminal (Won / Paused) overlay is held back after the FINAL
 // cascade pass commits, before it's allowed to appear. Board.tsx's
 // animateCascade commits gameState — flipping status to 'won'/'paused' — at the

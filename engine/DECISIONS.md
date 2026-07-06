@@ -3082,3 +3082,127 @@ completed levels (real persisted best-ever stars, not seeded data), the
 real next-unplayed level glowing with its PLAY button, and real locked
 levels ahead dimmed with a padlock — see
 `docs/verification/level-map/`.
+
+## Special-effect identity: color bomb, cross combo, and supercombo each get a distinct presentation, not a generic flat clear
+
+Only the area bomb had a real presentation identity before this session (the
+idle powder wisp + trigger poof — see the "two powder animations" entry
+above). The color bomb detonation, the striped+striped cross combo, and the
+striped+bomb supercombo all rendered through `ExitingTile`'s final,
+undifferentiated branch: a plain opacity/scale-to-zero, identical to an
+ordinary match clearing. This was investigated and fixed, presentation-only —
+zero files under `engine/` changed (confirmed via `git status`).
+
+**Investigation first, per the standing playtest-feedback protocol.** Before
+designing anything, confirmed exactly which paths already had a real identity
+and which didn't, rather than assuming:
+- A solo striped piece included in an ordinary match already had one: the
+  traveling sweep beam (`components/sweepAnimation.ts`'s `sweepDelaysForClears`
+  + `Tile.tsx`'s `sweepDelayMs` branch — see the striped-piece entry above).
+- A striped piece caught via chaining (a special caught in another effect's
+  clear — see the special-piece-chaining entry above) already replayed that
+  SAME real sweep correctly, with no fix needed. Traced through the code
+  rather than assumed: `expandChainClears` never mutates a caught special's
+  `type`/`direction` before folding its clear cells in, so it survives into
+  `diffBoards`' `cleared` list exactly as it would from a solo match, and
+  `sweepDelaysForClears`' origin check (`type === 'striped' && direction !==
+  undefined`) already picks it up as a genuine beam origin.
+- The cross combo (`resolveStripedCross`) only got an *accidental*, often-wrong
+  partial sweep. Both swapped pieces survive into `cleared` as real
+  `type: 'striped'` pieces with their OWN original `direction` — but the
+  combo's actual clear geometry is a cross centered on posA, in BOTH
+  directions, overriding whatever each piece's individual direction was. A
+  piece whose original direction was `'col'` contributed zero delay to cells
+  on the row half of the cross (`sweepDelaysForClears` only measures a `'row'`
+  origin's distance to same-row cells). This wasn't a deliberate design
+  choice that happened to look fine — it was a latent bug nobody had reason to
+  notice until asked to give the cross its own real identity.
+- The supercombo (`resolveStripedBombCombo`) and a solo color bomb
+  (`resolveColorBomb`) never had a chance: neither mutates its cleared cells'
+  `type` to `'striped'` before they clear (the supercombo computes the settled
+  union of sweeps directly, per its own doc comment on the deferred
+  convert-to-striped flash), so `sweepDelaysForClears`' origin check never
+  matched either.
+
+**Three new identities, each derived purely from data already available at the
+presentation layer** (`components/specialEffectAnimation.ts`), the same
+`piece.type`-check pattern `isBlockerClear`/`isPowderBurst` already use — no
+new `ApplyMoveResult` field, no engine change:
+
+1. **Color bomb — radial ripple.** Euclidean distance from the swapped bomb's
+   position, normalized to a FIXED total duration (`COLOR_BOMB_WAVE_MS`, in
+   `components/cascadeTiming.ts`) rather than a fixed per-tile stagger like the
+   linear sweep. A color bomb's reach is the whole board, which varies by
+   level (a small hand-built board vs. a larger/shaped generated one); a fixed
+   per-tile constant would make the wave's total travel time balloon on a
+   bigger board, which reads as slower rather than "the same weight, more
+   reach." Normalizing keeps it inside one calm, bounded beat regardless of
+   board size — the same board-shape-agnostic discipline the void/segmented-
+   gravity work already holds to. Rendered as a genuinely different SHAPE
+   (`Tile.tsx`'s new `radialGlow` overlay — `borderRadius: 999`, a circle —
+   plus a bigger scale overshoot than the sweep's square glow), not the same
+   square wash recolored, per the explicit ask that each identity communicate
+   what the effect does rather than just look different.
+2. **Cross combo — the existing sweep, corrected and extended bidirectionally,
+   not rebuilt.** Zero new `Tile.tsx` code: reuses the EXACT same
+   `sweepDelayMs`/`sweepGlow` mechanism the solo striped sweep already has.
+   Only the delay computation changed (`crossOriginDelays`): a single true
+   center (posA, matching `resolveStripedCross`'s own "the cross is centered
+   on posA" comment) sweeping BOTH axes, merged (nearest-origin-wins, the same
+   rule `sweepDelaysForClears` already applies for two crossing beams) with the
+   generic sweep so a genuinely different special caught in the cross via
+   chaining still fires its own authentic sweep alongside it.
+3. **Supercombo — two distinct beats, not one collapsed instant.** A brief
+   flicker ("conversion," `Tile.tsx`'s new `convertFlash` overlay — a
+   double-blink, `SUPERCOMBO_FLASH_PULSE_MS`-paced, deliberately NOT the sweep/
+   radial's single smooth brighten, since a flicker reads as "becoming
+   something new" in a way a steady glow doesn't) plays on every converted
+   piece, then every converted piece PLUS the bomb cell pop together at one
+   UNIFORM delay (`SUPERCOMBO_CONVERT_MS`) — deliberately not staggered by
+   distance, since the point of this beat is "together," not "traveling."
+   This resolves the convert-to-striped-flash item `DEFERRED_COMPLEXITY.md`
+   had carried since the combos first shipped. Which cells count as
+   "converted" (`supercomboConvertedIds`) is a pure classification over cells
+   the engine already decided to clear (same matchType as the originating
+   striped piece, excluding the bomb cell) — it invents no new clearing
+   decision, so it can't drift from what actually cleared. Deliberately does
+   NOT attempt to reconstruct `resolveStripedBombCombo`'s internal
+   alternating row/col discovery-order assignment for a per-piece directional
+   beat 2 — duplicating that internal detail in presentation code risks the
+   exact kind of drift CLAUDE.md's playtest protocol warns about ("if a fix
+   requires testing a decision, and that decision is duplicated somewhere,
+   collapse the duplication... don't test a stand-in copy"); a synchronized
+   beat is both simpler and more honest about what the engine actually
+   guarantees (that everything fires together), rather than fabricating
+   travel-direction cues the engine's own return value doesn't expose.
+
+**Scope boundary, logged rather than silently dropped:** a color bomb reached
+via chaining (caught in another effect's clear, not the bomb the player
+actually swapped) still gets the flat generic clear — it has no swap position
+to radiate a ripple from. Only the three swap-triggered origin effects named
+in the ask got new identities this session. See `DEFERRED_COMPLEXITY.md`.
+
+`buildPassAnimation` (`specialEffectAnimation.ts`) is the one call site
+`Board.tsx`'s `animateCascade` uses per cascade pass, gated to `passIndex ===
+0` for all descriptor-driven logic — every swap-triggered effect activates on
+the swap itself (pass 0), and a chain-cascade refill's own new matches always
+land in later passes as ordinary clears (see the cascade-steps entry above),
+so no pass-index bookkeeping beyond a single equality check was needed.
+
+Verified with 16 new `components/specialEffectAnimation.test.ts` cases
+(descriptor precedence mirroring `applyMove`'s own branch order including the
+area-bomb exclusion; radial normalization and its zero-max-distance guard;
+cross geometry ignoring each piece's own stale direction; supercombo
+classification; and `buildPassAnimation`'s merging, including that a
+genuinely different chained special keeps its own authentic sweep inside a
+cross or supercombo pass). All 453 tests pass; zero engine files changed.
+Verified live: a throwaway harness drove the real `applyMove` for all three
+effects on hand-built Latin-square boards (zero incidental pre-existing
+matches, same construction `docs/verification/special-piece-combos/` used),
+rendered through the real `ExitingTile` (real Reanimated animation, not
+simulated), captured over CDP against headless Windows Chrome at four
+synchronized checkpoints — see `docs/verification/special-effect-identity/`.
+The harness (`components/__harness__/EffectIdentityHarness.tsx`) and its
+temporary `App.tsx` `?harness=effects` gate were both deleted/reverted
+immediately after capture, per this repo's established
+screenshot-verification convention.

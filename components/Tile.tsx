@@ -12,7 +12,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { ResolvedSprite } from './spriteAsset';
-import { BLOCKER_CLEAR_HIGHLIGHT_MS, SWEEP_GLOW_POP_MS } from './cascadeTiming';
+import {
+  BLOCKER_CLEAR_HIGHLIGHT_MS,
+  SWEEP_GLOW_POP_MS,
+  SUPERCOMBO_FLASH_PULSE_MS,
+} from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
 
@@ -528,6 +532,21 @@ export interface ExitingTileProps {
   // surrounding 3×3 clearing rather than an unrelated flourish. Derived the
   // same way isBlockerClear is (piece.type check), no new engine data.
   isPowderBurst?: boolean;
+  // Present only for a tile cleared by a color bomb detonation — how long it
+  // waits before its radial ripple pop, staggered by real distance from the
+  // swapped bomb (see components/specialEffectAnimation.ts's
+  // radialDelaysForClears) so a board-spanning detonation visibly reaches
+  // outward instead of the whole board vanishing in one flat wash. Mutually
+  // exclusive with sweepDelayMs — a cell is cleared by exactly one effect.
+  radialDelayMs?: number;
+  // True only on the supercombo's own converted pieces (never its bomb cell).
+  // Plays a brief flicker BEFORE the normal pop-and-shrink begins, so
+  // "converts to striped" and "sweeps together" read as two distinct beats
+  // rather than one instant (see specialEffectAnimation.ts's
+  // supercomboConvertedIds). Layered ADDITIVELY alongside sweepDelayMs (which
+  // the supercombo also sets, to a uniform value, for its synchronized second
+  // beat) rather than being mutually exclusive with it.
+  convertedFlash?: boolean;
   onExited: () => void;
 }
 
@@ -547,13 +566,20 @@ export function ExitingTile({
   isBlockerClear,
   sweepDelayMs,
   isPowderBurst,
+  radialDelayMs,
+  convertedFlash,
   onExited,
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
-  // Animates for a blocker clear or a striped sweep; stays at 0 (invisible)
-  // for an ordinary match cell.
+  // Animates for a blocker clear, a striped sweep, or a color-bomb ripple;
+  // stays at 0 (invisible) for an ordinary match cell.
   const highlightOpacity = useSharedValue(0);
+  // The supercombo's own "converting to a special" flicker — a separate
+  // shared value from highlightOpacity because it plays ADDITIVELY alongside
+  // the sweepDelayMs pop below (both fire on the same converted piece, at
+  // different moments), not as one more mutually-exclusive branch.
+  const flashOpacity = useSharedValue(0);
   // The powder-poof cloud for a detonating area bomb — a soft cloud that
   // expands past the tile and fades as the bag clears. Its own shared values,
   // kept off the bag's shrink transform (the cloud lives in a sibling view, so
@@ -561,6 +587,25 @@ export function ExitingTile({
   // every non-area-bomb exit.
   const burstScale = useSharedValue(0.4);
   const burstOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    if (convertedFlash) {
+      // A quick double-blink (up/down/up/down) — a flicker reads as "this is
+      // becoming something new," which a single smooth brighten (the
+      // sweep/radial pop's own language, reused for this piece's OWN beat 2
+      // below) doesn't communicate. Fully independent of whichever branch the
+      // main effect below runs: this plays over the pre-beat-2 window while
+      // the tile itself still sits at rest.
+      flashOpacity.value = withSequence(
+        withTiming(0.6, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(0.15, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(0.6, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(0, { duration: SUPERCOMBO_FLASH_PULSE_MS })
+      );
+    }
+    // convertedFlash never changes for the lifetime of one exiting tile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (isPowderBurst) {
@@ -613,6 +658,36 @@ export function ExitingTile({
       const timeout = setTimeout(onExited, sweepDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
+    if (radialDelayMs !== undefined) {
+      // A color-bomb detonation tile: sits still until the ripple reaches it
+      // (radialDelayMs, staggered by real distance from the swapped bomb —
+      // see specialEffectAnimation.ts's radialDelaysForClears), then a
+      // circular ripple pop — a rounder shape and a bigger scale overshoot
+      // than the sweep's square glow, so a board-spanning detonation reads as
+      // a genuinely different kind of travel, not a recolored beam — then the
+      // same shrink every cleared tile gets.
+      const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
+      highlightOpacity.value = withDelay(
+        radialDelayMs,
+        withSequence(
+          withTiming(0.55, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(0, { duration: shrinkMs })
+        )
+      );
+      scale.value = withDelay(
+        radialDelayMs,
+        withSequence(
+          withTiming(1.3, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(0, { duration: shrinkMs })
+        )
+      );
+      opacity.value = withDelay(
+        radialDelayMs + SWEEP_GLOW_POP_MS,
+        withTiming(0, { duration: shrinkMs })
+      );
+      const timeout = setTimeout(onExited, radialDelayMs + durationMs);
+      return () => clearTimeout(timeout);
+    }
     if (isBlockerClear) {
       const halfPulse = BLOCKER_CLEAR_HIGHLIGHT_MS / 2;
       // A brief glow-and-pop draws the eye here first, then the same
@@ -655,6 +730,10 @@ export function ExitingTile({
     opacity: highlightOpacity.value,
   }));
 
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: flashOpacity.value,
+  }));
+
   // The poof lives in a SEPARATE positioned view, not inside the tile above —
   // the tile's own transform shrinks the bag to 0, and the cloud must instead
   // grow outward while that happens. Scales about the cell's centre, so it
@@ -686,6 +765,18 @@ export function ExitingTile({
             <Animated.View
               style={[styles.sweepGlow, { backgroundColor: accentColor }, highlightStyle]}
               testID={`sweep-glow-${pieceId}`}
+            />
+          )}
+          {radialDelayMs !== undefined && (
+            <Animated.View
+              style={[styles.radialGlow, { backgroundColor: accentColor }, highlightStyle]}
+              testID={`radial-glow-${pieceId}`}
+            />
+          )}
+          {convertedFlash && (
+            <Animated.View
+              style={[styles.convertFlash, { backgroundColor: accentColor }, flashStyle]}
+              testID={`convert-flash-${pieceId}`}
             />
           )}
         </Animated.View>
@@ -744,6 +835,30 @@ const styles = StyleSheet.create({
   // carries more visual weight as it passes. Its own style rather than reusing
   // blockerHighlight so the two effects can be tuned independently later.
   sweepGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  // The color bomb's ripple — a CIRCULAR wash (a large enough radius that a
+  // square frame renders as a circle) rather than the sweep's square-cornered
+  // fill, so a board-spanning detonation reads as a distinct shape of travel
+  // (a ripple radiating outward) rather than the same beam recolored.
+  radialGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 999,
+  },
+  // The supercombo's conversion flicker — same plain full-tile wash language
+  // as every other overlay here; its own style purely so this effect's timing
+  // (a double-blink, see convertedFlash's useEffect) can be tuned independently
+  // from the blocker/sweep pulses without touching their opacity animations.
+  convertFlash: {
     position: 'absolute',
     top: 0,
     left: 0,
