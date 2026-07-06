@@ -1,3 +1,4 @@
+import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES } from './boardShapes';
 import { generateLevel, GeneratorConfig } from './generator';
 import { checkMatches, checkSquares, hasLegalMoves, Position } from './matrix';
 
@@ -193,4 +194,68 @@ describe('generateLevel — non-rectangular (void) board shape', () => {
       })
     );
   });
+});
+
+describe('generateLevel — curated shape templates (boardShapes.ts), at the real generated-level board size', () => {
+  // 8x5 is the fixed board size buildGeneratedLevelConfig actually uses for
+  // every generator-driven level (see appPersistence.ts), not the hand-built
+  // Cutting Board level's own 7x7 — a template needs to hold up at the size
+  // it's genuinely exercised at, not just the size it happened to be
+  // eyeballed against.
+  const ROWS = 8;
+  const COLS = 5;
+  const PIECE_TYPE_IDS = ['A', 'B', 'C', 'D', 'E'];
+
+  for (const shapeId of BOARD_SHAPE_ROTATION) {
+    const voidCells = BOARD_SHAPE_TEMPLATES[shapeId](ROWS, COLS);
+    const isVoidCell = (r: number, c: number): boolean => voidCells.some((p) => p.row === r && p.col === c);
+
+    describe(`shape: ${shapeId}`, () => {
+      const config: GeneratorConfig = {
+        rows: ROWS,
+        cols: COLS,
+        pieceTypeIds: PIECE_TYPE_IDS,
+        voidCells,
+      };
+
+      test('is match-free, square-free, and has a legal move on creation — the same guarantee a rectangle gets', () => {
+        for (const seed of [1, 2, 3, 42, 999, 123456]) {
+          const board = generateLevel(seed, config);
+          expect(checkMatches(board)).toEqual([]);
+          expect(checkSquares(board)).toEqual([]);
+          expect(hasLegalMoves(board)).toBe(true);
+        }
+      });
+
+      test('void cells hold no content, and every other cell is a real playable piece', () => {
+        const board = generateLevel(7, config);
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (isVoidCell(r, c)) {
+              expect(board[r][c].type).toBe('void');
+              expect(board[r][c].matchType).toBeUndefined();
+            } else {
+              expect(board[r][c].type).toBe('normal');
+              expect(board[r][c].matchType).toBeDefined();
+            }
+          }
+        }
+      });
+
+      test('blockers never land on a void cell', () => {
+        const board = generateLevel(5, { ...config, blockerCount: 4, blockerMatchType: 'cling', blockerHitsToClear: 1 });
+        const blockers = board.flat().filter((p) => p.type === 'blocker');
+        expect(blockers.length).toBeGreaterThan(0);
+        board.forEach((row, r) =>
+          row.forEach((p, c) => {
+            if (p.type === 'blocker') expect(isVoidCell(r, c)).toBe(false);
+          })
+        );
+      });
+
+      test('the same seed reproduces an identical shaped board', () => {
+        expect(generateLevel(11, config)).toEqual(generateLevel(11, config));
+      });
+    });
+  }
 });

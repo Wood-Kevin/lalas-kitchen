@@ -2049,13 +2049,13 @@ still offer matches). Verified live in `docs/verification/board-shape/`.
 
 ## Deliberately deferred (see `DEFERRED_COMPLEXITY.md`)
 
-Generator-*driven* shapes (the generator still only carves the `voidCells` it's
-handed — it never invents a shape), and any interaction between voids and the
+~~Generator-*driven* shapes (the generator still only carves the `voidCells`
+it's handed — it never invents a shape)~~ — **resolved**, see "Generator-driven
+board shapes" below. Still deferred: any interaction between voids and the
 specials/denial-spread systems beyond "a void is an inert fixed hole" (a spread
 already only eats ordinary cells; a blast/sweep that reaches a void simply
-doesn't clear it). Hand-authored shapes first, generator integration as its own
-later step — the same prove-it-with-real-content sequencing every other feature
-here followed.
+doesn't clear it — see the "Fixed" sub-entry directly below for the one place
+this needed real work).
 
 ### Fixed: the "a blast/sweep simply doesn't clear a void" claim above didn't hold
 
@@ -2094,7 +2094,7 @@ void) and a live harness against the real Cutting Board shape (seed-accurate
 for direct comparison) — see
 `docs/verification/void-specials-clear-fix/`. Still deferred, unchanged: void ×
 denial-spread interaction (a spread already only ever targets `'normal'` cells,
-so it was never exposed to this bug) and generator-driven shapes.
+so it was never exposed to this bug).
 
 ## Special-piece tutorial overlay: a data-driven sibling of the blocker tutorial, keyed by piece type
 
@@ -2662,3 +2662,89 @@ immediately shows `seenTutorials: ["how_to_play"]` with `completedLevels: []`
 level 1 the same way shows no overlay at all, board immediately interactive.
 All 370 tests pass (`npm test`). See
 `docs/verification/how-to-play-tutorial/`.
+
+## Generator-driven board shapes: a curated template set, gated and rotated exactly like blockers
+
+The board-shape entry above (see "Deliberately deferred") had one real gap
+left: `generateLevel`'s `voidCells` contract was fully general from the start
+(a template just hands it a `Position[]`), but nothing ever *chose* a shape
+for a generator-driven level — every non-rectangular board was the one
+hand-built Level 4 "Cutting Board". This session closed that gap.
+
+**Investigated first, per the playtest-feedback protocol's spirit even though
+nothing was broken here.** Confirmed directly against the code (not assumed)
+that: (1) Level 4's void cells are a hand-picked `Position[]` constant in
+`App.tsx`, structurally identical to any other `voidCells` array — no special
+casing anywhere reads "this is the showcase level"; (2) `generateLevel`
+already treats `voidCells` as fully general — `placeBlockers`'s candidate
+pool structurally excludes voids before the random draw even runs, `shuffle`
+holds voids fixed, and every match/square/legal-move gate is already
+void-aware (see the board-shape entry above). So this was a pure *selection*
+problem, not an engine problem — no change to `engine/generator.ts` was
+needed at all.
+
+**A small curated template set, not procedural generation.** `engine/
+boardShapes.ts` exports 3 pure functions — `cutCornersVoids`, `plusVoids`,
+`ringVoids` — each `(rows, cols) => Position[]`, plus a `BOARD_SHAPE_ROTATION`
+array and a `BOARD_SHAPE_TEMPLATES` registry keyed by `BoardShapeId`. This
+mirrors every other piece of content variety in this project (the 9 curated
+recipe cards, the fixed blocker roster, the 3 curated tutorial cards) rather
+than attempting to invent shapes algorithmically — a small, hand-designed set
+that reads as intentional is a better fit than a shape-generation algorithm
+whose output would need its own aesthetic review anyway.
+
+- `cutCornersVoids` — an L-shaped notch (corner cell + its two orthogonal
+  neighbours) at each of the 4 corners.
+- `plusVoids` — voids the 4 corner blocks outside a full-height middle column
+  band and a full-width middle row band (a generalization of Level 4's own
+  plus, sized proportionally — `max(1, floor(rows/4))` / `max(1,
+  floor(cols/4))` — instead of that level's hand-picked 7×7 corners, so the
+  arms stay sensible at the generated board's actual 8×5 size).
+- `ringVoids` — voids every interior cell, leaving a 1-cell playable frame.
+
+All three are pure functions of `(rows, cols)`, not hardcoded to 8×5, the
+same generality `voidCells` itself already had — they'd hold up if the
+generated board size ever changed, even though that's not exercised today.
+
+**Gated exactly like `pot_lid`/denial-spread, not a new gating mechanism.**
+`appPersistence.ts`'s `generatedShapeId(levelNumber)` is a `levelNumber`
+threshold (`SHAPE_MIN_LEVEL_NUMBER = 8`) plus a cadence
+(`SHAPE_CADENCE = 4`, "1 in 4" once eligible), confirmed with the architect
+before committing to numbers rather than guessed: 8 is one level after
+`pot_lid` (the tougher blocker) unlocks at 7, so a player has met the full
+blocker roster on ordinary rectangles before also coping with reduced board
+area; a shape is deliberately "occasional" rather than the new normal, so it
+keeps reading as a surprise. Below the threshold, or on an off-cadence level,
+`buildGeneratedLevelConfig` omits `voidCells` entirely — byte-identical to
+every generated level before this feature existed. Which template shows up
+on an eligible level rotates deterministically through
+`BOARD_SHAPE_ROTATION` by elapsed cadence steps since the threshold — the
+same reproducible-by-`levelNumber` shape `eligibleBlockerIds`'s rotation and
+the objective `targetMatchType` rotation already use, not a random pick.
+
+**Composes freely with blockers/denial-spread — independent gates, no new
+interaction to design.** A shaped level can also have blockers, pot_lid, or
+denial-spread active, since each gate only reads `levelNumber` and its own
+prior state; `placeBlockers`'s existing void-exclusion and the denial
+spread's existing "only ordinary cells" rule (see the Phase 8 entry above)
+already make the combination safe with zero new code.
+
+**Board size itself still never varies** — only `voidCells` on the existing
+fixed `rows`/`cols` rectangle (see `buildGeneratedLevelConfig`'s own doc
+comment on why CLAUDE.md's edge-to-edge tile sizing pins board size, not
+shape).
+
+Verified with new unit tests (`engine/boardShapes.test.ts` — each template's
+exact geometry at the real 8×5 generated size, in-bounds/no-duplicate checks
+across a range of sizes), a new `engine/generator.test.ts` describe block
+(all 3 templates, at the real 8×5 size, combined with blockers, against the
+same match-free/square-free/legal-move/void-exclusion guarantees a plain
+rectangle gets), and new `appPersistence.test.ts` coverage (`generatedShapeId`
+threshold/cadence/rotation, `buildGeneratedLevelConfig`'s `voidCells` output
+below/at/past the threshold, and one full-pipeline test through
+`createGameState` confirming a real generated shaped board). All 399 tests
+pass (`npm test`). Verified live against the real running app — a save
+seeded directly to land on the first generator-driven shaped level (`levelIndex`
+12, generated level number 8) rendered a genuinely non-rectangular board with
+the real in-game level-12 HUD, not the hand-built Cutting Board level — see
+`docs/verification/generator-driven-board-shapes/`.

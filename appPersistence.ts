@@ -1,3 +1,4 @@
+import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId } from './engine/boardShapes';
 import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
 import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
@@ -594,12 +595,44 @@ export function eligibleBlockerIds(levelNumber: number, blockerIds: string[]): s
   return blockerIds.filter((id) => levelNumber >= (BLOCKER_MIN_LEVEL_NUMBER[id] ?? 1));
 }
 
+// Generator-driven board shapes: same gate shape as BLOCKER_MIN_LEVEL_NUMBER/
+// DENIAL_SPREAD_MIN_LEVEL_NUMBER above, a levelNumber threshold plus a
+// cadence, rather than a new gating mechanism. A shaped board reads as pure
+// visual variety rather than a punishing mechanic, but reduced playable area
+// still means fewer places for a match to land, so it stays out until a
+// player has met the full blocker roster (pot_lid, level 7) on ordinary
+// rectangles first. Once eligible, a shape appears only 1 in
+// SHAPE_CADENCE generated levels — "occasional", not the new normal — so it
+// keeps reading as a surprise rather than every board suddenly losing
+// corners. Below the threshold, or on an off-cadence level, a generated
+// level is a plain rectangle exactly as before this feature existed.
+const SHAPE_MIN_LEVEL_NUMBER = 8;
+const SHAPE_CADENCE = 4;
+
+// Which curated template (see engine/boardShapes.ts), if any, a generated
+// level at this levelNumber should use. undefined means "plain rectangle".
+// Cycles through BOARD_SHAPE_ROTATION by how many cadence steps have elapsed
+// since the threshold, the same deterministic-by-levelNumber rotation
+// eligibleBlockerIds/objective-target selection already use, so which shape
+// appears is reproducible and doesn't repeat the same one twice in a row.
+export function generatedShapeId(levelNumber: number): BoardShapeId | undefined {
+  if (levelNumber < SHAPE_MIN_LEVEL_NUMBER) return undefined;
+  const stepsSinceThreshold = levelNumber - SHAPE_MIN_LEVEL_NUMBER;
+  if (stepsSinceThreshold % SHAPE_CADENCE !== 0) return undefined;
+  const shapeIndex = Math.floor(stepsSinceThreshold / SHAPE_CADENCE) % BOARD_SHAPE_ROTATION.length;
+  return BOARD_SHAPE_ROTATION[shapeIndex];
+}
+
 // Builds a full generator-driven LevelConfig (minus `lives`, same as
 // LEVEL_QUEUE's own entries — App.tsx's buildLevelConfig adds that back)
-// for any levelIndex past the hand-built queue. Board dimensions stay fixed
-// at the hand-built queue's own values — CLAUDE.md's edge-to-edge tile
-// sizing is tuned against that grid, and board size was never asked for as
-// a difficulty axis here, only piece-type count and move limit.
+// for any levelIndex past the hand-built queue. Board dimensions (rows/cols)
+// stay fixed at the hand-built queue's own values — CLAUDE.md's edge-to-edge
+// tile sizing is tuned against that grid, and board size itself was never
+// asked for as a difficulty axis here, only piece-type count and move limit.
+// Board *shape* is a separate lever from size: past SHAPE_MIN_LEVEL_NUMBER, an
+// occasional level carves voidCells out of that same fixed rows/cols
+// rectangle via generatedShapeId/engine/boardShapes.ts, rather than resizing
+// the grid itself.
 //
 // `blockers` is the skin's full blocker pool (App.tsx passes
 // skinConfig.blockers directly — only `id`/`hitsToClear` are read here, so
@@ -662,6 +695,14 @@ export function buildGeneratedLevelConfig(
   const denialSpread =
     blockerCount > 0 && chosenBlocker && levelNumber >= DENIAL_SPREAD_MIN_LEVEL_NUMBER;
 
+  // Independent of every gate above — a shaped board and a blocker/
+  // denial-spread level can coexist freely, since placeBlockers/the spread
+  // logic already exclude void cells structurally (see engine/generator.ts
+  // and engine/gameState.ts's stepDenialZone, both void-aware from the
+  // hand-built showcase level onward).
+  const shapeId = generatedShapeId(levelNumber);
+  const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](rows, cols) : undefined;
+
   return {
     seed: generatedLevelSeed(levelIndex),
     rows,
@@ -673,5 +714,6 @@ export function buildGeneratedLevelConfig(
       ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
       : {}),
     ...(denialSpread ? { denialSpread: true } : {}),
+    ...(voidCells ? { voidCells } : {}),
   };
 }
