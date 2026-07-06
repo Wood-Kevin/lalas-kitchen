@@ -8,6 +8,7 @@ import {
   saveProgress,
   clearSave,
   createInMemoryStorage,
+  countFiredSpecials,
 } from './gameState';
 import { Board, Piece, Position, checkMatches, checkSquares, hasLegalMoves } from './matrix';
 
@@ -1056,6 +1057,141 @@ describe('applyMove — special piece chaining', () => {
     // consumed itself — proving the in-match sweep path chains too.
     expect(countMatchType(result.state.board, 'Q')).toBe(0);
     expect(countType(result.state.board, 'color_bomb')).toBe(0);
+  });
+});
+
+describe('applyMove — multiSpecialFired (chain_reaction tutorial trigger)', () => {
+  // The signal behind the fourth tutorial (appPersistence.ts's
+  // shouldShowChainReactionTutorial): whether 2+ already-special pieces fired
+  // their own effect TOGETHER within the same pass of this move — via chaining
+  // (expandChainClears catching another special) or a combo (two swapped
+  // specials, always both origins). Reuses the exact same wholly-distinct
+  // grid style as the chaining/combo blocks above, so nothing matches or
+  // squares by accident.
+  const uniqueBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`u${r}${c}`, `${r}-${c}`))
+    );
+  const uniqueSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 60 }, (_, i) => `z${i}`));
+  const stateWith = (board: Board, targetMatchType: string): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType, targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: uniqueSpawns(),
+  });
+
+  test('a color bomb detonation that chains into a caught striped piece sets multiSpecialFired', () => {
+    const board = uniqueBoard(5, 5);
+    // Same chain as "a color bomb's detonation catches a striped piece" above:
+    // the bomb detonates every 'A', which includes a column-striped piece —
+    // that striped is a genuinely SECOND special firing on this one move.
+    board[0][0] = { id: board[0][0].id, type: 'color_bomb' };
+    board[0][1] = piece('A', '0-1');
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'A', direction: 'col' };
+    board[4][4] = piece('A', '4-4');
+
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    expect(result.multiSpecialFired).toBe(true);
+  });
+
+  test('a striped+striped cross combo always sets multiSpecialFired, even with no chain beyond the two', () => {
+    const board = uniqueBoard(5, 5);
+    board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'A', direction: 'row' };
+    board[2][3] = { id: board[2][3].id, type: 'striped', matchType: 'B', direction: 'col' };
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
+
+    expect(result.multiSpecialFired).toBe(true);
+  });
+
+  test('a solo color bomb detonation with no other special anywhere on the board does not set multiSpecialFired', () => {
+    const board = uniqueBoard(5, 5);
+    board[0][0] = { id: board[0][0].id, type: 'color_bomb' };
+    board[0][1] = piece('A', '0-1');
+    board[4][4] = piece('A', '4-4');
+    // No striped/area_bomb/second color_bomb anywhere — only the one bomb fires.
+
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // A real, committed detonation (not a rejected move) — just one special.
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.multiSpecialFired).toBe(false);
+  });
+
+  test('a single striped piece firing via an ordinary in-match sweep, with nothing on its line, does not set multiSpecialFired', () => {
+    const board = uniqueBoard(5, 5);
+    // A column-striped 'A' at (0,0); swapping (0,2)<->(1,2) completes a row-0
+    // run of A's that includes it, firing its own column sweep — column 0
+    // holds nothing else special, so exactly one special fires this move.
+    board[0][0] = { id: board[0][0].id, type: 'striped', matchType: 'A', direction: 'col' };
+    board[0][1] = piece('A', '0-1');
+    board[1][2] = piece('A', '1-2');
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.multiSpecialFired).toBe(false);
+  });
+
+  test('a rejected (no-match) move never sets multiSpecialFired', () => {
+    const board = uniqueBoard(5, 5);
+    const state = stateWith(board, 'A');
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    expect(result.state).toBe(state);
+    expect(result.multiSpecialFired).toBe(false);
+  });
+
+  // The path flagged as reasoned-but-unproven in the special-piece-combo
+  // audit: two specials firing "together" doesn't require one to catch the
+  // other via a chain, or a direct swap-into-swap combo. Two wholly separate
+  // striped pieces, each completing its own ordinary in-match sweep in the
+  // SAME checkMatches pass, with no relationship between them, should still
+  // count as 2 — proving countFiredSpecials doesn't (and doesn't need to)
+  // distinguish "caught" from "merely simultaneous."
+  //
+  // Row 0's striped 'A' only completes a run once the player's swap lands a
+  // third 'A' at (0,2); row 3's striped 'B' run is already complete before
+  // the move — so both matches are found in the very same first
+  // checkMatches(swapped) call, not one triggering the other. Both directions
+  // are 'row', so each sweep stays inside its own row and never crosses the
+  // other's cell — no catch relationship is even geometrically possible here.
+  test('two independent striped pieces, each firing via its own unrelated run in the same pass, both count toward countFiredSpecials/multiSpecialFired', () => {
+    const board = uniqueBoard(6, 5);
+    board[0][0] = { id: board[0][0].id, type: 'striped', matchType: 'A', direction: 'row' };
+    board[0][1] = piece('A', '0-1');
+    board[1][2] = piece('A', '1-2');
+    board[3][0] = { id: board[3][0].id, type: 'striped', matchType: 'B', direction: 'row' };
+    board[3][1] = piece('B', '3-1');
+    board[3][2] = piece('B', '3-2');
+
+    const swapped = [board[0], board[1], board[2], board[3], board[4], board[5]].map((row) =>
+      row.slice()
+    );
+    const tmp = swapped[0][2];
+    swapped[0][2] = swapped[1][2];
+    swapped[1][2] = tmp;
+
+    const matches = checkMatches(swapped);
+    expect(matches).toHaveLength(2);
+
+    // The counting function itself, given exactly these two independent
+    // special positions, returns 2 — not a boolean threshold check.
+    expect(countFiredSpecials(swapped, [{ row: 0, col: 0 }, { row: 3, col: 0 }])).toBe(2);
+
+    // And the real pipeline (resolveMatchEffects -> expandChainClears ->
+    // countFiredSpecials, with no chain between the two) agrees: this move
+    // trips the same multi-special signal a genuine chain or combo does.
+    const result = applyMove(stateWith(board, 'A'), { row: 0, col: 2 }, { row: 1, col: 2 });
+    expect(result.multiSpecialFired).toBe(true);
   });
 });
 

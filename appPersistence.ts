@@ -281,9 +281,16 @@ const SPECIAL_TUTORIAL_IDS: string[] = [
 // sprite via getSpriteForPiece — a striped piece needs its base matchType to
 // pick striped_<sprite>, exactly as BlockerTutorialOverlay needs the real
 // blocker matchType. Undefined return means "no unseen special on the board".
+//
+// `piece` is `Piece | null` (not always a real Piece) because Board.tsx also
+// reuses this exact shape for the chain_reaction tutorial (see
+// shouldShowChainReactionTutorial below) — that tutorial celebrates a MOMENT
+// (multiple specials firing together in one move), not any single resting
+// piece, so there's no one piece to point the overlay's icon at. It's null
+// only for that case; findSpecialPieceTutorial below always returns a real one.
 export interface SpecialPieceTutorial {
   id: string;
-  piece: Piece;
+  piece: Piece | null;
 }
 
 // Which special-piece tutorial (if any) should show right now: the first
@@ -309,6 +316,30 @@ export function findSpecialPieceTutorial(
     }
   }
   return undefined;
+}
+
+// The fourth tutorial's id — the actual differentiator of this whole game:
+// the moment more than one special piece fires TOGETHER from a single move
+// (a chain reaction catching another special, or a striped+striped/
+// striped+bomb combo). Distinct from the three ids above in one load-bearing
+// way: those are engine `PieceType` strings matched against a piece sitting
+// on the board; this one has no piece to match against a board scan at all —
+// the specials that fired are, by definition, already cleared by the time the
+// move settles. So its trigger isn't a board scan like
+// findSpecialPieceTutorial above; it's a plain boolean gate over
+// engine/gameState.ts's ApplyMoveResult.multiSpecialFired, which already
+// reuses the exact same originKeys/expandChainClears chaining bookkeeping to
+// compute whether 2+ specials fired within one pass — no new detection here.
+export const CHAIN_REACTION_TUTORIAL_ID = 'chain_reaction';
+
+// Whether the chain_reaction tutorial should show for the move that just
+// resolved: it fired 2+ specials together (see ApplyMoveResult.
+// multiSpecialFired) and the player hasn't already dismissed it. Same shape
+// as shouldShowBlockerTutorial (a plain once-ever boolean gate), not a board
+// scan like findSpecialPieceTutorial — see CHAIN_REACTION_TUTORIAL_ID's
+// comment for why a board scan can't apply here.
+export function shouldShowChainReactionTutorial(multiSpecialFired: boolean, seenTutorials: string[]): boolean {
+  return multiSpecialFired && !seenTutorials.includes(CHAIN_REACTION_TUTORIAL_ID);
 }
 
 // The recipe card (if any) a given level number unlocks — a fixed lookup

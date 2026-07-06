@@ -139,6 +139,17 @@ export interface ApplyMoveResult {
   // unchanged, just expressed as a length-1 sequence. See DECISIONS.md's
   // cascade-steps entry.
   steps: Board[];
+  // True when this move's resolution had 2+ already-special pieces (striped,
+  // color bomb, area bomb) fire their own clear effect together WITHIN THE
+  // SAME pass — via a chain reaction catching another special
+  // (expandChainClears), or a combo (two swapped specials are each origins,
+  // always 2+) — never just two specials firing on unrelated/sequential
+  // cascade passes later in a long chain. A pure by-product of the SAME
+  // chaining bookkeeping (originKeys/expandChainClears) already computed for
+  // real gameplay (see countFiredSpecials/CascadeResolution), not a new
+  // detection mechanism. It's the exact differentiator the chain_reaction
+  // tutorial teaches — see appPersistence.ts's shouldShowChainReactionTutorial.
+  multiSpecialFired: boolean;
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -442,6 +453,41 @@ function expandChainClears(board: Board, seed: Position[], originKeys: Set<strin
   });
 }
 
+// How many of the given positions were already a special piece (striped,
+// color bomb, area bomb) on `board` — i.e. how many specials actually fired
+// their own effect into the clear set they're found in, whether as the
+// pass's own trigger (a swapped bomb, a swapped striped, an in-match striped
+// sweep) or a chain reaction it caught (expandChainClears's queue above).
+// This is the sole signal the chain_reaction tutorial's trigger reuses (see
+// ApplyMoveResult.multiSpecialFired and appPersistence.ts's
+// shouldShowChainReactionTutorial) — a pure count over a clear set every
+// caller already computed, not a new detection mechanism. Exported for
+// direct unit testing (gameState.test.ts) of the independent-simultaneous-
+// specials case, which no test drove through the full applyMove pipeline
+// before — see that test's comment.
+export function countFiredSpecials(board: Board, positions: Position[]): number {
+  let count = 0;
+  for (const p of positions) {
+    const type = board[p.row][p.col].type;
+    if (type === 'striped' || type === 'area_bomb' || type === 'color_bomb') count += 1;
+  }
+  return count;
+}
+
+// The shape every cascade-resolving helper below returns. `maxSpecialsFired`
+// is the largest number of already-special pieces that fired TOGETHER within
+// any single pass of this move (see countFiredSpecials) — tracked as a max
+// across cascade passes, not a sum, because the chain_reaction moment is
+// specials compounding in the SAME resolution step, not two unrelated
+// specials each firing alone on separate beats of a long cascade.
+interface CascadeResolution {
+  board: Board;
+  cascadeCount: number;
+  clearedByMatchType: Record<string, number>;
+  steps: Board[];
+  maxSpecialsFired: number;
+}
+
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
 // colorless — see matrix.ts's Piece comment); an area bomb is now also colorless
@@ -493,7 +539,11 @@ function resolveMatchEffects(
   board: Board,
   matches: Match[],
   squares: Square[]
-): { clearedPositions: Position[]; anchors: Array<{ pos: Position } & AnchorSpec> } {
+): {
+  clearedPositions: Position[];
+  anchors: Array<{ pos: Position } & AnchorSpec>;
+  specialsFired: number;
+} {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keyOf = (r: number, c: number): string => `${r},${c}`;
@@ -596,25 +646,31 @@ function resolveMatchEffects(
     clearedKeys.add(keyOf(p.row, p.col));
   }
 
+  const parseKey = (k: string): Position => {
+    const [r, c] = k.split(',').map(Number);
+    return { row: r, col: c };
+  };
+
+  // How many already-special pieces fired together in THIS pass (see
+  // countFiredSpecials) — read before the anchor-delete below, though it
+  // wouldn't matter either way: an anchor cell is always a plain 'normal'
+  // piece on the pre-pass `board` until this pass converts it, never itself
+  // an already-special piece.
+  const specialsFired = countFiredSpecials(board, [...clearedKeys].map(parseKey));
+
   // A cell chosen to become a special piece is never also gapped, even if an
   // overlapping match (or a chain sweep above) added it to the clear set — the
   // special piece wins.
   for (const k of anchorByKey.keys()) clearedKeys.delete(k);
 
-  const parseKey = (k: string): Position => {
-    const [r, c] = k.split(',').map(Number);
-    return { row: r, col: c };
-  };
   return {
     clearedPositions: [...clearedKeys].map(parseKey),
     anchors: [...anchorByKey.entries()].map(([k, spec]) => ({ pos: parseKey(k), ...spec })),
+    specialsFired,
   };
 }
 
-function resolveCascades(
-  board: Board,
-  spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResolution {
   let currentBoard = board;
   let cascadeCount = 0;
   const clearedByMatchType: Record<string, number> = {};
@@ -625,6 +681,8 @@ function resolveCascades(
   // entry equals the returned `board`. This is the exact per-pass state the
   // while loop already computes — exposing it, not recomputing anything.
   const steps: Board[] = [];
+  // See CascadeResolution's doc comment — a max across passes, not a sum.
+  let maxSpecialsFired = 0;
 
   while (true) {
     const matches = checkMatches(currentBoard);
@@ -636,7 +694,8 @@ function resolveCascades(
 
     cascadeCount += 1;
 
-    const { clearedPositions, anchors } = resolveMatchEffects(currentBoard, matches, squares);
+    const { clearedPositions, anchors, specialsFired } = resolveMatchEffects(currentBoard, matches, squares);
+    maxSpecialsFired = Math.max(maxSpecialsFired, specialsFired);
 
     // Blockers don't match directly — they take damage from whatever clears
     // next to them (see matrix.ts's applyAdjacentDamage and DECISIONS.md),
@@ -683,7 +742,7 @@ function resolveCascades(
     steps.push(currentBoard);
   }
 
-  return { board: currentBoard, cascadeCount, clearedByMatchType, steps };
+  return { board: currentBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired };
 }
 
 // Activates a color bomb swap — a genuinely different mechanism from a normal
@@ -711,7 +770,7 @@ function resolveColorBomb(
   bombPos: Position,
   otherPos: Position,
   spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const other = board[otherPos.row][otherPos.col];
@@ -765,7 +824,7 @@ function resolveAreaBomb(
   board: Board,
   bombPos: Position,
   spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const clearedPositions = areaBlastPositions(rows, cols, bombPos).filter((p) =>
@@ -794,7 +853,7 @@ function resolveClearSet(
   clearedPositions: Position[],
   spawnPiece: () => Piece,
   originKeys: Set<string>
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+): CascadeResolution {
   // Chain reaction first: fold in the clear set of every other special this
   // effect's cells catch (see expandChainClears). originKeys are the specials
   // THIS effect already fired (its bomb, its swapped stripeds, its converted
@@ -802,6 +861,12 @@ function resolveClearSet(
   // fully-expanded set, so a chained sweep/blast credits its own cells to
   // objectives exactly like a first-order clear does.
   const expanded = expandChainClears(board, clearedPositions, originKeys);
+
+  // How many already-special pieces fired together in this one detonation —
+  // a combo's own two swapped specials are always both origins here (so this
+  // is already 2+ for any combo), and any OTHER special the expansion caught
+  // is a genuine chain reaction on top of that.
+  const specialsFired = countFiredSpecials(board, expanded);
 
   const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, expanded);
 
@@ -830,6 +895,9 @@ function resolveClearSet(
     cascadeCount: 1 + chained.cascadeCount,
     clearedByMatchType,
     steps: [firstBoard, ...chained.steps],
+    // Max, not sum, with whatever the refill's own ordinary cascade found —
+    // see CascadeResolution's doc comment on why this is a per-pass max.
+    maxSpecialsFired: Math.max(specialsFired, chained.maxSpecialsFired),
   };
 }
 
@@ -849,7 +917,7 @@ function resolveStripedCross(
   posA: Position,
   posB: Position,
   spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keys = new Set<string>();
@@ -880,7 +948,7 @@ function resolveStripedBombCombo(
   stripedPos: Position,
   bombPos: Position,
   spawnPiece: () => Piece
-): { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] } {
+): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const targetMatchType = board[stripedPos.row][stripedPos.col].matchType;
@@ -1017,9 +1085,14 @@ function stepDenialZone(
 // Fires when a single move triggers this many chained cascades or more.
 const COMBO_STREAK_THRESHOLD = 4;
 
+// A move's resolution counts as the chain_reaction "multiple specials fired
+// together" moment once this many already-special pieces contributed their
+// own effect within the SAME pass (see CascadeResolution.maxSpecialsFired).
+const MULTI_SPECIAL_THRESHOLD = 2;
+
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [], steps: [] };
+    return { state, events: [], steps: [], multiSpecialFired: false };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -1031,7 +1104,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [], steps: [] };
+    return { state, events: [], steps: [], multiSpecialFired: false };
   }
 
   // Void cells are holes in the board's shape, never pieces — a swap into or
@@ -1041,7 +1114,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
   // too, so a board is never wrongly judged stuck because of one.
   if (pieceA.type === 'void' || pieceB.type === 'void') {
-    return { state, events: [], steps: [] };
+    return { state, events: [], steps: [], multiSpecialFired: false };
   }
 
   // Special-piece swaps activate on the swap itself, NOT by forming a match, so
@@ -1076,14 +1149,14 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const bStriped = pieceB.type === 'striped';
   const aBomb = pieceA.type === 'color_bomb';
   const bBomb = pieceB.type === 'color_bomb';
-  let resolved: { board: Board; cascadeCount: number; clearedByMatchType: Record<string, number>; steps: Board[] };
+  let resolved: CascadeResolution;
   if (aArea || bArea) {
     const partner = aArea ? pieceB : pieceA;
     if (partner.type === 'area_bomb' || partner.type === 'striped' || partner.type === 'color_bomb') {
       // area + special is a deferred combo (area+color_bomb, area+striped,
       // area+area) — snap back exactly like a no-match swap: no move spent, no
       // state change. See DEFERRED_COMPLEXITY.md.
-      return { state, events: [], steps: [] };
+      return { state, events: [], steps: [], multiSpecialFired: false };
     }
     // area + ordinary: fire the 3x3 blast centered on the bomb, regardless of
     // what it was swapped with or whether a run would have formed.
@@ -1109,12 +1182,12 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // square-forming move would be wrongly snapped back as a no-match swap.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
-      return { state, events: [], steps: [] };
+      return { state, events: [], steps: [], multiSpecialFired: false };
     }
     resolved = resolveCascades(swapped, state.spawnPiece);
   }
 
-  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps } = resolved;
+  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired } = resolved;
 
   // Dynamic denial-zone spread (gated levels only — state.denialSpread is
   // undefined everywhere else, so blockers stay static). Runs on the settled
@@ -1210,7 +1283,12 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const finalSteps = steps.slice();
   finalSteps[finalSteps.length - 1] = resolvedBoard;
 
-  return { state: newState, events, steps: finalSteps };
+  return {
+    state: newState,
+    events,
+    steps: finalSteps,
+    multiSpecialFired: maxSpecialsFired >= MULTI_SPECIAL_THRESHOLD,
+  };
 }
 
 // The engine doesn't know or care what triggers this (rewarded ad, IAP,

@@ -16,6 +16,8 @@ import {
   BLOCKER_TUTORIAL_ID,
   findSpecialPieceTutorial,
   SpecialPieceTutorial,
+  shouldShowChainReactionTutorial,
+  CHAIN_REACTION_TUTORIAL_ID,
 } from '../appPersistence';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
@@ -355,7 +357,14 @@ export function Board({
     // acknowledgment lands on the completed streak, not its first pass.
     const hasCombo = result.events.some((event) => event.type === 'combo_streak');
 
-    animateCascade(gameState.board, result.state, result.steps, tappedIds, hasCombo);
+    animateCascade(
+      gameState.board,
+      result.state,
+      result.steps,
+      tappedIds,
+      hasCombo,
+      result.multiSpecialFired
+    );
   }
 
   function handleTilePress(pos: Position) {
@@ -428,7 +437,8 @@ export function Board({
     finalState: GameState,
     steps: BoardMatrix[],
     tappedIds: Set<string>,
-    hasCombo: boolean
+    hasCombo: boolean,
+    multiSpecialFired: boolean
   ) {
     animatingRef.current = true;
     // Re-gate the terminal overlay for this move: even if a prior move left it
@@ -493,6 +503,30 @@ export function Board({
         // chain.
         if (hasCombo) setComboKey(`combo-${moveId}`);
         setGameState(finalState);
+        // The chain_reaction tutorial's trigger (unlike the three per-piece
+        // ones) isn't a board scan — the specials that fired are already
+        // cleared by the time the chain settles, so there's no piece left on
+        // the board to find. It's a plain boolean carried straight from this
+        // move's applyMove result (see gameState.ts's ApplyMoveResult.
+        // multiSpecialFired), checked here, on the same settled chain the
+        // combo ack above fires on. Skipped once the level has ended, same as
+        // the per-piece post-move effect below, so it never pops over the
+        // Won/Paused overlay. Setting specialTutorial HERE, synchronously
+        // alongside setGameState, gives this natural priority over that
+        // effect's own board-scan candidate: React batches both updates from
+        // this same tick, so by the time the effect runs (after render) it
+        // sees specialTutorial already set and defers to next move — the
+        // existing "two tutorials never stack" guarantee, with no new
+        // priority logic needed.
+        if (
+          finalState.status === 'in_progress' &&
+          shouldShowChainReactionTutorial(multiSpecialFired, [
+            ...seenTutorials,
+            ...dismissedSpecialTutorialsRef.current,
+          ])
+        ) {
+          setSpecialTutorial({ id: CHAIN_REACTION_TUTORIAL_ID, piece: null });
+        }
         setDisplayBoard(null);
         animatingRef.current = false;
         // A won/paused move commits its terminal status right here, but this

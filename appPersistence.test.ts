@@ -29,6 +29,8 @@ import {
   resolveStartLevelIndex,
   resolveStartScreen,
   shouldShowBlockerTutorial,
+  shouldShowChainReactionTutorial,
+  CHAIN_REACTION_TUTORIAL_ID,
   shouldSpendLifeOnLoss,
   startingLives,
   unlockRecipeCard,
@@ -810,6 +812,32 @@ describe('findSpecialPieceTutorial', () => {
     ]);
     const allSeen = [STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
     expect(findSpecialPieceTutorial(board, allSeen)).toBeUndefined();
+  });
+});
+
+describe('shouldShowChainReactionTutorial', () => {
+  // Unlike findSpecialPieceTutorial above, this isn't a board scan — the
+  // specials that fired a chain reaction are already cleared by the time a
+  // move settles, so there's no piece on the board to find. It's a plain
+  // once-ever gate over the move's own applyMove-computed
+  // ApplyMoveResult.multiSpecialFired (see engine/gameState.test.ts's
+  // "multiSpecialFired" describe block for real board coverage of THAT
+  // signal); this block only covers the gate function itself.
+  test('the move fired 2+ specials together and the player has not seen it — shows', () => {
+    expect(shouldShowChainReactionTutorial(true, [])).toBe(true);
+  });
+
+  test('the move fired 2+ specials together but the player already dismissed it — does not show again', () => {
+    expect(shouldShowChainReactionTutorial(true, [CHAIN_REACTION_TUTORIAL_ID])).toBe(false);
+  });
+
+  test('the move only fired a single special (or none) — never shows, even if unseen', () => {
+    expect(shouldShowChainReactionTutorial(false, [])).toBe(false);
+  });
+
+  test('dismissing the other three tutorials does not suppress this one — distinct id', () => {
+    const seen = [STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
+    expect(shouldShowChainReactionTutorial(true, seen)).toBe(true);
   });
 });
 

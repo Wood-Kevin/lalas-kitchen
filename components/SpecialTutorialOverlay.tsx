@@ -4,15 +4,21 @@ import { Piece } from '../engine/matrix';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
+import { spriteLabel } from './spriteLabel';
 
 // The calm one-line explanation shown the first time each special piece comes
 // to rest on the board, keyed by the same id findSpecialPieceTutorial returns
-// (identical to the engine PieceType). Copy lives here, beside the only thing
+// (identical to the engine PieceType) — plus one more, `chain_reaction`
+// (appPersistence.ts's CHAIN_REACTION_TUTORIAL_ID), keyed the same way even
+// though it isn't a PieceType: it's the fourth tutorial, for the moment more
+// than one special fires together. Copy lives here, beside the only thing
 // that renders it, rather than in appPersistence.ts — the persistence layer
 // owns WHICH tutorial and WHETHER it's been seen; the wording is presentation.
 // That's the same split BlockerTutorialOverlay makes by hardcoding its own
 // headline/subtext. Tone matches "A Covered Dish": warm, plain, one action,
-// no urgency (see CLAUDE.md's calm-not-frantic brief).
+// no urgency (see CLAUDE.md's calm-not-frantic brief) — chain_reaction's copy
+// leans into noticing the moment rather than re-explaining any one piece's
+// mechanic, since the player has already seen each piece's own card by then.
 export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtext: string }> = {
   striped: {
     headline: 'A Striped Treat',
@@ -25,6 +31,10 @@ export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtex
   area_bomb: {
     headline: 'An Area Blast',
     subtext: 'Swap the area blast to clear everything in the squares around it.',
+  },
+  chain_reaction: {
+    headline: 'Everything at Once',
+    subtext: 'Sometimes one move sets off more than one special together — the more you make, the more they find each other.',
   },
 };
 
@@ -53,7 +63,14 @@ export interface SpecialTutorialOverlayProps {
   // an un-arted piece shows — e.g. "AR" for an area bomb with no bundled art),
   // never a hardcoded reference. A striped piece's icon therefore reflects the
   // base ingredient it was forged from.
-  piece: Piece;
+  //
+  // Null for the chain_reaction tutorial: that card celebrates a MOMENT (more
+  // than one special firing together), not any single piece — by the time the
+  // move settles, the specials that fired are already cleared, so there's no
+  // resting piece to point getSpriteForPiece at. Falls back to the same
+  // text-label placeholder convention every un-arted piece already uses (see
+  // the icon fallback below), never a hardcoded sprite reference.
+  piece: Piece | null;
   onDismiss: () => void;
 }
 
@@ -67,7 +84,13 @@ export interface SpecialTutorialOverlayProps {
 // A single dismiss action, not a primary/secondary pair — an explanation, not a
 // decision.
 export function SpecialTutorialOverlay({ config, spriteAssets, tutorialId, piece, onDismiss }: SpecialTutorialOverlayProps) {
-  const sprite = resolveSpriteAsset(getSpriteForPiece(piece, config), spriteAssets);
+  // No single piece to derive an icon from for chain_reaction (see the `piece`
+  // prop's doc comment) — falls back to the same short-code placeholder every
+  // un-arted sprite already uses (spriteLabel), rather than resolving through
+  // getSpriteForPiece against a piece that doesn't exist.
+  const sprite: ResolvedSprite = piece
+    ? resolveSpriteAsset(getSpriteForPiece(piece, config), spriteAssets)
+    : { kind: 'label', label: spriteLabel(tutorialId) };
   const content = SPECIAL_TUTORIAL_CONTENT[tutorialId];
   const { accent, mutedText, text, panel, border } = config.palette;
 
