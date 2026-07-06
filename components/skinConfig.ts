@@ -42,8 +42,8 @@ export interface SkinPalette {
   background: string[];
   panel: string;
   accent: string;
-  // Added for the Home/All Levels screens (components/Home.tsx,
-  // components/AllLevels.tsx) — the HUD/Board/overlays only ever needed
+  // Added for the Home/level map screens (components/Home.tsx,
+  // components/LevelMap.tsx) — the HUD/Board/overlays only ever needed
   // accent-vs-default-text, but the dashboard design calls for a richer
   // three-tier text/border scheme (sage green, warm brown, muted tan) on
   // top of that, so these are real palette data rather than hardcoded in

@@ -2951,3 +2951,134 @@ running app: waited genuine idle wall-clock time past the 8-second
 threshold with zero input, confirmed the hint appears on a real legal pair
 with a slow, gentle breathing glow (no dim, no crack, no flash) — see
 `docs/verification/stuck-player-hint/`.
+
+# Level map: a winding path replacing the All Levels list, plus persisted best-ever star ratings
+
+`components/AllLevels.tsx` — a plain scrollable list of level rows — is
+replaced by `components/LevelMap.tsx`: a winding path connecting level
+medallions, matching the approved design mockup from an earlier session
+(genre-standard "map" convention, but deliberately calmer/less busy than a
+themed-park map, per this game's own Design Constraints). This is a visual
+and interaction replacement, not a new data source — every row still comes
+from the same `completedLevels`/`buildLevelConfig`/`resolveNextUnplayedLevel`
+data the old screen already read.
+
+## Star ratings weren't persisted anywhere before this session
+
+Investigation confirmed `computeStarRating` (`components/wonActions.ts`) was
+only ever called from `WonOverlay.tsx`, computed fresh at the moment of a
+win from that attempt's `movesRemaining`/`movesLimit` — nothing wrote it to
+`SaveData`. The map needs a real, remembered rating per completed level, so
+`engine/gameState.ts`'s `SaveData` gained `levelStars?: Record<number, 1 | 2
+| 3>` (the literal type is duplicated, not imported from
+`components/wonActions.ts`'s `StarRating` — engine/ never imports from
+components/, per CLAUDE.md's Leak Test). `appPersistence.ts`'s
+`recordLevelStars` writes it: **best-ever, not most recent** — a replay that
+scores lower never overwrites an already-earned higher rating (confirmed
+with the architect rather than guessed, since either direction had real
+consequences: best-ever matches genre convention and this game's calm,
+non-punishing design; most-recent would let a casual replay visibly regress
+an already-earned result). `App.tsx`'s win handler
+(`handleBoardStateChange`) computes the star rating the same way
+`WonOverlay` does — `buildLevelConfig(levelIndexRef.current,
+livesRef.current).movesLimit` paired with the settled state's
+`movesRemaining` — and calls `recordLevelStars`, threaded into
+`buildSaveData` as a new required positional param (not optional-defaulting
+to `{}`, which would have silently erased the map on every save from any
+call site that forgot to pass it — the same reasoning `livesLastRegenAt`'s
+own comment already documents for why every persisted field's real call
+site must pass its current value explicitly).
+
+**A completed level with no persisted rating** (any win recorded before this
+feature existed) renders as unrated — every star slot empty — rather than a
+fabricated 3. There's no honest way to reconstruct how many moves a past
+attempt had left over, and this game's honest-numbers principle already
+shows up elsewhere (the recipe book's plain count, objective chips' real
+uncapped totals) — a guessed rating would be the first place this project
+fabricated a number.
+
+## The old `resolveVisibleLevelIndices` rule would have hidden the current level
+
+`resolveVisibleLevelIndices` (hand-built levels + only *completed* generated
+levels past them) was correct for the old list, where every non-completed
+row was an inert dead end — showing an unplayed generated level would have
+been a locked row nobody could reach except by finishing everything before
+it. The map breaks that assumption: the real next-unplayed level is always
+genuinely reachable (it's exactly what Home's "Start cooking" already
+targets), and the design calls for a few visibly locked nodes ahead so the
+path has somewhere to lead. A save that had cleared every hand-built level
+would have shown a map with no current node at all under the old rule —
+caught before shipping, not after, by checking whether the existing
+helper's own assumption still held now that a second feature (the map)
+depends on it, per this project's own Playtest Feedback Protocol ("check
+whether an old feature's shortcut still holds"). `resolveLevelMapIndices`
+(`components/levelProgress.ts`) is the wider set: `resolveVisibleLevelIndices`'s
+own historical coverage, unioned with the real next-unplayed level and
+`MAP_LOCKED_LOOKAHEAD` (4) levels past it — a fixed preview depth, not a
+difficulty lever. `resolveLevelStatus` gained a third state, `'current'`
+(alongside `'completed'`/`'locked'`), taking a `nextLevelIndex` param it
+didn't need before.
+
+## No react-native-svg dependency — the path is straight rotated-View segments
+
+No SVG library is installed in this project (confirmed via `package.json`
+and `node_modules`), and `GinghamTrim.tsx` already established the house
+convention of reproducing a mockup effect with plain Views rather than
+reaching for a new rendering dependency for one visual pass (its own
+comment: "reproduced with plain Views since no gradient dependency was
+added" — the checkerboard trim, in place of the mockup's CSS
+repeating-gradient). `components/levelMapLayout.ts` is a pure geometry
+module (same "push anything testable out of the component" pattern as
+`cascadeTiming.ts`/`dragDirection.ts`): node positions are a deterministic
+left/center/right/center snake cycle (`X_PATTERN`), and
+`computeLevelMapPathSegments` turns consecutive node centers into straight
+segments (start point, length, angle) that `LevelMap.tsx` renders as
+absolutely-positioned, rotated (`transformOrigin: 'left center'`, real RN
+0.81 support) thin Views. This still reads as a winding path — it zigzags
+left/right/center down the screen — it just doesn't curve within a single
+segment the way the approved SVG mockup did. Segments before the current
+level render in the accent/sage "walked" color; segments at or past it
+render dimmed, matching the design's "locked levels ahead are visible but
+dimmed" instruction applied to the path itself, not just the nodes.
+
+## Single theme, no dark-mode system
+
+Confirmed no theme or dark/light-mode system exists anywhere in this app
+(no `theme`/`colorScheme` reference anywhere in the codebase before this
+session). Per architect confirmation, the map is built in the single light
+theme every other screen already uses; the dark variant explored in the
+earlier design-approval session is a reference for a genuinely separate
+future session, not a byproduct of this screen replacement — building a
+real app-wide theme toggle was explicitly out of scope for this task.
+
+## Deliberately not built this session (see `DEFERRED_COMPLEXITY.md`)
+
+The approved mockup's ambient garden decor (a trellis arch, potted herbs, a
+window with a steam-wisp motif) is omitted — those were illustrative
+flourishes in an HTML/CSS mockup; translating hand-drawn SVG art into
+RN-View approximations is substantial bespoke illustration work the actual
+ask (path + node states + scroll-to-current) didn't call for, and adding it
+unasked would have been scope creep on a task already explicit about what
+"matching the approved design" meant (path and node states, not incidental
+scenery). Also deferred: an ingredient icon or the level's display name on
+each node — the approved mockup shows only the level number plus its status
+decoration, deliberately calmer than the old row layout's icon+name+badge
+treatment, so this isn't a gap, it's the design as approved.
+
+Verified with new/updated tests: `components/levelMapLayout.test.ts` (node
+position determinism and bounds, content height, straight-segment geometry
+including a real 3-4-5 Pythagorean case, scroll-offset centering and its
+zero-clamp), `components/levelProgress.test.ts`'s updated
+`resolveLevelStatus` (three states, including the real next-unplayed level
+reporting `'current'`) and new `resolveLevelMapIndices` describe block
+(current level included even when not completed; real completed history
+preserved; no duplicate indices), and `appPersistence.test.ts`'s new
+`recordLevelStars` describe block (first-ever rating, a better replay
+overwrites, a worse replay never does, same-reference return on a no-op
+update, other levels' ratings untouched) plus updated `buildSaveData`
+call sites for the new `levelStars` param. 437 tests pass (`npm test`).
+Verified live against the real running app: a save with several genuinely
+completed levels (real persisted best-ever stars, not seeded data), the
+real next-unplayed level glowing with its PLAY button, and real locked
+levels ahead dimmed with a padlock — see
+`docs/verification/level-map/`.

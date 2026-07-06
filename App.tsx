@@ -7,7 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Board } from './components/Board';
 import { Home } from './components/Home';
-import { AllLevels, AllLevelsRow } from './components/AllLevels';
+import { LevelMap, LevelMapRow } from './components/LevelMap';
 import { OutOfLives } from './components/OutOfLives';
 import { RecipeCard, SkinConfig } from './components/skinConfig';
 import { RecipeBook } from './components/RecipeBook';
@@ -33,6 +33,7 @@ import {
   livesAfterLoss,
   markLevelCompleted,
   markTutorialSeen,
+  recordLevelStars,
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
@@ -42,13 +43,14 @@ import {
 } from './appPersistence';
 import {
   buildLevelSummary,
+  resolveLevelMapIndices,
   resolveLevelStatus,
   resolveNextUnplayedLevel,
-  resolveVisibleLevelIndices,
 } from './components/levelProgress';
 import skinConfigJson from './skins/lalas-kitchen/config.json';
 import { spriteRegistry } from './skins/lalas-kitchen/spriteRegistry';
 import { adService } from './services/defaultAdService';
+import { computeStarRating, StarRating } from './components/wonActions';
 
 const skinConfig = skinConfigJson as SkinConfig;
 
@@ -146,6 +148,12 @@ export default function App() {
   const [levelIndex, setLevelIndex] = useState(1);
   const [levelConfig, setLevelConfig] = useState<LevelConfig | null>(null);
   const [completedLevels, setCompletedLevels] = useState<number[]>([]);
+  // Best-ever star rating per completed level (1-based level number -> 1-3)
+  // — see engine/gameState.ts's SaveData.levelStars comment and
+  // appPersistence.ts's recordLevelStars. Feeds the level map's per-node
+  // star row; WonOverlay's own in-the-moment star display is unaffected,
+  // it already derives fresh from that attempt's movesRemaining/movesLimit.
+  const [levelStars, setLevelStars] = useState<Record<number, StarRating>>({});
   // IDs of one-time tutorial popups already dismissed (e.g. 'blocker') —
   // see engine/gameState.ts's SaveData.seenTutorials comment on why this
   // is a plain string list rather than a bespoke boolean per tutorial.
@@ -179,6 +187,7 @@ export default function App() {
   // current when that listener closure was created.
   const levelIndexRef = useRef(levelIndex);
   const completedLevelsRef = useRef(completedLevels);
+  const levelStarsRef = useRef(levelStars);
   const seenTutorialsRef = useRef(seenTutorials);
   const unlockedRecipeCardsRef = useRef(unlockedRecipeCards);
   const soundEnabledRef = useRef(soundEnabled);
@@ -209,6 +218,7 @@ export default function App() {
   const applyLoadedSave = useCallback((save: SaveData | null) => {
     const startLevelIndex = resolveStartLevelIndex(save);
     const initialCompleted = save?.completedLevels ?? [];
+    const initialLevelStars = save?.levelStars ?? {};
     const initialSeenTutorials = save?.seenTutorials ?? [];
     // Reconcile the persisted card list against completed-level history on
     // every load: progress made before the recipe card system existed left
@@ -242,6 +252,7 @@ export default function App() {
 
     levelIndexRef.current = startLevelIndex;
     completedLevelsRef.current = initialCompleted;
+    levelStarsRef.current = initialLevelStars;
     seenTutorialsRef.current = initialSeenTutorials;
     unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
     soundEnabledRef.current = initialSoundEnabled;
@@ -251,6 +262,7 @@ export default function App() {
     setLives(regenerated.lives);
     setLevelIndex(startLevelIndex);
     setCompletedLevels(initialCompleted);
+    setLevelStars(initialLevelStars);
     setSeenTutorials(initialSeenTutorials);
     setUnlockedRecipeCards(initialUnlockedRecipeCards);
     setSoundEnabled(initialSoundEnabled);
@@ -321,6 +333,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        levelStarsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
         soundEnabledRef.current,
@@ -349,6 +362,20 @@ export default function App() {
           const updated = markLevelCompleted(completedLevelsRef.current, levelIndexRef.current);
           completedLevelsRef.current = updated;
           setCompletedLevels(updated);
+
+          // Same star formula WonOverlay derives for its own in-the-moment
+          // display (see wonActions.ts's computeStarRating) — movesLimit
+          // isn't on GameState itself (see LevelConfig.movesLimit's own
+          // comment), so it's re-derived here from the same buildLevelConfig
+          // every other level-progress computation on this screen already
+          // calls; `lives` only affects the returned config's own `.lives`
+          // field, never movesLimit, so livesRef.current's exact value here
+          // is inconsequential.
+          const movesLimit = buildLevelConfig(levelIndexRef.current, livesRef.current).movesLimit;
+          const stars = computeStarRating(state.movesRemaining, movesLimit);
+          const updatedStars = recordLevelStars(levelStarsRef.current, levelIndexRef.current, stars);
+          levelStarsRef.current = updatedStars;
+          setLevelStars(updatedStars);
 
           // Recomputed fresh on every won transition (not just the first
           // time) so a replay of an already-unlocked milestone level, or a
@@ -516,6 +543,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        levelStarsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
         soundEnabledRef.current,
@@ -543,6 +571,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        levelStarsRef.current,
         updated,
         unlockedRecipeCardsRef.current,
         soundEnabledRef.current,
@@ -566,6 +595,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        levelStarsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
         next,
@@ -585,6 +615,7 @@ export default function App() {
         skinConfig.skinId,
         levelIndexRef.current,
         completedLevelsRef.current,
+        levelStarsRef.current,
         seenTutorialsRef.current,
         unlockedRecipeCardsRef.current,
         soundEnabledRef.current,
@@ -624,10 +655,16 @@ export default function App() {
   // mockup's illustrative "11 of 24"/"Wooden Spoon" placeholder values.
   const nextLevelIndex = resolveNextUnplayedLevel(completedLevels);
   const nextLevelSummary = buildLevelSummary(buildLevelConfig(nextLevelIndex, lives), nextLevelIndex);
-  const allLevelsRows: AllLevelsRow[] = resolveVisibleLevelIndices(LEVEL_QUEUE.length, completedLevels).map(
+  // resolveLevelMapIndices (not the old resolveVisibleLevelIndices) is what
+  // guarantees the current level — and a few genuinely reachable locked
+  // levels past it — always appear on the map, even when nextLevelIndex is
+  // an unplayed generated level past the hand-built queue (see that
+  // function's own comment on why the old rule would have hidden it).
+  const levelMapRows: LevelMapRow[] = resolveLevelMapIndices(LEVEL_QUEUE.length, completedLevels, nextLevelIndex).map(
     (index) => ({
       ...buildLevelSummary(buildLevelConfig(index, lives), index),
-      status: resolveLevelStatus(index, completedLevels),
+      status: resolveLevelStatus(index, completedLevels, nextLevelIndex),
+      stars: levelStars[index],
     })
   );
 
@@ -664,10 +701,9 @@ export default function App() {
             onBack={handleGoHome}
           />
         ) : screen === 'levels' ? (
-          <AllLevels
+          <LevelMap
             config={skinConfig}
-            spriteAssets={spriteRegistry}
-            levels={allLevelsRows}
+            levels={levelMapRows}
             completedCount={completedLevels.length}
             onBack={handleGoHome}
             onPlayLevel={handlePlayLevel}

@@ -1468,6 +1468,21 @@ export interface SaveData {
   // richer "unlocked at timestamp X" record, since nothing reads anything
   // beyond membership (see appPersistence.ts's unlockRecipeCard).
   unlockedRecipeCards?: string[];
+  // Best-ever star rating (1-3) earned per level, keyed by 1-based level
+  // number — feeds the level map's per-node star row. `1 | 2 | 3` mirrors
+  // components/wonActions.ts's StarRating literal-for-literal rather than
+  // importing it: engine/ never imports from components/ (CLAUDE.md's Leak
+  // Test — this file must stay ignorant of any presentation-layer type).
+  // "Best-ever", not "most recent attempt": a replay that scores lower never
+  // overwrites an already-earned higher rating (see appPersistence.ts's
+  // recordLevelStars) — a worse replay shouldn't erase a genuinely earned
+  // result, matching this game's calm, non-punishing design. Optional for
+  // the same pre-existing-save-file reason as completedLevels/seenTutorials
+  // above; readers fall back to {} themselves. A completed level absent from
+  // this map (any save written before this field existed) has no honestly
+  // knowable past rating, so it renders as unrated rather than a fabricated
+  // guess — see components/LevelMap.tsx.
+  levelStars?: Record<number, 1 | 2 | 3>;
   // Whether in-game sound effects (match/cascade/win) should play. Optional
   // for the same pre-existing-save-file reason as completedLevels/
   // seenTutorials/unlockedRecipeCards above — a save written before this

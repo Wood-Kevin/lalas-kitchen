@@ -2,6 +2,7 @@ import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId } from './eng
 import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
 import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
+import { StarRating } from './components/wonActions';
 
 // Pure decision logic behind App.tsx's save/load wiring, split out the same
 // way pauseActions.ts sits beside PausedOverlay.tsx — so the actual rules
@@ -56,6 +57,7 @@ export function buildSaveData(
   skinId: string,
   currentLevel: number,
   completedLevels: number[],
+  levelStars: Record<number, StarRating>,
   seenTutorials: string[],
   unlockedRecipeCards: string[],
   soundEnabled: boolean,
@@ -72,6 +74,7 @@ export function buildSaveData(
     itemsCollected: {},
     powerUpCounts: {},
     completedLevels,
+    levelStars,
     seenTutorials,
     unlockedRecipeCards,
     soundEnabled,
@@ -217,6 +220,24 @@ export function markLevelCompleted(completedLevels: number[], levelIndex: number
   return completedLevels.includes(levelIndex)
     ? completedLevels
     : [...completedLevels, levelIndex].sort((a, b) => a - b);
+}
+
+// Records a level's best-ever star rating (see engine/gameState.ts's
+// SaveData.levelStars) — a worse replay never overwrites an already-earned
+// higher rating, so the level map always shows the best the player has
+// genuinely achieved, not just whatever the last attempt happened to score.
+// Same idempotent-update shape as markLevelCompleted/markTutorialSeen above:
+// returns the input unchanged by reference when this attempt doesn't beat
+// the existing record, so App.tsx's win handler never re-renders or
+// re-saves for a no-op update.
+export function recordLevelStars(
+  levelStars: Record<number, StarRating>,
+  levelIndex: number,
+  stars: StarRating
+): Record<number, StarRating> {
+  const existing = levelStars[levelIndex];
+  if (existing !== undefined && existing >= stars) return levelStars;
+  return { ...levelStars, [levelIndex]: stars };
 }
 
 // The one-time onboarding tutorial's id in `SaveData.seenTutorials` — the

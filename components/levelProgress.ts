@@ -4,7 +4,7 @@ import { LevelConfig } from '../engine/gameState';
 // out the same way wonActions.ts/pauseActions.ts sit beside their overlays,
 // so "what's next", "is this level locked", and "what does this level get
 // called" are each testable directly instead of only through a mounted
-// Home.tsx/AllLevels.tsx tree, which this project has no test harness for.
+// Home.tsx/LevelMap.tsx tree, which this project has no test harness for.
 
 // The smallest level number not yet in completedLevels. Assumes normal play
 // completes levels roughly in order (the only way to reach one today), but
@@ -19,14 +19,25 @@ export function resolveNextUnplayedLevel(completedLevels: number[]): number {
   return candidate;
 }
 
-export type LevelStatus = 'completed' | 'locked';
+export type LevelStatus = 'completed' | 'current' | 'locked';
 
-// All Levels' two-state model per the design: a level is either completed
-// (checkmark, tappable to replay) or locked (dimmed, not tappable) — there's
-// no third "in progress" state since this project has no partial-completion
-// concept, only won-at-least-once or not.
-export function resolveLevelStatus(levelIndex: number, completedLevels: number[]): LevelStatus {
-  return completedLevels.includes(levelIndex) ? 'completed' : 'locked';
+// The level map's three-state model (see components/LevelMap.tsx): a level
+// is completed (checkmark + stars, tappable to replay), current — the one
+// real next-unplayed level, exactly resolveNextUnplayedLevel's own answer —
+// glowing and tappable via its PLAY button, or locked — every other
+// not-yet-reached level, dimmed and inert. This replaced the old All Levels
+// screen's two-state model (completed/locked only, with the next-unplayed
+// level itself rendered as an inert locked row — there was never a way to
+// start a fresh level from that screen, only Home's "Start cooking" could).
+// Still no fourth "in progress" state: this project has no partial-
+// completion concept, only won-at-least-once or not.
+export function resolveLevelStatus(
+  levelIndex: number,
+  completedLevels: number[],
+  nextLevelIndex: number
+): LevelStatus {
+  if (completedLevels.includes(levelIndex)) return 'completed';
+  return levelIndex === nextLevelIndex ? 'current' : 'locked';
 }
 
 // Falls back to a plain "Level N" label for any level with no displayName
@@ -48,6 +59,34 @@ export function resolveVisibleLevelIndices(handBuiltLevelCount: number, complete
   return [...handBuilt, ...completedGenerated];
 }
 
+// How many locked nodes the level map shows past the current level, so the
+// winding path always has somewhere to visibly climb toward — a fixed
+// implementation constant (matching the approved map design's own preview
+// depth), not a difficulty or content lever.
+const MAP_LOCKED_LOOKAHEAD = 4;
+
+// resolveVisibleLevelIndices' own rule (never show an unplayed generated
+// level) was correct for the old All Levels list, which had no concept of
+// "current" at all — every non-completed row was an inert dead end, so
+// showing an unplayed generated level would have been a locked row nobody
+// could ever reach except by finishing every level before it for real. The
+// level map breaks that assumption: nextLevelIndex is always genuinely
+// reachable (it's exactly what Home's "Start cooking" already targets), and
+// past it the design calls for a few visibly locked nodes so the path has
+// somewhere to lead. So this is a distinct, wider index set for the map —
+// resolveVisibleLevelIndices' hand-built + completed-generated coverage
+// (real history, however far back it goes), unioned with nextLevelIndex and
+// MAP_LOCKED_LOOKAHEAD levels past it (a real, always-reachable preview).
+export function resolveLevelMapIndices(
+  handBuiltLevelCount: number,
+  completedLevels: number[],
+  nextLevelIndex: number
+): number[] {
+  const historical = resolveVisibleLevelIndices(handBuiltLevelCount, completedLevels);
+  const ahead = Array.from({ length: MAP_LOCKED_LOOKAHEAD }, (_, i) => nextLevelIndex + i);
+  return Array.from(new Set([...historical, ...ahead])).sort((a, b) => a - b);
+}
+
 export interface LevelSummary {
   levelIndex: number;
   displayName: string;
@@ -56,7 +95,7 @@ export interface LevelSummary {
 
 // Reduces a full LevelConfig down to just what a list row or the "Up Next"
 // card needs to render — callers (App.tsx) build this from whatever
-// buildLevelConfig() returns, without Home.tsx/AllLevels.tsx needing to know
+// buildLevelConfig() returns, without Home.tsx/LevelMap.tsx needing to know
 // how a LevelConfig is actually constructed for a hand-built vs. generated
 // level.
 export function buildLevelSummary(

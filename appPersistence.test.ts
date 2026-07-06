@@ -27,6 +27,7 @@ import {
   markLevelCompleted,
   markTutorialSeen,
   msUntilNextLifeRegen,
+  recordLevelStars,
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
@@ -40,6 +41,7 @@ import {
   unlockRecipeCard,
 } from './appPersistence';
 import { RecipeCard } from './components/skinConfig';
+import { StarRating } from './components/wonActions';
 
 function piece(id: string, matchType: string): Piece {
   return { id, type: 'normal', matchType };
@@ -151,7 +153,7 @@ describe('save/load wiring — real call sites, end to end', () => {
     expect(justEnded).toBe(true);
 
     if (justEnded) {
-      await saveProgress(skinId, buildSaveData(skinId, 1, [], [], [], false, false, state), storage);
+      await saveProgress(skinId, buildSaveData(skinId, 1, [], {}, [], [], false, false, state), storage);
     }
 
     // --- "App reopened" ---
@@ -193,6 +195,34 @@ describe('markLevelCompleted', () => {
 
   test('is idempotent — replaying an already-won level does not duplicate it', () => {
     expect(markLevelCompleted([1, 2], 1)).toEqual([1, 2]);
+  });
+});
+
+describe('recordLevelStars', () => {
+  test('records a first-ever rating for a level', () => {
+    expect(recordLevelStars({}, 3, 2)).toEqual({ 3: 2 });
+  });
+
+  test('a better replay overwrites the stored rating', () => {
+    expect(recordLevelStars({ 3: 1 }, 3, 3)).toEqual({ 3: 3 });
+  });
+
+  test('a worse replay never overwrites an already-earned higher rating', () => {
+    expect(recordLevelStars({ 3: 3 }, 3, 1)).toEqual({ 3: 3 });
+  });
+
+  test('an equal replay is a no-op', () => {
+    const before: Record<number, StarRating> = { 3: 2 };
+    expect(recordLevelStars(before, 3, 2)).toEqual({ 3: 2 });
+  });
+
+  test('returns the same reference when the attempt does not improve on the record', () => {
+    const before: Record<number, StarRating> = { 3: 3 };
+    expect(recordLevelStars(before, 3, 1)).toBe(before);
+  });
+
+  test('leaves other levels\' recorded stars untouched', () => {
+    expect(recordLevelStars({ 1: 3, 2: 2 }, 5, 1)).toEqual({ 1: 3, 2: 2, 5: 1 });
   });
 });
 
@@ -726,36 +756,41 @@ describe('grantInstantLife', () => {
 describe('buildSaveData — regen anchor', () => {
   test('writes the explicitly-passed livesLastRegenAt instead of always stamping "now"', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], [], false, false, { lives: 3 }, 1234567, fixedNow);
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 }, 1234567, fixedNow);
     expect(data.livesLastRegenAt).toBe(1234567);
     expect(data.lives).toBe(3);
   });
 
   test('falls back to now() when no explicit anchor is given, unchanged from before regen math existed', () => {
     const fixedNow = () => 9999999;
-    const data = buildSaveData('skin', 1, [], [], [], false, false, { lives: 3 }, undefined, fixedNow);
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 }, undefined, fixedNow);
     expect(data.livesLastRegenAt).toBe(9999999);
   });
 
   test('writes the seenTutorials list passed in', () => {
-    const data = buildSaveData('skin', 1, [], ['blocker'], [], false, false, { lives: 3 });
+    const data = buildSaveData('skin', 1, [], {}, ['blocker'], [], false, false, { lives: 3 });
     expect(data.seenTutorials).toEqual(['blocker']);
   });
 
   test('writes the unlockedRecipeCards list passed in', () => {
-    const data = buildSaveData('skin', 1, [], [], ['tomato_stew'], false, false, { lives: 3 });
+    const data = buildSaveData('skin', 1, [], {}, [], ['tomato_stew'], false, false, { lives: 3 });
     expect(data.unlockedRecipeCards).toEqual(['tomato_stew']);
+  });
+
+  test('writes the levelStars map passed in', () => {
+    const data = buildSaveData('skin', 1, [], { 1: 3, 2: 1 }, [], [], false, false, { lives: 3 });
+    expect(data.levelStars).toEqual({ 1: 3, 2: 1 });
   });
 });
 
 describe('buildSaveData — sound/haptics flags', () => {
   test('writes soundEnabled through unchanged', () => {
-    const data = buildSaveData('skin', 1, [], [], [], true, false, { lives: 3 });
+    const data = buildSaveData('skin', 1, [], {}, [], [], true, false, { lives: 3 });
     expect(data.soundEnabled).toBe(true);
   });
 
   test('writes hapticsEnabled through unchanged', () => {
-    const data = buildSaveData('skin', 1, [], [], [], false, true, { lives: 3 });
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, true, { lives: 3 });
     expect(data.hapticsEnabled).toBe(true);
   });
 });

@@ -49,7 +49,7 @@ function chunkIntoRows<T>(items: T[], columns: number): T[][] {
 // a scrolling/paginated list, since the set itself is fixed and small (see
 // appPersistence.ts's findRecipeCardForLevel). Filled cells show the real
 // card; unfilled cells are a plain dashed outline with nothing inside — no
-// lock glyph (unlike AllLevels.tsx's locked-level rows), no number, no
+// lock glyph (unlike LevelMap.tsx's locked-level nodes), no number, no
 // star, no "X%" — this is deliberately calmer than that screen's treatment,
 // per this feature's "not a gamified badge system" design brief.
 export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: RecipeBookProps) {

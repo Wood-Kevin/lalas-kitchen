@@ -46,7 +46,8 @@ const HERO_HEIGHT = 260;
 // The new landing screen (see App.tsx's resolveStartScreen) — replaces the
 // old "always resume straight into gameplay" boot behavior with a
 // deliberate-tap-to-play flow. Nothing like this existed before this
-// session; components/AllLevels.tsx (formerly Dashboard.tsx) is the only
+// session; components/LevelMap.tsx (formerly Dashboard.tsx, then a plain
+// scrollable AllLevels.tsx list, now the winding level map) is the only
 // screen that previously stood in for a level-select hub.
 export function Home({
   config,
