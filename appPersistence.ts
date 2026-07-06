@@ -1,5 +1,5 @@
 import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId } from './engine/boardShapes';
-import { Board, GameState, GameStatus, LevelConfig, PauseReason, SaveData } from './engine/gameState';
+import { Board, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
 import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -88,24 +88,6 @@ export function buildSaveData(
 // asks for anything richer.
 export function livesAfterLoss(lives: number): number {
   return Math.max(0, lives - 1);
-}
-
-// Whether a given GameState transition is *the* moment a life should be
-// spent — a loss, not any other reason a level might pause or end. Reuses
-// `didLevelJustEnd` (the same "did a level just end" check that already
-// gates saving) rather than re-deriving that condition, then narrows to
-// specifically the moves-exhausted pause. Constructed this way so App.tsx's
-// existing prevStatus/nextStatus snapshot (already computed once per
-// onStateChange call, see handleBoardStateChange) is the only input needed
-// — nothing here re-checks status by polling or re-rendering, so this
-// naturally fires exactly once per loss and never again for the same
-// paused state sitting unchanged across re-renders.
-export function shouldSpendLifeOnLoss(
-  prevStatus: GameStatus | null,
-  nextStatus: GameStatus,
-  pauseReason: PauseReason
-): boolean {
-  return didLevelJustEnd(prevStatus, nextStatus) && nextStatus === 'paused_awaiting_input' && pauseReason === 'moves';
 }
 
 // The one gate every level-start entry point shares — Home's "Start

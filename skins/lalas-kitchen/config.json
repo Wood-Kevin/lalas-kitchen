@@ -13,7 +13,7 @@
     { "id": "dish_stack", "sprite": "dish_stack.webp", "hitsToClear": 1 },
     { "id": "pot_lid", "sprite": "pot_lid.webp", "hitsToClear": 2 }
   ],
-  "lives": { "max": 5, "regenMinutes": 30, "icon": "flame.webp" },
+  "lives": { "max": 5, "regenMinutes": 20, "icon": "flame.webp" },
   "animationProfile": {
     "matchStyle": "popAndShrink",
     "matchDurationMs": 300,

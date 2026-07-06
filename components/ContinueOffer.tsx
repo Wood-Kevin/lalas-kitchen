@@ -1,49 +1,49 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import { PauseReason } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
+import { getPauseAction } from './pauseActions';
 import { SteamWisp } from './SteamWisp';
 
-export interface PausedOverlayProps {
-  // Only 'moves' is reachable today (see PauseReason's comment in
-  // engine/gameState.ts on why 'lives' was removed) — kept as a real prop
-  // rather than assumed so the guard below stays honest if that ever changes.
-  reason: PauseReason;
-  // Real remaining count for the depleted resource — always 0 whenever this
-  // renders, but read from GameState rather than hardcoded so the status
-  // pill stays honest if that ever changes.
+export interface ContinueOfferProps {
+  // Always the moves-exhausted count (0) — read from GameState rather than
+  // hardcoded so the status pill stays honest, same reasoning as
+  // PausedOverlay.tsx's own movesRemaining prop.
   movesRemaining: number;
-  // Display-only "LEVEL N" label — see Board.tsx's levelIndex prop comment.
   levelIndex: number;
   config: SkinConfig;
-  // The exact same function Board.tsx passes to WonOverlay's onPlayAgain —
-  // not a second implementation. Restarts this level fresh (new seed) so a
-  // stuck player has a real way out that isn't the ad path.
+  // Whether tapping the continue button will actually show a real rewarded ad
+  // right now (services/adService.ts's isRewardedAdAvailable()) — false
+  // during CrazyGames' Basic Launch gap, when the grant is given for free
+  // instead. Only changes the CTA's copy; the tap handler is identical.
+  adAvailable: boolean;
+  // Accepting the rescue: Board.tsx's handleGrant (ad, then +5 moves via
+  // grantBonusMoves). Never spends a life — that's the entire point of this
+  // screen existing separately from PausedOverlay.
+  onContinue: (amount: number) => void;
+  // Declining by restarting fresh. Distinct from PausedOverlay's own
+  // onPlayAgain: Board.tsx wraps handlePlayAgain here so the life this
+  // attempt owes is spent first (see Board.tsx's handleContinueDeclinePlayAgain).
   onPlayAgain: () => void;
-  // Returns to Home. A stuck player shouldn't be forced to either watch an
-  // ad or restart — leaving entirely is a third, equally real option.
+  // Declining by leaving. Same wrapping reasoning as onPlayAgain above (see
+  // Board.tsx's handleContinueDeclineExit).
   onExit: () => void;
 }
 
-// Same fixed brand accent WonOverlay.tsx uses for its sparkles — the
-// bonus-video CTA deliberately uses this warm flame orange rather than
-// config.palette.accent (brand red), so the ad-path action reads as its
-// own distinct, calm-toned choice rather than borrowing the level's
-// primary-flow red. Not skin-configurable; see WonOverlay.tsx's same note.
+// Same fixed brand accent PausedOverlay.tsx's old grant CTA used — kept
+// here too so the "this is the ad-path rescue" visual language stays
+// consistent between the two screens a player might see across an attempt.
 const FLAME = '#F2793A';
 
-// Mirrors WonOverlay.tsx's card/backdrop shape and its
-// one-primary-plus-one-quiet-secondary-link structure. Deliberately no red
-// anywhere on this screen (not even a red-outlined "0 moves left" pill) —
-// running out is a status, not an error, per CLAUDE.md's "calm, not
-// frantic" constraint and this session's explicit "avoid harsh failure
-// language" requirement. This is always the terminal loss screen now — the
-// life for this attempt is already spent by the time it renders (either the
-// per-attempt rescue offer (see ContinueOffer.tsx) was never on offer, or it
-// was just declined) — so there is no grant CTA here anymore; that moved to
-// ContinueOffer, the screen shown instead while a rescue is still available.
-export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPlayAgain, onExit }: PausedOverlayProps) {
+// The fourth sibling in the WonOverlay/PausedOverlay/OutOfLives card family
+// (see those files' own "mirrors" comments) — deliberately its own file
+// rather than a mode of PausedOverlay, since the two screens now represent
+// genuinely different moments: this one still has a life to save, PausedOverlay
+// no longer does. Shown instead of PausedOverlay while
+// pauseActions.ts's shouldOfferContinue is true; PausedOverlay takes over
+// once it's false (grants exhausted, or this offer was just declined).
+export function ContinueOffer({ movesRemaining, levelIndex, config, adAvailable, onContinue, onPlayAgain, onExit }: ContinueOfferProps) {
+  const action = getPauseAction('moves')!;
   const flameScale = useSharedValue(1);
 
   useEffect(() => {
@@ -54,8 +54,6 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPl
     opacity: 0.55 + (flameScale.value - 1) * 4.5,
     transform: [{ scale: flameScale.value }],
   }));
-
-  if (reason !== 'moves') return null;
 
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
 
@@ -76,27 +74,23 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPl
 
         <View style={styles.badgeRow}>
           <Text style={[styles.levelLabel, { color: accent }]}>LEVEL {levelIndex}</Text>
-          {/* Non-interactive status display — the pause reason is a fact
-              determined by which resource actually hit zero, not a player
-              choice, so this is a plain View/Text pill with no onPress. */}
           <View style={[styles.statusPill, { borderColor: secondaryAccent }]}>
             <Text style={[styles.statusPillText, { color: secondaryAccent }]}>{movesRemaining} moves left</Text>
           </View>
         </View>
 
-        <Text style={[styles.headline, { color: text }]}>The Pot&apos;s Still Warming</Text>
-        {/* Gently closes the round rather than announcing a limit, keeping
-            with this screen's "running out is a status, not an error" tone —
-            any rescue offer already happened on ContinueOffer, one screen ago. */}
+        <Text style={[styles.headline, { color: text }]}>One More Try?</Text>
         <Text style={[styles.subtext, { color: mutedText }]}>
-          That’s this round done for now — start fresh whenever you’re ready.
+          Out of moves for this round — keep it going with a few more, no life spent.
         </Text>
 
-        {/* Play Again is the primary slot — no ad CTA here anymore (see
-            ContinueOffer.tsx). Uses secondaryAccent (the warm pot brown), not
-            the brand-red accent (no red anywhere on this screen, per above). */}
-        <Pressable style={[styles.primaryButton, { backgroundColor: secondaryAccent }]} onPress={onPlayAgain}>
-          <Text style={styles.primaryButtonLabel}>Play Again</Text>
+        <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={() => onContinue(action.bonusAmount)}>
+          <Text style={styles.primaryButtonLabel}>
+            {adAvailable ? `Watch a video for ${action.bonusAmount} more moves` : `Get ${action.bonusAmount} more moves`}
+          </Text>
+        </Pressable>
+        <Pressable style={styles.secondaryLink} onPress={onPlayAgain}>
+          <Text style={[styles.secondaryLinkLabel, { color: text }]}>Play Again</Text>
         </Pressable>
         <Pressable style={styles.secondaryLink} onPress={onExit}>
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Exit to Kitchen</Text>
@@ -113,7 +107,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    // Warm brown wash, not black — see WonOverlay.tsx's matching scrim.
     backgroundColor: 'rgba(59, 38, 26, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -134,10 +127,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  // A self-contained coordinate space for the pot (handles positioned
-  // absolutely against this, not the whole 116px illustration box) — so
-  // the handle/body/lid seam lines up exactly regardless of the
-  // illustration container's own height.
   potWrap: {
     width: 140,
     height: 74,
@@ -171,9 +160,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
   },
-  // A soft warm glow beneath the pot standing in for the stove's flame —
-  // reads as gentle warmth rather than a literal fire icon, matching
-  // CLAUDE.md's calm-not-frantic constraint.
   potGlow: {
     width: 64,
     height: 12,

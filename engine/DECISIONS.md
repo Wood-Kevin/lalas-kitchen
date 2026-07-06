@@ -3206,3 +3206,91 @@ The harness (`components/__harness__/EffectIdentityHarness.tsx`) and its
 temporary `App.tsx` `?harness=effects` gate were both deleted/reverted
 immediately after capture, per this repo's established
 screenshot-verification convention.
+
+## Mid-level continue offer (the rescue moves before life loss)
+
+A rescue offer of five extra moves, presented specifically *before* a life
+would actually be spent — distinct from the already-built anytime OutOfLives
+full-refill grant, which only ever fires when trying to *start* a fresh level
+with zero lives. This session's investigation confirmed the config (5 lives)
+already matched the stated design but `regenMinutes` didn't (30, not 20 — now
+corrected in `skins/lalas-kitchen/config.json`), and — more importantly —
+surfaced a real, pre-existing gap: the Phase-4 mid-level "+5 Moves" grant
+(`grantBonusMoves`, wired to the old `PausedOverlay`) already let a player keep
+playing after running out of moves, but the account-level life for that
+attempt was *already spent* by the time that button ever rendered — the same
+`gameState` commit that flipped status to `paused_awaiting_input` was also the
+commit `App.tsx`'s `handleBoardStateChange` used to fire `shouldSpendLifeOnLoss`
+via `didLevelJustEnd`. Worse: because `grantBonusMoves` resumes `status` to
+`'in_progress'`, `didLevelJustEnd`'s prevStatus/nextStatus edge check reset
+itself on every subsequent moves-exhausted pause too — a single attempt that
+took both of its two bonus-move grants and still ran out a third time could
+lose **up to three** lives, not one. Confirmed by tracing the exact call
+sequence (not assumed): `Board.tsx`'s `attemptSwap` → `applyMove` (synchronous)
+→ `animateCascade`/`runStep`'s final pass → `setGameState(finalState)` →
+Board's `useEffect(() => onStateChange?.(gameState), [gameState])` → App's
+`handleBoardStateChange`. This was confirmed as a genuine fork (not guessed at)
+via the standing Playtest Feedback Protocol, and the user chose to retime the
+existing mechanic rather than layer a second one beside it.
+
+**The fix moves life-spend timing out of App.tsx's generic state-transition
+check and into `Board.tsx`, where the per-attempt grant cap
+(`bonusGrantsUsed`) already lives** — the decision of *whether a rescue is
+still on offer* and *whether this pause should cost a life* are the same
+decision, so they had to live in the same place. `components/pauseActions.ts`
+gained `shouldOfferContinue(pauseReason, grantsUsed)`, a thin pure wrapper
+over the existing `canGrantBonusMoves`. Two new components split what
+`PausedOverlay` used to do alone:
+
+- **`ContinueOffer.tsx`** (new) — shown instead of `PausedOverlay` while
+  `shouldOfferContinue` is true. Accepting (`handleGrant`, unchanged) grants
+  +5 moves via the existing `grantBonusMoves` and spends nothing. Declining —
+  either secondary link, Play Again or Exit — spends the life first via two
+  thin wrappers, `handleContinueDeclinePlayAgain`/`handleContinueDeclineExit`,
+  before running the underlying action.
+- **`PausedOverlay.tsx`** (simplified) — now purely the terminal screen,
+  shown only once no rescue is left to offer. Dropped `canGrant`/`onGrant`/
+  `adAvailable` entirely (dead once the grant CTA moved to ContinueOffer)
+  rather than leaving an unreachable branch.
+
+`Board.tsx`'s `runStep` (the single place a moves-exhausted `finalState`
+first commits) now spends the life automatically, exactly once, the instant
+`shouldOfferContinue` is false for a *fresh* pause — this is what fixes the
+up-to-three-lives bug: a pause that still has a grant on offer never triggers
+this branch at all, so life-spend and grant-availability can no longer drift
+out of sync with each other the way two independently-evolving checks (one in
+Board, one in App) previously could.
+
+`App.tsx`'s old `shouldSpendLifeOnLoss` (and its now-obsolete tests) were
+deleted outright rather than kept unreachable — replaced by `handleLifeLost`,
+a plain callback Board calls explicitly. One subtlety this surfaced during
+live verification (not assumed, caught by an actual failing trace): a decline
+calls `onLifeLost()` and then `handlePlayAgain()` in the *same synchronous
+tick*, before React has re-rendered Board with the post-spend `lives` prop —
+reading that stale prop inside `handlePlayAgain` would have baked the
+*pre-loss* count into the new attempt's `GameState.lives` display snapshot
+(confirmed live: lives read back as unchanged immediately after a decline).
+Fixed by having `handleLifeLost` return the fresh count synchronously (not
+just via `setLives`), which `handleContinueDeclinePlayAgain` now threads
+through an optional `livesOverride` param on `handlePlayAgain` — every other
+caller (the plain secondary Play Again link, `WonOverlay`'s onPlayAgain) omits
+it and falls back to the ordinary `lives` prop, unchanged.
+
+Verified live end-to-end over CDP against the real running app (headless
+Windows Chrome from WSL, real tap-to-swap gestures dispatched via
+`Input.dispatchMouseEvent` against real tile DOM nodes — the same rig
+`docs/verification/special-piece-tutorial/organic-spawns/` established), not
+simulated: a temporary `movesLimit: 1` tweak to Level 1 (reverted after
+capture, the lightest version of this repo's established "temporary,
+reverted after" verification convention) forced a genuine near-loss on the
+very first real move. Confirmed in one continuous run: (1) the first
+moves-exhausted pause shows ContinueOffer, lives unchanged; (2) accepting
+grants +5 moves, lives still unchanged; (3) a second moves-exhausted pause
+(grant 2 of 2) still shows ContinueOffer, lives still unchanged; (4)
+accepting again grants +5 moves, lives unchanged; (5) a third moves-exhausted
+pause (cap now exhausted) shows the plain terminal `PausedOverlay` with no
+grant CTA, and the life is auto-spent; (6) restarting from that terminal
+screen correctly shows the real post-spend count. Exactly one life was ever
+spent across the whole run, not three. All 453 existing engine/component
+tests still pass, plus 4 new `shouldOfferContinue` cases in
+`components/pauseActions.test.ts`. See `docs/verification/mid-level-continue/`.

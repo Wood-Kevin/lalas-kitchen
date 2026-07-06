@@ -49,7 +49,8 @@ import { adService } from '../services/defaultAdService';
 import { soundService } from '../services/defaultSoundService';
 import { hapticsService } from '../services/defaultHapticsService';
 import { PausedOverlay } from './PausedOverlay';
-import { canGrantBonusMoves, nextBonusGrantsUsed } from './pauseActions';
+import { ContinueOffer } from './ContinueOffer';
+import { nextBonusGrantsUsed, shouldOfferContinue } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
@@ -98,6 +99,16 @@ export interface BoardProps {
   // level-start entry point that lives entirely inside Board and never
   // otherwise calls back into App.tsx.
   onOutOfLives: () => void;
+  // Fired exactly once per attempt, at the moment this attempt's life is
+  // actually spent — either a moves-exhausted pause with no rescue left to
+  // offer (pauseActions.ts's shouldOfferContinue false), or the player
+  // explicitly declining the rescue ContinueOffer still had on offer. App.tsx
+  // owns the account-level `lives` count (regen + decrement), so this is
+  // mostly a "spend one now" signal, not a state report — but it also
+  // returns the fresh count synchronously, since a decline calls this and
+  // then handlePlayAgain in the same tick, before the `lives` prop below has
+  // re-rendered with the post-spend value (see handleContinueDeclinePlayAgain).
+  onLifeLost: () => number;
   // Display-only — App.tsx already keys Board by this value to force a
   // remount per level, so threading it through as a prop too is just
   // exposing existing data to WonOverlay/PausedOverlay for their "LEVEL N"
@@ -171,6 +182,7 @@ export function Board({
   onExit,
   lives,
   onOutOfLives,
+  onLifeLost,
   levelIndex,
   completedLevels,
   seenTutorials,
@@ -232,8 +244,11 @@ export function Board({
   // brand-new entry from Home / All Levels remounts Board, see App.tsx's
   // key={levelIndex} and its game-screen conditional) and is reset to 0 in
   // handlePlayAgain, so the cap is a fresh-chances-this-round limit, never a
-  // lifetime or daily one. canGrantBonusMoves(bonusGrantsUsed) is what decides
-  // whether PausedOverlay still offers the video CTA (see pauseActions.ts).
+  // lifetime or daily one. shouldOfferContinue(reason, bonusGrantsUsed) is
+  // what decides whether ContinueOffer (the video CTA) or PausedOverlay (the
+  // terminal loss screen) renders on a moves-exhausted pause — and, in
+  // runStep above, whether that pause spends this attempt's life immediately.
+  // See pauseActions.ts.
   const [bonusGrantsUsed, setBonusGrantsUsed] = useState(0);
   // Measured via onLayout rather than Dimensions.get('window'), since the
   // board area's actual available space is whatever's left after the HUD
@@ -618,6 +633,21 @@ export function Board({
         // chain.
         if (hasCombo) setComboKey(`combo-${moveId}`);
         setGameState(finalState);
+        // Life-spend timing lives here now, not in App.tsx's generic state-
+        // transition check (see appPersistence.ts's now-removed
+        // shouldSpendLifeOnLoss): a fresh moves-exhausted pause only costs a
+        // life immediately if no rescue is left to offer (shouldOfferContinue
+        // false — see pauseActions.ts). When a rescue IS still available,
+        // ContinueOffer renders instead of PausedOverlay below and the life
+        // is spent only if the player explicitly declines it (see
+        // handleContinueDeclinePlayAgain/handleContinueDeclineExit) — never
+        // here, and never twice for the same pause.
+        if (
+          finalState.status === 'paused_awaiting_input' &&
+          !shouldOfferContinue(finalState.pauseReason, bonusGrantsUsed)
+        ) {
+          onLifeLost();
+        }
         // The chain_reaction tutorial's trigger (unlike the three per-piece
         // ones) isn't a board scan — the specials that fired are already
         // cleared by the time the chain settles, so there's no piece left on
@@ -671,16 +701,38 @@ export function Board({
     // Watch the rewarded ad first — services/adService.ts resolves to
     // whichever real provider (or, today, stub) this platform uses, and the
     // grant only proceeds if it resolves true (reward earned). A dismissed-
-    // early ad (false) leaves the pause screen exactly as it was: no grant,
-    // no cap spent.
+    // early ad (false) leaves ContinueOffer exactly as it was: no grant,
+    // no cap spent, no life spent.
     const completed = await adService.requestRewardedAd();
     if (!completed) return;
-    // Count the grant before applying it. PausedOverlay only ever surfaces the
-    // grant button while canGrantBonusMoves is true, but incrementing here (not
-    // relying on the button being hidden) keeps the cap honest even if the
-    // overlay is re-entered before this render settles.
+    // Count the grant before applying it. ContinueOffer only ever renders
+    // while canGrantBonusMoves is true, but incrementing here (not relying on
+    // the screen being hidden) keeps the cap honest even if it's re-entered
+    // before this render settles.
     setBonusGrantsUsed((used) => nextBonusGrantsUsed(used, 'grant'));
     setGameState((current) => grantBonusMoves(current, amount));
+  }
+
+  // ContinueOffer's two decline paths — restarting or leaving instead of
+  // accepting the rescue. Both spend the life this attempt owes before
+  // running the underlying action (see the runStep comment above on why
+  // life-spend can no longer happen automatically once a rescue is on offer).
+  // handlePlayAgain/onExit themselves stay generic — WonOverlay calls the
+  // same handlePlayAgain on a win, where no life should ever be spent — so
+  // the spend lives in these two thin wrappers, not inside those functions.
+  function handleContinueDeclinePlayAgain() {
+    // Pass the freshly-spent count through explicitly rather than letting
+    // handlePlayAgain fall back to the `lives` prop below — that prop hasn't
+    // re-rendered with this spend yet (onLifeLost and this call happen in the
+    // same tick), so reading it here would bake the pre-spend count into the
+    // new attempt's GameState.lives display snapshot.
+    const livesAfterSpend = onLifeLost();
+    handlePlayAgain(livesAfterSpend);
+  }
+
+  function handleContinueDeclineExit() {
+    onLifeLost();
+    onExit();
   }
 
   function handleDismissOnboardingTutorial() {
@@ -707,8 +759,13 @@ export function Board({
     setExiting((current) => current.filter((entry) => entry.key !== key));
   }
 
-  function handlePlayAgain() {
-    if (!canStartLevel(lives)) {
+  // livesOverride is only ever passed by handleContinueDeclinePlayAgain,
+  // for the exact same-tick-stale-prop reason documented there — every other
+  // caller (the secondary "Play Again" link, WonOverlay's onPlayAgain) omits
+  // it and this falls back to the ordinary `lives` prop, unchanged.
+  function handlePlayAgain(livesOverride?: number) {
+    const currentLives = livesOverride ?? lives;
+    if (!canStartLevel(currentLives)) {
       onOutOfLives();
       return;
     }
@@ -720,11 +777,11 @@ export function Board({
     stepTimersRef.current.forEach((timer) => clearTimeout(timer));
     stepTimersRef.current = [];
     animatingRef.current = false;
-    // Seeds the fresh attempt with the current `lives` prop, not
+    // Seeds the fresh attempt with the current lives count, not
     // `levelConfig.lives` — the level's original mount-time snapshot could
     // be stale if this restart follows a loss (see the `lives` prop's doc
     // comment above).
-    setGameState(createGameState({ ...levelConfig, seed, lives }));
+    setGameState(createGameState({ ...levelConfig, seed, lives: currentLives }));
     setDisplayBoard(null);
     setTerminalOverlayReady(false);
     setSelected(null);
@@ -933,17 +990,32 @@ export function Board({
         />
       )}
       {gameState.status === 'paused_awaiting_input' && terminalOverlayReady && (
-        <PausedOverlay
-          reason={gameState.pauseReason}
-          movesRemaining={gameState.movesRemaining}
-          levelIndex={levelIndex}
-          config={skinConfig}
-          canGrant={canGrantBonusMoves(bonusGrantsUsed)}
-          adAvailable={adService.isRewardedAdAvailable()}
-          onGrant={handleGrant}
-          onPlayAgain={handlePlayAgain}
-          onExit={onExit}
-        />
+        shouldOfferContinue(gameState.pauseReason, bonusGrantsUsed) ? (
+          // The life this attempt owes hasn't been spent yet — see the
+          // runStep comment above. Accepting keeps playing for free;
+          // declining (either link below) spends it before proceeding.
+          <ContinueOffer
+            movesRemaining={gameState.movesRemaining}
+            levelIndex={levelIndex}
+            config={skinConfig}
+            adAvailable={adService.isRewardedAdAvailable()}
+            onContinue={handleGrant}
+            onPlayAgain={handleContinueDeclinePlayAgain}
+            onExit={handleContinueDeclineExit}
+          />
+        ) : (
+          // No rescue left to offer — the life was already spent the moment
+          // this pause committed (see runStep above), so this is the plain
+          // terminal loss screen.
+          <PausedOverlay
+            reason={gameState.pauseReason}
+            movesRemaining={gameState.movesRemaining}
+            levelIndex={levelIndex}
+            config={skinConfig}
+            onPlayAgain={handlePlayAgain}
+            onExit={onExit}
+          />
+        )
       )}
       {gameState.status === 'won' && terminalOverlayReady && (
         <WonOverlay

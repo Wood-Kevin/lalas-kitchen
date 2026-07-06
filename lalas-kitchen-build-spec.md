@@ -79,7 +79,7 @@ The leak test: if you swapped the skin and something broke or looked weird, that
   "blockers": [
     { "id": "cling", "sprite": "cling.webp", "hitsToClear": 1 }
   ],
-  "lives": { "max": 5, "regenMinutes": 30, "icon": "flame.webp" },
+  "lives": { "max": 5, "regenMinutes": 20, "icon": "flame.webp" },
   "animationProfile": {
     "matchStyle": "popAndShrink",
     "matchDurationMs": 220,

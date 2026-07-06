@@ -37,7 +37,6 @@ import {
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
-  shouldSpendLifeOnLoss,
   startingLives,
   unlockRecipeCard,
 } from './appPersistence';
@@ -344,16 +343,57 @@ export default function App() {
     );
   }, []);
 
+  // Fired by Board.tsx exactly once per attempt, at the moment that
+  // attempt's life is actually spent (see Board.tsx's onLifeLost prop and its
+  // runStep/handleContinueDecline* comments for exactly when that is — no
+  // longer derivable from a GameState transition alone, since a moves-out
+  // pause might still have a rescue on offer via ContinueOffer). Replaces the
+  // old shouldSpendLifeOnLoss check this callback used to run inline: that
+  // fired on *every* moves-exhausted transition, which is what let a single
+  // attempt lose more than one life if the player took a bonus-moves grant
+  // and then ran out again (see engine/DECISIONS.md's continue-offer entry).
+  //
+  // Returns the fresh account lives count synchronously (not just via
+  // setLives) because handleContinueDeclinePlayAgain calls this and then
+  // Board's own handlePlayAgain in the very same tick, before this
+  // component's `lives` prop has re-rendered into Board — reading the stale
+  // prop there would bake the pre-loss count into the new attempt's
+  // GameState.lives display snapshot. Returning the real value lets that
+  // restart pass it through explicitly instead.
+  const handleLifeLost = useCallback(() => {
+    // Apply any regen owed first, then spend the loss — so a player who lost
+    // a level, waited past a regen tick, and is only now triggering this
+    // gets the most accurate possible final count rather than double
+    // penalizing them for elapsed time.
+    const now = Date.now();
+    const regenerated = applyLivesRegen(
+      livesRef.current,
+      livesLastRegenAtRef.current,
+      skinConfig.lives.max,
+      skinConfig.lives.regenMinutes,
+      now
+    );
+    const wasFull = regenerated.lives >= skinConfig.lives.max;
+    const newLives = livesAfterLoss(regenerated.lives);
+    livesRef.current = newLives;
+    // The regen clock only starts once lives actually drop below max — a
+    // loss landing while already below max shouldn't reset whatever progress
+    // the existing timer already had toward its next tick (see
+    // applyLivesRegen's own comment on this).
+    livesLastRegenAtRef.current = wasFull ? now : regenerated.livesLastRegenAt;
+    setLives(newLives);
+    // Explicit immediate save, same reasoning as handleGrantLife's own —
+    // persistLatestState only ever reads `.lives` from livesRef (see its own
+    // comment), so this is safe to call right away rather than waiting for
+    // whatever gameState transition happens to follow (a decline may not
+    // produce one that reaches the justEnded branch below, e.g. exiting).
+    persistLatestState();
+    return newLives;
+  }, [persistLatestState]);
+
   const handleBoardStateChange = useCallback(
     (state: GameState) => {
       latestStateRef.current = state;
-      // Captured before prevStatusRef is overwritten below — this is the
-      // one moment this transition can be observed. Board's own
-      // useEffect(() => onStateChange?.(state), [gameState]) only re-fires
-      // when the gameState *object* changes (a real move/grant/restart),
-      // never on a plain re-render — so shouldSpendLifeOnLoss below is
-      // structurally guaranteed to fire exactly once per loss, the same
-      // guarantee didLevelJustEnd already relies on for persistLatestState.
       const prevStatus = prevStatusRef.current;
       const justEnded = didLevelJustEnd(prevStatus, state.status);
       prevStatusRef.current = state.status;
@@ -392,30 +432,11 @@ export default function App() {
           }
           setRevealedRecipeCard(isNewUnlock ? card! : null);
         }
-        if (shouldSpendLifeOnLoss(prevStatus, state.status, state.pauseReason)) {
-          // Apply any regen owed first, then spend the loss — so a player
-          // who lost a level, waited past a regen tick, and is only now
-          // triggering this (e.g. a delayed background-save flush) gets
-          // the most accurate possible final count rather than double
-          // penalizing them for elapsed time.
-          const now = Date.now();
-          const regenerated = applyLivesRegen(
-            livesRef.current,
-            livesLastRegenAtRef.current,
-            skinConfig.lives.max,
-            skinConfig.lives.regenMinutes,
-            now
-          );
-          const wasFull = regenerated.lives >= skinConfig.lives.max;
-          const newLives = livesAfterLoss(regenerated.lives);
-          livesRef.current = newLives;
-          // The regen clock only starts once lives actually drop below
-          // max — a loss landing while already below max shouldn't reset
-          // whatever progress the existing timer already had toward its
-          // next tick (see applyLivesRegen's own comment on this).
-          livesLastRegenAtRef.current = wasFull ? now : regenerated.livesLastRegenAt;
-          setLives(newLives);
-        }
+        // Life-spend used to happen right here (shouldSpendLifeOnLoss), keyed
+        // purely off this transition — but a moves-exhausted pause might
+        // still have a rescue on offer (see Board.tsx's ContinueOffer), so
+        // that decision moved to Board.tsx, which calls handleLifeLost
+        // directly and explicitly instead (see its own comment above).
         persistLatestState();
       }
     },
@@ -743,6 +764,7 @@ export default function App() {
             // this, not its frozen levelConfig.lives (see Board.tsx).
             lives={lives}
             onOutOfLives={() => setScreen('outOfLives')}
+            onLifeLost={handleLifeLost}
             // Threaded through so Board can tell a genuinely fresh save's
             // level 1 (completedLevels empty) apart from an experienced
             // player replaying it later — see appPersistence.ts's

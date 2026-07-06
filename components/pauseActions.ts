@@ -57,3 +57,14 @@ export type GrantEvent = 'grant' | 'restart';
 export function nextBonusGrantsUsed(grantsUsed: number, event: GrantEvent): number {
   return event === 'restart' ? 0 : grantsUsed + 1;
 }
+
+// Whether a moves-exhausted pause should show ContinueOffer (a rescue,
+// offered before the life for this attempt is spent) instead of PausedOverlay
+// (the terminal loss screen, shown only once no rescue is left to offer).
+// Board.tsx's runStep spends the life at the exact moment this returns false
+// for a fresh pause — see its own comment on why life-spend timing had to
+// move out of App.tsx's generic state-transition check and in here, beside
+// the grant cap it now depends on.
+export function shouldOfferContinue(pauseReason: PauseReason, grantsUsed: number): boolean {
+  return pauseReason === 'moves' && canGrantBonusMoves(grantsUsed);
+}

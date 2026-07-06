@@ -36,7 +36,6 @@ import {
   CHAIN_REACTION_TUTORIAL_ID,
   shouldShowOnboardingTutorial,
   HOW_TO_PLAY_TUTORIAL_ID,
-  shouldSpendLifeOnLoss,
   startingLives,
   unlockRecipeCard,
 } from './appPersistence';
@@ -634,28 +633,6 @@ describe('livesAfterLoss', () => {
 
   test('never goes negative — a loss at zero lives stays at zero', () => {
     expect(livesAfterLoss(0)).toBe(0);
-  });
-});
-
-describe('shouldSpendLifeOnLoss', () => {
-  test('fires on the exact transition a moves-exhausted loss produces', () => {
-    expect(shouldSpendLifeOnLoss('in_progress', 'paused_awaiting_input', 'moves')).toBe(true);
-  });
-
-  test('does not fire again for the same paused state sitting unchanged across a re-render', () => {
-    // The second render App.tsx's handleBoardStateChange would see for the
-    // same loss: prevStatus is now already 'paused_awaiting_input', not
-    // 'in_progress' — this is the exact guard that makes a second call for
-    // an unchanged state a no-op, proving a loss can't double-decrement.
-    expect(shouldSpendLifeOnLoss('paused_awaiting_input', 'paused_awaiting_input', 'moves')).toBe(false);
-  });
-
-  test('does not fire for a win', () => {
-    expect(shouldSpendLifeOnLoss('in_progress', 'won', null)).toBe(false);
-  });
-
-  test('does not fire for a plain in-progress move (illegal-move snap-back or a normal legal move)', () => {
-    expect(shouldSpendLifeOnLoss('in_progress', 'in_progress', null)).toBe(false);
   });
 });
 

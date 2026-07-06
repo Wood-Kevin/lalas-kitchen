@@ -1,4 +1,10 @@
-import { canGrantBonusMoves, getPauseAction, MOVE_GRANTS_PER_ATTEMPT, nextBonusGrantsUsed } from './pauseActions';
+import {
+  canGrantBonusMoves,
+  getPauseAction,
+  MOVE_GRANTS_PER_ATTEMPT,
+  nextBonusGrantsUsed,
+  shouldOfferContinue,
+} from './pauseActions';
 
 describe('getPauseAction', () => {
   test('reason "moves" produces a moves action', () => {
@@ -56,5 +62,26 @@ describe('canGrantBonusMoves', () => {
     used = nextBonusGrantsUsed(used, 'restart');
     expect(used).toBe(0);
     expect(canGrantBonusMoves(used)).toBe(true);
+  });
+});
+
+describe('shouldOfferContinue', () => {
+  test('offers the rescue on a fresh moves-exhausted pause', () => {
+    expect(shouldOfferContinue('moves', 0)).toBe(true);
+  });
+
+  test('still offers it after one grant, before the cap', () => {
+    expect(shouldOfferContinue('moves', 1)).toBe(true);
+  });
+
+  test('stops offering it once the per-attempt cap is reached — this is the exact moment', () => {
+    // Board.tsx's runStep spends the life the instant this returns false —
+    // guarding the cap boundary here is guarding the life-spend boundary too.
+    expect(shouldOfferContinue('moves', MOVE_GRANTS_PER_ATTEMPT)).toBe(false);
+    expect(shouldOfferContinue('moves', MOVE_GRANTS_PER_ATTEMPT + 1)).toBe(false);
+  });
+
+  test('never offers it for a non-moves (null) pause reason, regardless of grants used', () => {
+    expect(shouldOfferContinue(null, 0)).toBe(false);
   });
 });
