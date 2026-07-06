@@ -1709,8 +1709,11 @@ five cells are already added to the ordinary clear set by its two
 already-existing `Match` entries (each arm is a real match), so the only new
 behavior is claiming the shared cell as an area-bomb anchor instead of letting
 it clear. Squares and crosses can never conflict: a square overlapping a
-cross's arm already stands down via the pre-existing `runCovered` check (a
-cross's arms are literal `Match` positions), confirmed with a regression test.
+cross's arm stands down via an explicit cross-overlap check in
+`isUnambiguousEmbeddedSquare` (see the "Embedded square in a straight run"
+entry below) — plain `runCovered` membership alone isn't enough for this,
+since a cross's arms are always exactly-length-3 runs and therefore wouldn't
+be excluded by the run-length rule alone. Confirmed with a regression test.
 `resolveCascades` computes `checkCrossShapes` each pass and threads it
 through — but does **not** need its own loop-continuation clause, since a
 cross's two arms are always already-counted ordinary matches.
@@ -1741,10 +1744,15 @@ covered at the `checkCrossShapes` unit level only (`matrix.test.ts`), since
 run) does not spawn an area bomb — L/T stays deferred" was traced by hand: its
 board has only a vertical 3-run and an overlapping square, no horizontal run
 of length ≥3 anywhere — it was never a genuine two-arm crossing, just a
-square/run overlap. Its assertion is unchanged; it was retitled to
-disambiguate from this feature and gained a defensive
-`checkCrossShapes(...).toHaveLength(0)` assertion proving the point directly
-rather than only in a comment.
+square/run overlap. At the time, its assertion (no bomb spawns) was left
+unchanged; it was retitled to disambiguate from this feature and gained a
+defensive `checkCrossShapes(...).toHaveLength(0)` assertion proving the point
+directly rather than only in a comment. **This test's assertion later did
+change** — see the "Embedded square in a straight run" entry below: this
+exact shape (a lone, unambiguous embedded square overlapping only a
+length-3 run) turned out to be a real playtest-reported gap, not correct
+deferred behavior, and was fixed. The test was renamed again and its
+expectation flipped to match.
 
 Confirmed with new cases in `engine/matrix.test.ts` (plus/L/T positive
 detection with anchor + full-position assertions; a straight 5-run with no
@@ -2748,3 +2756,79 @@ seeded directly to land on the first generator-driven shaped level (`levelIndex`
 12, generated level number 8) rendered a genuinely non-rectangular board with
 the real in-game level-12 HUD, not the hand-built Cutting Board level — see
 `docs/verification/generator-driven-board-shapes/`.
+
+## Embedded square in a straight run: a real playtest gap, distinct from the still-deferred ambiguous case
+
+A real playtest report: a match matching an exact pattern — two cells on one
+row, three cells on the row beside it, both sharing the same two columns (a
+2×3 rectangle missing one corner) — didn't spawn an area bomb. Investigated
+before changing anything, per the playtest-feedback protocol.
+
+**What was actually true, confirmed against the code, not assumed.**
+`matrix.ts`'s `checkSquares` was never the gap — it's a plain sliding 2×2
+window scan over the *entire* board with no "must be an isolated block"
+restriction at all (the doc comment above it even already said as much:
+"Overlapping squares … are all returned"). It already found this embedded
+square correctly. The gap was entirely in `gameState.ts`'s
+`resolveMatchEffects`: its `runCovered` check stood down *any* square
+touching *any* run, indiscriminately — with no distinction between "this
+square is one of several ambiguous overlapping candidates" (a genuinely
+unresolved question) and "this square is the only possible embedding here"
+(not ambiguous at all, just standing down for no real reason). The reported
+shape is the latter: its top row only has 2 matching cells, so only one 2×2
+window can ever have both top corners matching — there is no second
+candidate to be ambiguous with.
+
+**The fix: `isUnambiguousEmbeddedSquare`, three independent guards, not one.**
+A square overlapping a run now fires anyway — same anchor-conversion path as
+an isolated square — when all three hold:
+
+1. **Every run touching any of its 4 cells is exactly length 3.** A 4- or
+   5-long run already spawns its own striped piece/color bomb over those
+   cells; letting a square also fire there would double-spawn a special over
+   one event. This preserves the existing, confirmed 4/5-arm precedence
+   tests unchanged (a crossing-run's own 4/5-arm precedence entry above
+   established this same rule for the L/T/plus trigger; this fix reuses it
+   rather than inventing a second version).
+2. **No *other* detected square shares a cell with this one.** Two
+   overlapping squares — the genuinely ambiguous case, e.g. a full, aligned
+   2×3 rectangle where *both* rows are independently exactly-3 runs — has no
+   principled "which one wins" answer, so both still stand down, unchanged
+   from today's behavior. This is the harder case the investigation was
+   explicitly asked to flag rather than silently assume was covered by the
+   same fix, and it is: confirmed with its own test
+   (`gameState.test.ts`'s "a genuinely ambiguous embedded square … still
+   stands down — never silently guessed"), which checks `checkSquares`
+   itself returns 2 overlapping candidates and neither fires.
+3. **The square shares no cell with any detected cross.** A cross's own arms
+   are always exactly-length-3 runs (guard 1 alone wouldn't exclude them),
+   so without this guard a square sharing cells with a genuine L/T/plus would
+   double-spawn a second area bomb over the cross's already-resolved event.
+   The pre-existing "square overlapping a crossing arm" regression test
+   (see the crossing-run entry above) is what actually exercises this guard
+   — it still passes unchanged, proving squares and crosses still never
+   conflict under the new, more permissive rule.
+
+**Anchor placement needed no new logic.** The eligible square's anchor is
+still `square.positions[0]` (top-left), same as every other square — even
+when that cell is *also* one of the run's own clear-set cells (as it is in
+both fixed test cases below). The pre-existing "an anchor cell is never also
+gapped" step (`clearedKeys.delete` over `anchorByKey`'s keys, at the end of
+`resolveMatchEffects`) already handles this correctly — the exact same
+machinery a cross's shared crossing cell already relies on. No new
+special-casing was needed here.
+
+**Tests.** The pre-existing `gameState.test.ts` case for this exact shape
+(transposed 90°: a vertical run + a 2-cell horizontal extension) had its
+assertion flipped from "no bomb spawns" to "spawns exactly one, credits 4,
+anchors the shared cell" — see the "Reconciling the existing deferred-scope
+test" note above for that test's history. A new test covers the literal
+reported orientation (2 cells top row, 3 cells bottom row) with the same
+expected accounting. A third new test confirms the genuinely ambiguous
+full-2×3-rectangle case still stands down, `checkSquares` returning exactly
+2 overlapping candidates as proof it's the ambiguous branch being exercised,
+not the fixed one. All existing square/cross *detection* tests
+(`matrix.test.ts`) are untouched and pass unmodified, since `matrix.ts`
+itself needed zero changes — this was entirely a `resolveMatchEffects`
+precedence fix. 401 tests pass (`npm test`). Verified live, see
+`docs/verification/embedded-square-in-run/`.

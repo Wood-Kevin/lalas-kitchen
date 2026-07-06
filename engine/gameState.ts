@@ -520,10 +520,19 @@ type AnchorSpec =
 //    other four. (A color bomb doesn't act here — it only fires when the
 //    player swaps it, handled in applyMove. This branch just spawns it.);
 //  - a fresh 2x2 SQUARE (from `squares`) CONVERTS its top-left cell into an
-//    area bomb and clears the other three — but only if none of its four cells
-//    is part of any run this pass. A square overlapping a run is an L/T/larger
+//    area bomb and clears the other three. Usually only if none of its four
+//    cells is part of any run this pass — an overlap is normally an L/T/larger
 //    shape, deferred (DEFERRED_COMPLEXITY.md): the run logic handles those
-//    cells and the square stands down. The spawned area bomb is colorless
+//    cells and the square stands down. The one exception is a genuinely
+//    UNAMBIGUOUS embedded square (see isUnambiguousEmbeddedSquare below): a
+//    plain exactly-3 run plus a 2-cell extension into the row/column beside it
+//    (a 2x3 rectangle missing one corner) really is just one real, non-guessed
+//    square, so it fires anyway — a real playtest report, not a hypothetical.
+//    Still deferred, unchanged: two runs each producing their OWN overlapping
+//    square candidate (e.g. a full aligned 2x3, where both rows are
+//    independently exactly-3 runs) is a genuinely ambiguous case with no clear
+//    "which one wins," so both still stand down exactly as before. The spawned
+//    area bomb is colorless
 //    (drops its matchType, like a color bomb) and fires only when later
 //    swapped (resolveAreaBomb), not passively. If one of the square's four
 //    cells is already a live striped piece (matrix.ts's checkSquares allows
@@ -577,13 +586,69 @@ function resolveMatchEffects(
     for (const p of allCells) addClear(p.row, p.col);
   };
 
-  // Every cell any run covers this pass — a square is only allowed to spawn an
-  // area bomb when none of its four cells is in here (the pure-square rule that
-  // keeps L/T/larger shapes deferred, see the doc above).
+  // Every cell any run covers this pass, and — separately — the exact run
+  // length(s) covering each one. A square touching runCovered is USUALLY stood
+  // down (the pure-square rule that keeps L/T/larger shapes deferred, see the
+  // doc above), but a genuinely UNAMBIGUOUS embedded square (see
+  // isUnambiguousEmbeddedSquare below) is allowed through as its own real
+  // playtest-reported gap: a run of exactly 3 in one row/column plus a 2-cell
+  // extension into the adjacent row/column (a "2x3 rectangle missing one
+  // corner") IS a real, single, non-guessable 2x2 square — checkSquares
+  // (matrix.ts) already finds it unconditionally (it scans every 2x2 window on
+  // the board, with no "must be isolated" restriction at all), this function was
+  // simply standing it down unconditionally too, indistinguishably from the
+  // genuinely ambiguous/conflicting cases below.
   const runCovered = new Set<string>();
+  const runLengthsAt = new Map<string, number[]>();
   for (const match of matches) {
-    for (const p of match.positions) runCovered.add(keyOf(p.row, p.col));
+    for (const p of match.positions) {
+      const key = keyOf(p.row, p.col);
+      runCovered.add(key);
+      const lengths = runLengthsAt.get(key) ?? [];
+      lengths.push(match.positions.length);
+      runLengthsAt.set(key, lengths);
+    }
   }
+
+  // A square that overlaps a run is fired anyway, instead of standing down,
+  // ONLY when all three of these hold — each guards a genuinely different way
+  // "which shape wins here?" could otherwise be a silent guess:
+  //  1. Every run touching any of the square's 4 cells is EXACTLY length 3 (an
+  //     ordinary match, the "else" branch above). A 4/5-long arm already spawns
+  //     its own striped piece/color bomb over those same cells — letting a
+  //     square also fire there would double-spawn a special over one event.
+  //     This preserves the existing, confirmed 4/5-arm precedence tests
+  //     unchanged.
+  //  2. No OTHER detected square shares a cell with this one. Two overlapping
+  //     squares (e.g. a full, aligned 2x3 rectangle, where BOTH rows are
+  //     independently exactly-3 runs) is a genuinely different, harder case —
+  //     which of the two would "win" is an unresolved design question, not
+  //     something to guess at here — so both stand down exactly as before,
+  //     unchanged from today's behavior.
+  //  3. The square shares no cell with any detected cross (matrix.ts's
+  //     checkCrossShapes). A cross's own arms are runs too (always exactly
+  //     length 3, so rule 1 alone wouldn't exclude them) — this rule keeps a
+  //     square from double-spawning a second area bomb over a genuine L/T/plus
+  //     the cross loop above already resolved.
+  const isUnambiguousEmbeddedSquare = (square: Square): boolean => {
+    const overlapsOnlyPlainRuns = square.positions.every((p) => {
+      const lengths = runLengthsAt.get(keyOf(p.row, p.col));
+      return !lengths || lengths.every((length) => length === 3);
+    });
+    if (!overlapsOnlyPlainRuns) return false;
+
+    const isSharedWithAnotherSquare = squares.some(
+      (other) =>
+        other !== square &&
+        other.positions.some((p) => square.positions.some((q) => q.row === p.row && q.col === p.col))
+    );
+    if (isSharedWithAnotherSquare) return false;
+
+    const overlapsACross = crosses.some((cross) =>
+      cross.positions.some((p) => square.positions.some((q) => q.row === p.row && q.col === p.col))
+    );
+    return !overlapsACross;
+  };
 
   for (const match of matches) {
     const cells = match.positions;
@@ -624,9 +689,10 @@ function resolveMatchEffects(
   // new job is converting the SHARED cell into an area-bomb anchor instead of
   // letting it clear — the existing "an anchor cell is never also gapped"
   // step below (the anchorByKey deletion from clearedKeys) already covers
-  // that, unmodified. A square overlapping a cross's arm already stands down
-  // via the existing runCovered check just below, since a cross's arm cells
-  // are literal Match positions and therefore already in runCovered.
+  // that, unmodified. A square overlapping a cross's arm stands down via
+  // isUnambiguousEmbeddedSquare's explicit cross-overlap check below (a
+  // cross's arms are always exactly-length-3 runs, so the plain run-length
+  // rule alone wouldn't exclude them).
   for (const cross of crosses) {
     const anchor = cross.positions[0];
     // A live striped piece anywhere in the cross already fired its own sweep
@@ -651,8 +717,19 @@ function resolveMatchEffects(
   // anchor-conversion shape a 4-run uses for a striped piece: convert the
   // top-left cell, clear the other three (so a square credits 3 toward
   // objectives now; the bomb pays out the rest when it later fires).
+  //
+  // A square touching a run stands down UNLESS isUnambiguousEmbeddedSquare
+  // says it's the one genuine, non-guessable embedding (see that function's
+  // doc above) — e.g. a plain 3-run in one row plus a 2-cell extension into
+  // the row alongside it (a 2x3 rectangle missing one corner). In that case
+  // this loop proceeds exactly as the no-overlap case below: the anchor may
+  // already be in the run's own clear set, but the "an anchor cell is never
+  // also gapped" step at the end of this function (anchorByKey deletion from
+  // clearedKeys) already handles that correctly — the same machinery a
+  // cross's shared crossing cell already relies on.
   for (const square of squares) {
-    if (square.positions.some((p) => runCovered.has(keyOf(p.row, p.col)))) continue;
+    const overlapsRun = square.positions.some((p) => runCovered.has(keyOf(p.row, p.col)));
+    if (overlapsRun && !isUnambiguousEmbeddedSquare(square)) continue;
     const stripedCorners = square.positions.filter((p) => board[p.row][p.col].type === 'striped');
     if (stripedCorners.length > 0) {
       fireStripedTriggersAndClearAll(stripedCorners, square.positions);

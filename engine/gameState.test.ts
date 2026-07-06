@@ -1799,23 +1799,31 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(hasLegalMoves(areaPlusSpecial)).toBe(false);
   });
 
-  test('a square overlapping a straight run (NOT a genuine two-arm crossing) does not spawn an area bomb — square/run overlap stays deferred', () => {
+  test('an unambiguous square embedded in a straight run now spawns an area bomb — a real playtest gap, fixed', () => {
+    // Real playtest report: two cells on one row plus three on the row/column
+    // beside it, sharing two columns/rows — a 2x3 rectangle missing one
+    // corner. Investigated: checkSquares (matrix.ts) already finds this
+    // embedded square unconditionally (it scans every 2x2 window on the
+    // board with no isolation requirement) — the gap was resolveMatchEffects
+    // standing down EVERY square touching a run, indiscriminately, rather
+    // than only the genuinely ambiguous/conflicting cases (see
+    // isUnambiguousEmbeddedSquare in gameState.ts). This test covers the
+    // column-oriented transpose of the report; the row-oriented literal shape
+    // is covered by the next test.
     const board = distinctBoard(5, 5);
-    // Four A's placed so ONE swap forms a square-overlapping-a-run shape: a
-    // vertical 3-run in column 1 (rows 0-2) AND the 2x2 {(0,1),(0,2),(1,1),(1,2)}
-    // at once. Neither the run nor the square pre-exists (both need cell
-    // (0,1), which the swap fills). The square's cells overlap the run, so it
-    // stands down — no bomb. NOTE: there is no horizontal run of length >= 3
-    // anywhere in this configuration (row 0 and row 1 each only have 2 A's),
-    // so this was never a genuine two-arm crossing — a true L/T/plus crossing
-    // is now a separate, built trigger (see the crossing-run describe block
-    // below); this test is unaffected by that feature and still covers the
-    // still-deferred square/run-overlap case.
+    // Four A's placed so ONE swap forms the shape: a vertical 3-run in column
+    // 1 (rows 0-2) AND the 2x2 {(0,1),(0,2),(1,1),(1,2)} at once. Neither the
+    // run nor the square pre-exists (both need cell (0,1), which the swap
+    // fills). NOTE: there is no horizontal run of length >= 3 anywhere in
+    // this configuration (row 0 and row 1 each only have 2 A's), so this was
+    // never a genuine two-arm crossing — a true L/T/plus crossing is a
+    // separate, already-built trigger (see the crossing-run describe block
+    // below), unaffected by this fix.
     board[1][1] = piece('A', '1-1');
     board[2][1] = piece('A', '2-1');
     board[0][2] = piece('A', '0-2');
     board[1][2] = piece('A', '1-2');
-    // The A that completes the L, parked at (0,0), swapped into (0,1).
+    // The A that completes the shape, parked at (0,0), swapped into (0,1).
     board[0][0] = piece('A', '0-0');
     // Pre-move sanity: no run and no square yet.
     expect(checkMatches(board)).toHaveLength(0);
@@ -1824,16 +1832,98 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     const swapped = swapPieces(board, { row: 0, col: 0 }, { row: 0, col: 1 });
     // Defensive proof this is not a genuine crossing: no horizontal run of
     // length >= 3 exists through the shared cells, so checkCrossShapes must
-    // find nothing here, independent of the square/run-overlap outcome below.
+    // find nothing here, independent of the embedded-square outcome below.
     expect(checkCrossShapes(swapped)).toHaveLength(0);
+    // Exactly one embedded square exists — the unambiguous case this fix
+    // allows through (contrast with the genuinely ambiguous test below).
+    expect(checkSquares(swapped)).toHaveLength(1);
 
     const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
 
-    // The overlapping square stood down: no area bomb spawned. (The column-1
-    // 3-run resolved as an ordinary clear.)
-    expect(countType(result.state.board, 'area_bomb')).toBe(0);
-    // A real move happened.
+    // The embedded square fired: exactly one area bomb, not an ordinary clear.
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    // The anchor is the square's top-left cell (0,1) — the piece that landed
+    // there after the swap, id '0-0'.
+    const bomb = findById(result.state.board, '0-0');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    expect(bomb?.direction).toBeUndefined();
+    // The other 4 cells of the combined run+square shape cleared: the run's
+    // other two cells, plus the square's other two cells.
+    for (const id of ['1-1', '2-1', '0-2', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
+    // 4 objective credits + 1 anchor — the same accounting shape a 5-run's
+    // color bomb and the L/T/plus cross both use, since this is also a
+    // 5-cell shape.
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 4);
     expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('the literal reported shape (2 cells top row, 3 cells bottom row, sharing the left 2 columns) spawns an area bomb', () => {
+    const board = distinctBoard(5, 5);
+    // Target shape once the swap lands: (0,0),(0,1) on top, (1,0),(1,1),(1,2)
+    // below — a 2x3 box missing its top-right corner, exactly as reported.
+    // Four of the five cells are pre-filled; the fifth, (1,1), is filled by
+    // swapping in a donor from OUTSIDE the shape (one cell below, at (2,1)) —
+    // the same "foreign donor" recipe the crossing-run tests use, so the
+    // swap doesn't have to rob one of the other 4 cells to fill this one.
+    board[0][0] = piece('A', '0-0');
+    board[0][1] = piece('A', '0-1');
+    board[1][0] = piece('A', '1-0');
+    board[1][2] = piece('A', '1-2');
+    board[2][1] = piece('A', '2-1'); // donor, one cell below the gap at (1,1)
+    // Pre-move sanity: no run and no square yet — (1,1) itself is still an
+    // unrelated grid piece, breaking every line through it.
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const swapped = swapPieces(board, { row: 1, col: 1 }, { row: 2, col: 1 });
+    expect(checkCrossShapes(swapped)).toHaveLength(0); // never a genuine crossing
+    expect(checkSquares(swapped)).toHaveLength(1); // exactly one, unambiguous
+
+    const result = applyMove(stateWith(board, 'A'), { row: 1, col: 1 }, { row: 2, col: 1 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    // The anchor is the square's top-left cell (0,0), untouched by this swap.
+    const bomb = findById(result.state.board, '0-0');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    // The other 4 cells cleared: the run's 3 cells (1,0)/(1,1 = the donor,
+    // id '2-1')/(1,2), plus the square's remaining corner (0,1).
+    for (const id of ['0-1', '1-0', '2-1', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 4);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a genuinely ambiguous embedded square (two overlapping candidates) still stands down — never silently guessed', () => {
+    // A full, aligned 2x3 rectangle: BOTH rows are independently exactly-3
+    // runs (row 0 cols 0-2, row 1 cols 0-2), so checkSquares finds TWO valid,
+    // overlapping 2x2 candidates (cols 0-1 and cols 1-2) — genuinely
+    // ambiguous, unlike the two tests above (each has only one embedded
+    // candidate). This is the harder case explicitly flagged as still
+    // deferred rather than silently resolved: no bomb spawns for either
+    // candidate, and both rows just clear as ordinary 3-matches.
+    const board = distinctBoard(5, 5);
+    for (const col of [0, 1, 2]) {
+      board[0][col] = piece('A', `0-${col}`);
+      board[1][col] = piece('A', `1-${col}`);
+    }
+    expect(checkMatches(board)).toHaveLength(2); // both rows, independently
+    expect(checkSquares(board)).toHaveLength(2); // two overlapping candidates
+
+    // An unrelated swap elsewhere on the board — the ambiguous shape already
+    // exists before this swap, so this just exercises applyMove's real
+    // resolution path against it (no snap-back, since the board already has
+    // matches regardless of this swap's own two cells).
+    const result = applyMove(stateWith(board, 'A'), { row: 4, col: 4 }, { row: 4, col: 3 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    // Both rows cleared as ordinary matches — no anchor withheld from either.
+    for (const id of ['0-0', '0-1', '0-2', '1-0', '1-1', '1-2']) {
+      expect(hasId(result.state.board, id)).toBe(false);
+    }
+    expect(result.state.objectives[0].currentCount).toBe(6);
   });
 });
 
