@@ -132,3 +132,16 @@ Update DECISIONS.md, DEFERRED_COMPLEXITY.md, and CLAUDE.md's own scope notes as 
 
 
 This protocol applies by default. A future prompt doesn't need to restate it, just describe the actual symptom and trust this standing expectation to shape the investigation.
+
+## Git Workflow Discipline
+
+This project works explicitly on main. No feature branches, no long-lived stashes, one continuous history everyone can trust.
+
+
+Confirm the branch before starting any new work. A quick git status or git branch at the start of a session costs nothing and catches drift immediately, before it has a chance to compound into something tangled later.
+Commit promptly once something is confirmed done and verified, don't stash it. A stash is invisible to anyone not already looking for it, and it's exactly what caused a real, genuinely tangled conflict once already, two separate features colliding on the same lines with no clean side to pick because the stash sat untouched while other work landed on top of it in the meantime. If work needs to pause mid-stream, commit it, even as a rough checkpoint, rather than stashing it and hoping to return before anything else changes underneath it.
+Prefer small, frequent commits over large batches. A history where every single commit is independently correct and independently testable is worth more than it might seem, it makes any future conflict resolution dramatically easier, it survives an unpredictable disruption cleanly, and it makes tracing exactly when something changed straightforward rather than a guessing game.
+If a conflict ever does arise, reconstruct the intended commits deliberately, don't resolve it as one merged blob. When two genuinely different pieces of work land on the same lines with no single correct side, stage each logical change back into its own clean commit by hand, verify each one in true isolation before it's created, the same discipline already proven out once, rather than combining everything into one commit and hoping the result is right.
+
+
+This protocol applies by default going forward, the same way the Playtest Feedback Protocol already does, no need to restate it, just follow it.
