@@ -11,12 +11,16 @@ export interface HudProps {
   lives: number;
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
+  // Already-resolved display label (a hand-built level's displayName, or
+  // "Level N" for a generated one — see levelProgress.ts's
+  // resolveLevelDisplayName) — Hud only renders it, it doesn't derive it.
+  levelLabel: string;
 }
 
 // Flat panels, no decorative frame — per CLAUDE.md's design constraints,
 // every pixel spent on chrome here is a pixel not spent on tile size (and
 // tap accuracy) for the actual board.
-export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }: HudProps) {
+export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, levelLabel }: HudProps) {
   // config.lives.icon is a sprite reference with the same shape as a
   // pieceTypes entry (see lalas-kitchen-build-spec.md), so it goes through
   // the exact same resolveSpriteAsset() pipeline as any board piece —
@@ -24,39 +28,45 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }:
   const livesSprite = resolveSpriteAsset(config.lives.icon, spriteAssets);
 
   return (
-    <View style={styles.row}>
-      <Panel config={config} label="Target">
-        {/* One icon+count pair per objective, stacked — a single-objective
-            level (still every hand-built level today) renders exactly the
-            one row this panel always has, so this isn't a visual change
-            unless a level actually has more than one. */}
-        {objectives.map((objective, index) => {
-          const targetSprite = resolveSpriteAsset(
-            getSpriteForMatchType(objective.targetMatchType, config),
-            spriteAssets
-          );
-          return (
-            <View
-              key={objective.targetMatchType}
-              style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
-            >
-              <Glyph sprite={targetSprite} color={config.palette.accent} />
-              <Text style={styles.value}>
-                {objective.currentCount}/{objective.targetCount}
-              </Text>
-            </View>
-          );
-        })}
-      </Panel>
-      <Panel config={config} label="Moves">
-        <Text style={styles.value}>{movesRemaining}</Text>
-      </Panel>
-      <Panel config={config} label="Lives">
-        <View style={styles.glyphRow}>
-          <Glyph sprite={livesSprite} color={config.palette.accent} />
-          <Text style={styles.value}>{Math.max(lives, 0)}</Text>
-        </View>
-      </Panel>
+    <View>
+      {/* A plain muted line, not a fourth panel — the same "never compete
+          with Target/Moves/Lives" reasoning Board.tsx's exit button already
+          uses, just applied to a label instead of a button. */}
+      <Text style={[styles.levelLabel, { color: config.palette.mutedText }]}>{levelLabel}</Text>
+      <View style={styles.row}>
+        <Panel config={config} label="Target">
+          {/* One icon+count pair per objective, stacked — a single-objective
+              level (still every hand-built level today) renders exactly the
+              one row this panel always has, so this isn't a visual change
+              unless a level actually has more than one. */}
+          {objectives.map((objective, index) => {
+            const targetSprite = resolveSpriteAsset(
+              getSpriteForMatchType(objective.targetMatchType, config),
+              spriteAssets
+            );
+            return (
+              <View
+                key={objective.targetMatchType}
+                style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
+              >
+                <Glyph sprite={targetSprite} color={config.palette.accent} />
+                <Text style={styles.value}>
+                  {objective.currentCount}/{objective.targetCount}
+                </Text>
+              </View>
+            );
+          })}
+        </Panel>
+        <Panel config={config} label="Moves">
+          <Text style={styles.value}>{movesRemaining}</Text>
+        </Panel>
+        <Panel config={config} label="Lives">
+          <View style={styles.glyphRow}>
+            <Glyph sprite={livesSprite} color={config.palette.accent} />
+            <Text style={styles.value}>{Math.max(lives, 0)}</Text>
+          </View>
+        </Panel>
+      </View>
     </View>
   );
 }
@@ -86,6 +96,12 @@ function Panel({
 }
 
 const styles = StyleSheet.create({
+  levelLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 4,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',

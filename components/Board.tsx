@@ -30,6 +30,7 @@ import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTil
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { cascadeFallDurationMs, terminalOverlayHoldMs, SWEEP_TILE_STAGGER_MS } from './cascadeTiming';
 import { Hud } from './Hud';
+import { resolveLevelDisplayName } from './levelProgress';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { SpecialTutorialOverlay } from './SpecialTutorialOverlay';
 import { adService } from '../services/defaultAdService';
@@ -668,6 +669,7 @@ export function Board({
         lives={gameState.lives}
         config={skinConfig}
         spriteAssets={spriteAssets}
+        levelLabel={resolveLevelDisplayName(levelConfig.displayName, levelIndex)}
       />
       <View
         style={styles.boardArea}
