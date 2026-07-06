@@ -561,7 +561,14 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // The area-bomb clause therefore runs FIRST and returns false for a special
 // partner, so that pair isn't wrongly counted as legal via the color-bomb clause
 // below.
-export function hasLegalMoves(board: Board): boolean {
+//
+// Returns the actual pair, not just whether one exists — row-major scan order
+// (top-to-bottom, left-to-right, right-neighbour checked before down-neighbour),
+// so the same board always surfaces the same pair. `hasLegalMoves` below is a
+// one-line boolean wrapper over this, not a second copy of the scan — the calm
+// stuck-player hint (components/Board.tsx) is what actually needs the pair; the
+// shuffle system only ever needed the boolean, which this still gives it for free.
+export function findAnyLegalMove(board: Board): { a: Position; b: Position } | null {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
 
@@ -596,14 +603,22 @@ export function hasLegalMoves(board: Board): boolean {
       if (!swappable(board[r][c])) continue;
       if (c + 1 < cols && swappable(board[r][c + 1])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r, col: c + 1 });
-        if (legalPair(board[r][c], board[r][c + 1], swapped)) return true;
+        if (legalPair(board[r][c], board[r][c + 1], swapped)) {
+          return { a: { row: r, col: c }, b: { row: r, col: c + 1 } };
+        }
       }
       if (r + 1 < rows && swappable(board[r + 1][c])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r + 1, col: c });
-        if (legalPair(board[r][c], board[r + 1][c], swapped)) return true;
+        if (legalPair(board[r][c], board[r + 1][c], swapped)) {
+          return { a: { row: r, col: c }, b: { row: r + 1, col: c } };
+        }
       }
     }
   }
 
-  return false;
+  return null;
+}
+
+export function hasLegalMoves(board: Board): boolean {
+  return findAnyLegalMove(board) !== null;
 }

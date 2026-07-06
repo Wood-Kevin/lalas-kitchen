@@ -2832,3 +2832,93 @@ not the fixed one. All existing square/cross *detection* tests
 itself needed zero changes — this was entirely a `resolveMatchEffects`
 precedence fix. 401 tests pass (`npm test`). Verified live, see
 `docs/verification/embedded-square-in-run/`.
+
+## Calm stuck-player hint: a sibling to hasLegalMoves, not a new detector
+
+Highest-leverage item left from a systems audit, after the two prior
+sessions' fixes. Investigated first: `engine/matrix.ts`'s `hasLegalMoves`
+already computes "does a legal move exist" as the boolean gate the shuffle
+system (`engine/generator.ts`'s `generateLevel`, `gameState.ts`'s
+post-cascade rescue) already relies on — and a repo-wide search confirmed no
+player-facing version of this existed anywhere (no hint/idle/nudge UI in any
+component). So this was genuinely new surface, not a forgotten wire-up.
+
+**`findAnyLegalMove` is the real scan; `hasLegalMoves` is now the wrapper.**
+Rather than duplicate the scan (board-shape/blocker/void exclusions, the
+per-special-type legality rules for a color bomb, area bomb, striped+striped
+pair, and square-forming swap), `findAnyLegalMove` is the exact same
+row-major scan `hasLegalMoves` already ran, just returning the `{a, b}`
+`Position` pair it found instead of collapsing straight to `true` —
+`hasLegalMoves(board)` is now literally `findAnyLegalMove(board) !== null`.
+One scan, one source of truth; the shuffle system never needed the pair, so
+its callers are unaffected byte-for-byte.
+
+**The hint is a presentation-only pair of positions, not engine state** —
+unlike `spreadWarning` (a real `Piece` field the engine sets), `hintPair`
+lives entirely in `Board.tsx`'s own React state, the same shape `selected`/
+`dragTarget` already use (a `Position`-based highlight Board matches against
+`r`/`c` per tile in the render loop), because "has the player been idle 8
+seconds" is not something the engine has any business knowing.
+
+**Two independent timer resets, not one, to avoid a stale mid-cascade
+firing.** `gameState` only actually commits once a multi-pass cascade
+finishes *animating* (see `animateCascade`'s deferred `setGameState`) — a
+legal move can take a second or more of visible cascade time before the
+board reference changes at all. If the hint's countdown were reset ONLY by a
+`gameState`-keyed effect, an old countdown armed before the move began could
+fire mid-animation, gently glowing two cells that are literally mid-clear —
+exactly the kind of glitchy, not-calm moment this feature exists to prevent.
+So `attemptSwap` (the one shared tap/drag move-commit path) cancels the
+pending timer and hides any showing hint *synchronously*, the instant a move
+is attempted — legal or illegal — before `applyMove` even runs. A second
+effect, keyed on `[gameState, snapBack, showOnboardingTutorial,
+showBlockerTutorial, specialTutorial]` (deliberately broader than the
+existing `onStateChange`/special-tutorial effects above, which only care
+about committed moves — this one needs the *full* `canAcceptMove` gate, or
+the hint would never re-arm after e.g. a tutorial dismisses with no move
+made yet), re-arms a fresh 8-second window once the board is genuinely idle
+and interactive again.
+
+**`resetIdleHintTimer` (`components/stuckHintTiming.ts`) takes schedule/
+cancel as injected parameters**, the same pattern `gameState.ts`'s injected
+`spawnPiece`/`now` already use for exactly the same reason: this project has
+no React component-rendering test harness (see CLAUDE.md's Testing
+Philosophy), so Board's *other* timers (snap-back, cascade steps) are only
+ever verified via live capture — but the one thing genuinely worth pinning
+down in a real test file is the reset semantics themselves ("does making a
+move really cancel the old countdown and arm a fresh one"), which this
+injection makes directly testable with plain jest mocks, no timers, no
+component tree.
+
+**The glow reuses `SpreadWarningOverlay`'s exact breathing mechanism, but
+drops its meaning-carrying layers.** Both use the same `withRepeat` +
+`withTiming` reversing opacity ramp — the established "calm breathing"
+visual language this project already has one instance of — but
+`HintGlowOverlay` (`components/Tile.tsx`) has no dark dimming wash and no
+crack line, since those specifically signal "something bad is coming to this
+cell," the opposite of what a friendly nudge should feel like. A separate
+timing constant (`HINT_GLOW_PULSE_MS`, same 900ms value today) rather than
+sharing `SPREAD_WARNING_PULSE_MS` directly, so the two features' pacing
+isn't accidentally coupled if one needs to diverge later. `pointerEvents:
+'none'` throughout, same as every other tile overlay — the hinted tile
+stays fully tappable/draggable underneath, never intercepting the gesture
+that's supposed to happen next.
+
+**Deliberately not built:** any persisted "seen enough, stop showing"
+throttle or a configurable idle duration — unlike the sound-off default
+(real user research: "she said Candy Crush's sound was distracting"), there
+is no equivalent research signal yet that a recurring hint would annoy this
+specific player. Revisit only if real play surfaces that concern — see
+`DEFERRED_COMPLEXITY.md`.
+
+Verified with new tests: `engine/matrix.test.ts`'s `findAnyLegalMove`
+describe block (returns a real pair whose swap genuinely creates a match;
+returns `null` on a board with no legal move; agrees with `hasLegalMoves` on
+both) and `components/stuckHintTiming.test.ts` (cancels the old handle and
+arms a fresh one on every reset; arms with nothing pending; cancels without
+re-arming once a move can no longer be made; does nothing when neither
+applies). 408 tests pass (`npm test`). Verified live against the real
+running app: waited genuine idle wall-clock time past the 8-second
+threshold with zero input, confirmed the hint appears on a real legal pair
+with a slow, gentle breathing glow (no dim, no crack, no flash) — see
+`docs/verification/stuck-player-hint/`.

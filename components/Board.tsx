@@ -21,10 +21,12 @@ import {
   shouldShowOnboardingTutorial,
   HOW_TO_PLAY_TUTORIAL_ID,
 } from '../appPersistence';
+import { findAnyLegalMove } from '../engine/matrix';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import { sweepDelaysForClears } from './sweepAnimation';
+import { resetIdleHintTimer } from './stuckHintTiming';
 import { getSpriteForPiece } from './spriteMap';
 import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
@@ -132,6 +134,13 @@ const BOARD_HORIZONTAL_PADDING = 12;
 // require dragging the whole way there, but far enough that a small wobble on a
 // tap-turned-drag doesn't fire an unintended swap.
 const DRAG_SWAP_THRESHOLD_FRACTION = 0.4;
+
+// How long a player must be genuinely idle before the calm stuck-player hint
+// appears — "roughly eight seconds," long enough that it never fires on
+// someone still reading the board or mid-decision, only on someone who's
+// truly stopped interacting. See the hintPair/hintTimerRef declarations above
+// for the full feature rationale.
+const HINT_IDLE_MS = 8000;
 
 function isAdjacent(a: Position, b: Position): boolean {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
@@ -256,6 +265,14 @@ export function Board({
   // Monotonic per-move id, used only to key exiting tiles uniquely across
   // moves (a piece clears at most once per move, so id+move is unique).
   const moveCounterRef = useRef(0);
+  // The calm stuck-player hint (see components/stuckHintTiming.ts and
+  // CLAUDE.md's Playtest Feedback Protocol's calm-not-frantic principle):
+  // after HINT_IDLE_MS of genuine quiet, gently glow a real legal move
+  // (engine/matrix.ts's findAnyLegalMove) so a player who plays to relax and
+  // gets stuck scanning the board has an easy way out — never a flashing
+  // arrow, never manufactured urgency. Null whenever no hint is showing.
+  const [hintPair, setHintPair] = useState<{ a: Position; b: Position } | null>(null);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The board actually drawn: the mid-cascade snapshot when animating, else
   // the committed game state. Grid dimensions are identical either way, so
@@ -351,11 +368,56 @@ export function Board({
     );
   }
 
+  // Arms/re-arms the calm stuck-player hint's idle countdown any time the
+  // "can a move even be made right now" gate changes for any reason: a move
+  // settles (gameState changes), an illegal swap snaps back (still real
+  // input — attemptSwap's own immediate hide below covers the gap before
+  // that state change lands), or an overlay/tutorial opens or closes. Broader
+  // deps than the onStateChange/special-tutorial effects above on purpose —
+  // those only care about committed moves, but this needs the FULL
+  // canAcceptMove gate, not just gameState, or the hint would never re-arm
+  // after e.g. a tutorial dismisses with no move made yet.
+  useEffect(() => {
+    setHintPair(null);
+    hintTimerRef.current = resetIdleHintTimer(
+      hintTimerRef.current,
+      canAcceptMove(),
+      () =>
+        setTimeout(() => {
+          setHintPair(findAnyLegalMove(gameState.board));
+        }, HINT_IDLE_MS),
+      clearTimeout
+    );
+    // canAcceptMove also reads animatingRef, deliberately excluded (a ref, not
+    // reactive — see its own doc comment above); attemptSwap's immediate hide
+    // is what covers the moment a move starts, before gameState settles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState, snapBack, showOnboardingTutorial, showBlockerTutorial, specialTutorial]);
+
+  useEffect(() => {
+    // Same unmount safety net as stepTimersRef's own cleanup effect above,
+    // for the hint's timer specifically — a ref needs no deps here either.
+    return () => {
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    };
+  }, []);
+
   // The single move-commit path shared by tap-to-select and drag-to-swap: run
   // applyMove for an adjacent pair and either snap back (rejected) or animate
   // the resulting cascade. Both callers have already established the two cells
   // are adjacent and a move is allowed.
   function attemptSwap(posA: Position, posB: Position) {
+    // Hide any showing hint and cancel its pending timer immediately — "the
+    // moment a player actually makes a move," not after this move's cascade
+    // finishes settling (gameState doesn't commit until animateCascade's
+    // final pass, well below), which would otherwise leave a stale countdown
+    // free to fire mid-animation against an already-outdated board.
+    if (hintTimerRef.current) {
+      clearTimeout(hintTimerRef.current);
+      hintTimerRef.current = null;
+    }
+    setHintPair(null);
+
     const result = applyMove(gameState, posA, posB);
 
     if (result.state === gameState) {
@@ -737,6 +799,14 @@ export function Board({
                     // per-type-from-engine pattern as `direction` above — the
                     // wisp is presentation only, the engine never sees it.
                     powderWisp={piece.type === 'area_bomb'}
+                    // True on exactly the two cells the calm stuck-player
+                    // hint picked (see hintPair above), or on neither tile
+                    // while no hint is showing.
+                    hint={
+                      !!hintPair &&
+                      ((hintPair.a.row === r && hintPair.a.col === c) ||
+                        (hintPair.b.row === r && hintPair.b.col === c))
+                    }
                     onPress={() => handleTilePress({ row: r, col: c })}
                     // Drag-to-swap, added alongside tap: a live drag from this
                     // tile highlights and (on release) swaps toward the

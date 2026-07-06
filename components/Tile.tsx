@@ -49,6 +49,15 @@ export interface TileProps {
   // tiles for attention (see PowderWispOverlay). Undefined/false on every other
   // piece, so no wisp renders. Presentation only — invisible to the engine.
   powderWisp?: boolean;
+  // Set on exactly the two tiles engine/matrix.ts's findAnyLegalMove picked,
+  // once Board.tsx's calm stuck-player timer decides the player has genuinely
+  // stopped interacting (see components/stuckHintTiming.ts). Drives a slow
+  // breathing glow — no dim wash, no crack, nothing urgent — since this is a
+  // friendly nudge, not a warning (contrast SpreadWarningOverlay, which reuses
+  // the same breathing mechanism for an actual hazard). Presentation only —
+  // the engine has no notion of a "hinted" piece, and the tile underneath
+  // stays fully tappable/draggable throughout.
+  hint?: boolean;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -96,6 +105,7 @@ export function Tile({
   direction,
   spreadWarning,
   powderWisp,
+  hint,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -246,6 +256,7 @@ export function Tile({
           )}
           {spreadWarning && <SpreadWarningOverlay tileSize={tileSize} accentColor={accentColor} />}
           {powderWisp && <PowderWispOverlay tileSize={tileSize} />}
+          {hint && <HintGlowOverlay accentColor={accentColor} />}
         </Pressable>
       </Animated.View>
     </GestureDetector>
@@ -365,6 +376,35 @@ function SpreadWarningOverlay({
           },
         ]}
       />
+    </View>
+  );
+}
+
+// The calm stuck-player hint's timing knob — see Board.tsx's HINT_IDLE_MS for
+// how long the player must be genuinely quiet before this ever mounts. A
+// separate constant from SPREAD_WARNING_PULSE_MS (same value today) rather
+// than sharing one: these are two different features whose pacing might need
+// to diverge later, and nothing here should couple their tuning by accident.
+const HINT_GLOW_PULSE_MS = 900;
+
+// Reuses SpreadWarningOverlay's exact breathing mechanism (a looped opacity
+// ramp, withRepeat + withTiming reversing) — the same calm visual language —
+// but deliberately drops that overlay's dark dimming wash and crack: those
+// read as "something bad is about to happen to this cell," which is the
+// opposite of what a friendly nudge should feel like. This is just a soft,
+// slow glow: no flashing arrow, no urgency, nothing that reads as "hurry up."
+// pointerEvents none, same reasoning as every other tile overlay — the hinted
+// tile stays fully tappable/draggable underneath.
+function HintGlowOverlay({ accentColor }: { accentColor: string }) {
+  const breath = useSharedValue(0.15);
+  useEffect(() => {
+    breath.value = withRepeat(withTiming(0.4, { duration: HINT_GLOW_PULSE_MS }), -1, true);
+  }, [breath]);
+  const breathStyle = useAnimatedStyle(() => ({ opacity: breath.value }));
+
+  return (
+    <View pointerEvents="none" testID="hint-glow" style={styles.hintFill}>
+      <Animated.View style={[styles.hintGlow, { backgroundColor: accentColor }, breathStyle]} />
     </View>
   );
 }
@@ -758,6 +798,27 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     opacity: 0.85,
     transform: [{ rotate: '24deg' }],
+  },
+  // The stuck-player hint's layers — a full-tile container plus a single
+  // breathing glow wash, deliberately just these two (no dim, no crack) so it
+  // reads as a soft highlight rather than a warning.
+  hintFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hintGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
   },
   // The powder-wisp overlay's container — a plain full-tile frame the two
   // absolutely-positioned wisps anchor inside. No layout of its own; each wisp

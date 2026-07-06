@@ -6,6 +6,7 @@ import {
   calculateCascades,
   shuffle,
   hasLegalMoves,
+  findAnyLegalMove,
   applyAdjacentDamage,
   findSpreadTarget,
   Board,
@@ -224,6 +225,44 @@ describe('hasLegalMoves', () => {
     ]);
 
     expect(hasLegalMoves(board)).toBe(false);
+  });
+});
+
+describe('findAnyLegalMove', () => {
+  test('returns an actual pair of positions — not just true — for a board that has a legal move, and swapping that exact pair really does create a match', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+
+    const move = findAnyLegalMove(board);
+
+    expect(move).not.toBeNull();
+    const swapped = swapPieces(board, move!.a, move!.b);
+    expect(checkMatches(swapped).length).toBeGreaterThan(0);
+  });
+
+  test('returns null for a board with no legal move anywhere', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+
+    expect(findAnyLegalMove(board)).toBeNull();
+  });
+
+  test('agrees with hasLegalMoves on every board — the boolean is just this result narrowed to non-null', () => {
+    const stuck = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+    const playable = buildBoard([
+      ['A', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+
+    expect(findAnyLegalMove(stuck) === null).toBe(!hasLegalMoves(stuck));
+    expect(findAnyLegalMove(playable) === null).toBe(!hasLegalMoves(playable));
   });
 });
 
