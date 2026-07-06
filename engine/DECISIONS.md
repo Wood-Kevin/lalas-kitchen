@@ -1666,6 +1666,97 @@ down the piece's full line, no area bomb spawns, the objective credits the
 matchType-matching cells). Verified live — see
 `docs/verification/square-striped-corner/`.
 
+### Crossing-run trigger (L/T/plus): a second, additive area-bomb spawn
+
+Closes part of the L/T-shape gap `DEFERRED_COMPLEXITY.md` logged alongside the
+area-bomb entry — but only the narrow slice that's a genuinely new shape, not
+a bigger special: a cell where a horizontal run and a vertical run, each
+**exactly length 3**, share one cell (the classic L, T, or plus) now spawns an
+area bomb at the shared cell, additive to — never a replacement for — the
+existing pure-2×2-square trigger.
+
+**The confirmed precedence rule.** A crossing candidate whose arm is 4 or 5
+long (which already spawns its own striped piece or color bomb via the
+existing run branch) stands down entirely at that cell — only an exact 3×3
+crossing spawns an area bomb. This was a genuine fork, confirmed with the
+architect before building (the alternative: the cross always wins, forcing a
+4/5-run to forfeit its own spawn). The chosen rule keeps a nice invariant
+intact: a pure 3+3 cross is always exactly 5 cells (3+3−1 shared corner),
+crediting 4 objectives + 1 anchor — the identical accounting shape a 5-run's
+color bomb already uses. Live-striped-piece-in-the-cross handling mirrors the
+square's own rule exactly (fires the existing special instead of spawning a
+new one).
+
+**New shape, new scan — `checkCrossShapes` (`matrix.ts`).** Built on the same
+`runsInLine` primitive `checkMatches` uses, so blocker/void/color_bomb/
+area_bomb are excluded "for free" via `piecesMatch` — no separate eligibility
+gate is needed here, unlike `checkSquares`' `squareEligible` (which
+reimplements corner adjacency from scratch and so needs its own gate). A live
+striped piece **is** included (mirrors `squareEligible`'s decision to allow a
+striped corner) — the scan only reports geometry; "an existing special fires
+itself instead of a new one spawning" is `gameState.ts`'s call, not this
+function's. The "exactly 3" filter is baked into the scan itself, not applied
+afterward by a caller — `checkCrossShapes` never even reports a 4/5-arm
+intersection as a candidate at all, which is what makes the precedence rule
+above hold with zero extra arbitration code.
+
+**Where it plugs in (`gameState.ts`).** `resolveMatchEffects` gained a third
+parameter (`crosses`) and a new loop between the existing run loop and square
+loop. It reuses the SAME anchor-wins-over-clear mechanism the square trigger
+already established (the trailing `clearedKeys.delete` over `anchorByKey`'s
+keys) rather than inventing a parallel "claimed cells" concept — a cross's
+five cells are already added to the ordinary clear set by its two
+already-existing `Match` entries (each arm is a real match), so the only new
+behavior is claiming the shared cell as an area-bomb anchor instead of letting
+it clear. Squares and crosses can never conflict: a square overlapping a
+cross's arm already stands down via the pre-existing `runCovered` check (a
+cross's arms are literal `Match` positions), confirmed with a regression test.
+`resolveCascades` computes `checkCrossShapes` each pass and threads it
+through — but does **not** need its own loop-continuation clause, since a
+cross's two arms are always already-counted ordinary matches.
+
+**No legality-gate wiring needed — a deliberate divergence from the square
+precedent.** `checkSquares` needed `hasLegalMoves`/`shuffle`/`applyMove`'s
+snap-back gate clauses because a pure 2×2 forms zero runs (invisible to
+`checkMatches`). A cross's entire premise is two runs `checkMatches` already
+sees, so `checkMatches(swapped).length > 0` already holds whenever a cross
+exists — verified directly by reading all three sites (plus the generator's
+`repairAccidentalMatches`, for the same reason); none needed a
+`checkCrossShapes` addition. A short comment was left at each site to preempt
+a future well-meaning "you forgot to wire this up" edit.
+
+**A structural finding worth recording.** A full 4-armed plus cannot be
+produced by a single legal adjacent swap from a match-free board — the
+crossing cell's grid-neighbours are entirely its own two arms, so any swap
+into it necessarily robs one arm. An L (crossing = endpoint of both arms) or T
+(endpoint of one, middle of the other) both work via one real swap, because
+the crossing cell then has a free neighbour outside the shape to donate a
+foreign matching piece. `gameState.test.ts`'s L/T integration tests exercise
+the full `applyMove` pipeline this way; the plus's degree-4 geometry is
+covered at the `checkCrossShapes` unit level only (`matrix.test.ts`), since
+`resolveMatchEffects`'s cross loop treats every degree identically.
+
+**Reconciling the existing deferred-scope test.** The pre-existing
+`gameState.test.ts` case titled "an L-shape (a square overlapping a straight
+run) does not spawn an area bomb — L/T stays deferred" was traced by hand: its
+board has only a vertical 3-run and an overlapping square, no horizontal run
+of length ≥3 anywhere — it was never a genuine two-arm crossing, just a
+square/run overlap. Its assertion is unchanged; it was retitled to
+disambiguate from this feature and gained a defensive
+`checkCrossShapes(...).toHaveLength(0)` assertion proving the point directly
+rather than only in a comment.
+
+Confirmed with new cases in `engine/matrix.test.ts` (plus/L/T positive
+detection with anchor + full-position assertions; a straight 5-run with no
+perpendicular run; the 4/5-arm precedence exclusion; blocker/void exclusion;
+live-striped inclusion; `hasLegalMoves` and `shuffle` regressions proving no
+new wiring was needed) and `engine/gameState.test.ts` (genuine T and L swaps
+each spawning one area bomb with correct crediting; the 4-arm and 5-arm cases
+each preserving the existing striped/color-bomb spawn unchanged; a live
+striped piece in the cross firing its own sweep instead; a square overlapping
+a cross's arm standing down so only one area bomb spawns). Verified live —
+see `docs/verification/crossing-shape/`.
+
 # Phase 8 — dynamic denial-zone spread (blockers that grow if ignored)
 
 ## Investigation first: a static denial zone needs zero new engine logic
@@ -1829,6 +1920,42 @@ deferred exactly like the supercombo's convert-to-striped flash. Verified live
 Still deferred: that per-link animation flash, and chaining a special caught by
 the *dynamic denial-zone spread* (unrelated — the spread only ever consumes
 ordinary cells). Both in `DEFERRED_COMPLEXITY.md`.
+
+## No merge table: simultaneous specials never combine into a new effect
+
+An explicit statement of a design property that fell out of the chaining work
+above but was never written down on its own: when 2+ specials fire together —
+whether via a chain (one caught in another's clear) or genuinely independently
+(two unrelated specials each completing their own separate run in the same
+`checkMatches` pass) — there is no lookup table, no special-cased pairing logic,
+anywhere that produces a *combined* effect. `expandChainClears` only ever
+contributes each caught special's own fixed geometry (a striped sweep, a 3x3
+blast, a whole-board detonation) into the shared clear `Set`; the dispatch inside
+it switches on one piece's own type at a time, never on what else is present in
+the set. "Area bomb + striped fire together" is, mechanically, nothing more than
+two independent position sets landing in the same `Set<string>`.
+
+The two apparent exceptions — `resolveStripedCross` (two striped pieces swapped
+directly into each other → a full cross) and `resolveStripedBombCombo` (a striped
+piece swapped directly into a color bomb → the supercombo) — are a **different
+mechanism entirely**, not a merge of independently-firing effects. Both trigger
+on a *direct swap between two specials*, computed as their own fixed geometry
+up front (before either piece would otherwise have fired on its own), and both
+are then origins in `resolveClearSet`'s chain expansion so they don't also
+separately re-fire their solo effect on top of the combo. They are the only two
+pairings anyone has designed a combined effect for.
+
+Area bomb + any other special via a direct swap remains an explicit no-op — it
+snaps back with no move spent, per `DEFERRED_COMPLEXITY.md`'s "area + special
+combos" entry (line 10). If a real combined effect for that pairing (or any
+other) is ever wanted, it has to be built as a new named case, the same way the
+two combos above were — the architecture does not fall into one by accident.
+Verified by direct code inspection (no test can prove the absence of a case
+that doesn't exist) plus a new regression test covering the one previously
+reasoned-but-unproven path: two wholly independent specials firing in the same
+pass with no chain/catch relationship between them (`gameState.test.ts`'s
+"two independent striped pieces..." test, `applyMove — multiSpecialFired`
+describe block).
 
 ---
 
@@ -2024,6 +2151,89 @@ from flashing back in that gap — the once-ever guarantee stays honest.
 the blocker tutorial and `unlockRecipeCard` — no new persistence pattern. Verified
 live (real `applyMove` forging a striped, real `findSpecialPieceTutorial`, real
 `getSpriteForPiece` art, real copy), see `docs/verification/special-piece-tutorial/`.
+
+## `chain_reaction`: the fourth tutorial, teaching the moment 2+ specials fire together
+
+The three per-piece tutorials above each explain one special in isolation.
+Nothing ever taught the actual differentiator of this whole game: the moment
+more than one special piece fires **together** from a single move, whether
+via chaining (a special caught in another's clear firing its own effect too)
+or a combo (two swapped specials). This adds that fourth card,
+`chain_reaction` (`appPersistence.ts`'s `CHAIN_REACTION_TUTORIAL_ID`), reusing
+the exact same `seenTutorials`/`SpecialTutorialOverlay` machinery the first
+three proved out.
+
+**The trigger reuses the chaining bookkeeping directly — no new detection.**
+`expandChainClears`'s `originKeys` already distinguishes, per pass, the
+specials an effect fires as its own trigger from the specials it merely
+*catches*, and both categories are already known to have fired their own
+effect into that pass's clear set (see the special-piece-chaining entry
+above). The only new code is `countFiredSpecials(board, positions)` — a pure
+count, over a clear set every caller already had in hand, of how many of
+those positions were already a special piece (`striped`/`color_bomb`/
+`area_bomb`) on the pre-pass board — threaded through as `specialsFired`
+(`resolveMatchEffects`) and `maxSpecialsFired` (`CascadeResolution`, the new
+shared return shape every cascade-resolving helper now uses). `applyMove`
+exposes `ApplyMoveResult.multiSpecialFired = maxSpecialsFired >= 2`.
+
+**Max across passes, not a sum.** A long cascade can fire several specials
+across several sequential passes without any of them ever compounding
+*together* — that's just an ordinary chain, not the teachable moment. Tracking
+the largest count reached within any SINGLE pass (rather than summing every
+pass) is what keeps the trigger meaning "multiple specials went off at
+once," not "this move happened to involve more than one special somewhere in
+a long chain." A combo (striped+striped, striped+bomb) always reads as 2+ in
+its own first pass regardless — both swapped specials are origins in
+`resolveClearSet`'s very first call, so a combo trips this without relying on
+catching anything further.
+
+**Not a board scan, unlike the three per-piece tutorials.** `findSpecialPieceTutorial`
+works by scanning the settled board for a still-resting unseen special — but
+the specials that fired a chain reaction are, by definition, already cleared
+by the time the move settles; there is no piece left to find. So
+`shouldShowChainReactionTutorial(multiSpecialFired, seenTutorials)` is a plain
+once-ever boolean gate (the same shape as `shouldShowBlockerTutorial`) over a
+value carried straight out of this move's own `applyMove` call, not a
+re-derivable property of the resulting `GameState`.
+
+**`SpecialTutorialOverlay`'s `piece` prop is now `Piece | null`.** The three
+existing tutorials anchor their icon to the one real piece that just
+appeared; chain_reaction has no single piece to point at — it celebrates a
+moment, not a piece. Null falls back to `spriteLabel(tutorialId)` (`"CH"`),
+the same text-label convention every un-arted sprite already uses, rather
+than inventing a second fallback mechanism. One consequence worth flagging:
+dropping real dedicated art in later for the first three tutorials is a
+zero-code `spriteRegistry.ts` line (`getSpriteForPiece` already resolves
+through it); chain_reaction's icon never consults the registry at all today,
+so giving it real art later needs a small code change, not just a registry
+entry — logged in `DEFERRED_COMPLEXITY.md`.
+
+**Two tutorials never stack — for free, from `Board.tsx`'s existing render
+order, not new priority logic.** `animateCascade`'s final-pass branch now
+sets `specialTutorial` from `result.multiSpecialFired` synchronously,
+alongside `setGameState(finalState)` — the same tick the combo-streak banner
+already fires on. The existing post-move effect that scans for a per-piece
+tutorial runs afterward (React batches both updates, then the effect sees
+the already-rendered state) and already no-ops whenever `specialTutorial` is
+truthy. So chain_reaction naturally wins any same-move collision with an
+unrelated freshly-spawned special simply by being set first; the suppressed
+per-piece tutorial shows on whatever later move leaves that special resting
+on the board, exactly like the existing "second special minted the same move
+waits for the next move" rule the three-tutorial entry above already
+established — this just extends that same rule to a fourth candidate instead
+of inventing an explicit priority check.
+
+**Verified live from the start, not as a follow-up gap-closure.** The three
+per-piece tutorials' first capture fed color bomb and area bomb a real
+resting `Piece` directly, and needed a *second* capture
+(`special-piece-tutorial/organic-spawns/`) to prove they also fire from a
+genuine in-game spawn. This session built the organic capture in from the
+start: a hand-built board (verified match-free against the real
+`checkMatches`/`checkSquares` in a throwaway test before use) where a real
+two-tap swap on the real running app makes a color bomb detonation
+genuinely chain into a caught live striped piece, sweeping a whole column —
+asserted via the real DOM, not read off a screenshot. See
+`docs/verification/chain-reaction-tutorial/`.
 
 # Dev-only reset — wipe the save and restart fresh, without OS storage settings
 

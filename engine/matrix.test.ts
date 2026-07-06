@@ -1,6 +1,7 @@
 import {
   checkMatches,
   checkSquares,
+  checkCrossShapes,
   swapPieces,
   calculateCascades,
   shuffle,
@@ -546,6 +547,203 @@ describe('checkSquares — 2x2 block detection', () => {
     const shuffled = shuffle(board, seededRng(7));
     expect(checkMatches(shuffled)).toHaveLength(0);
     expect(checkSquares(shuffled)).toHaveLength(0);
+  });
+});
+
+describe('checkCrossShapes — L/T/plus crossing-run detection', () => {
+  test('finds a plus shape (crossing cell is the middle of both arms) and returns it anchor-first', () => {
+    // Row 2, cols 1-3 and col 2, rows 1-3 are each an exactly-3 run sharing
+    // (2,2) — the classic plus. Everything else is a distinct matchType so
+    // this is the only shape on the board.
+    const board = buildBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'v', 'A', 'w', 'x'],
+      ['y', 'A', 'A', 'A', 'z'],
+      ['m', 'c', 'A', 'o', 'k'],
+      ['e', 'f', 'g', 'h', 'i'],
+    ]);
+    // Sanity: checkMatches already independently sees both arms as ordinary
+    // 3-runs — this is exactly why no legality-gate wiring was needed (see
+    // engine/DECISIONS.md's crossing-run entry).
+    expect(checkMatches(board)).toHaveLength(2);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const crosses = checkCrossShapes(board);
+    expect(crosses).toHaveLength(1);
+    expect(crosses[0].matchType).toBe('A');
+    // positions[0] is the crossing cell — the anchor that becomes the area bomb.
+    expect(crosses[0].positions[0]).toEqual({ row: 2, col: 2 });
+    expect(sortPositions(crosses[0])).toEqual([
+      { row: 1, col: 2 },
+      { row: 2, col: 1 },
+      { row: 2, col: 2 },
+      { row: 2, col: 3 },
+      { row: 3, col: 2 },
+    ]);
+  });
+
+  test('finds an L shape (crossing cell is the shared endpoint of both arms)', () => {
+    const board = buildBoard([
+      ['A', 'A', 'A', 'p'],
+      ['A', 'q', 'r', 's'],
+      ['A', 't', 'u', 'v'],
+      ['w', 'x', 'y', 'z'],
+    ]);
+    expect(checkMatches(board)).toHaveLength(2);
+
+    const crosses = checkCrossShapes(board);
+    expect(crosses).toHaveLength(1);
+    expect(crosses[0].positions[0]).toEqual({ row: 0, col: 0 });
+    expect(sortPositions(crosses[0])).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 0 },
+      { row: 2, col: 0 },
+    ]);
+  });
+
+  test('finds a T shape (crossing cell is the middle of one arm, the endpoint of the other)', () => {
+    const board = buildBoard([
+      ['A', 'A', 'A', 'p'],
+      ['q', 'A', 'r', 's'],
+      ['t', 'A', 'u', 'v'],
+      ['w', 'x', 'y', 'z'],
+    ]);
+    expect(checkMatches(board)).toHaveLength(2);
+
+    const crosses = checkCrossShapes(board);
+    expect(crosses).toHaveLength(1);
+    expect(crosses[0].positions[0]).toEqual({ row: 0, col: 1 });
+    expect(sortPositions(crosses[0])).toEqual([
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 0, col: 2 },
+      { row: 1, col: 1 },
+      { row: 2, col: 1 },
+    ]);
+  });
+
+  test('a straight 5-run with no perpendicular run anywhere is not a cross', () => {
+    const board = buildBoard([
+      ['A', 'A', 'A', 'A', 'A'],
+      ['b', 'c', 'd', 'e', 'f'],
+      ['g', 'h', 'i', 'j', 'k'],
+      ['l', 'm', 'n', 'o', 'p'],
+      ['q', 'r', 's', 't', 'u'],
+    ]);
+    expect(checkMatches(board)).toHaveLength(1);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+  });
+
+  // The confirmed precedence rule: a crossing point only spawns an area bomb
+  // when BOTH arms are exactly length 3. A 4- or 5-long arm already spawns its
+  // own striped piece / color bomb via the ordinary run logic, so
+  // checkCrossShapes must never report it as a candidate at all — this is
+  // baked into the scan, not filtered afterward by a caller (see
+  // engine/DECISIONS.md's crossing-run entry).
+  test('a 4-long arm crossing an exactly-3 arm is NOT reported as a cross', () => {
+    const board = buildBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'A', 'v', 'w', 'x'],
+      ['A', 'A', 'A', 'A', 'y'],
+      ['z', 'A', 'aa', 'bb', 'cc'],
+      ['dd', 'ee', 'ff', 'gg', 'hh'],
+    ]);
+    // Sanity: checkMatches sees both the 4-run and the 3-run independently.
+    expect(checkMatches(board)).toHaveLength(2);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+  });
+
+  test('a 5-long arm crossing an exactly-3 arm is NOT reported as a cross', () => {
+    const board = buildBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'A', 'v', 'w', 'x'],
+      ['A', 'A', 'A', 'A', 'A'],
+      ['z', 'A', 'aa', 'bb', 'cc'],
+      ['dd', 'ee', 'ff', 'gg', 'hh'],
+    ]);
+    expect(checkMatches(board)).toHaveLength(2);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+  });
+
+  test('a blocker at the crossing cell breaks both arms — not a cross', () => {
+    const board = buildBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'v', 'A', 'w', 'x'],
+      ['y', 'A', 'A', 'A', 'z'],
+      ['m', 'c', 'A', 'o', 'k'],
+      ['e', 'f', 'g', 'h', 'i'],
+    ]);
+    board[2][2] = blockerPiece('A', '2-2', 2);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+  });
+
+  test('a void at the crossing cell breaks both arms — not a cross', () => {
+    const board = buildShapedBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'v', 'A', 'w', 'x'],
+      ['y', 'A', '.', 'A', 'z'],
+      ['m', 'c', 'A', 'o', 'k'],
+      ['e', 'f', 'g', 'h', 'i'],
+    ]);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+  });
+
+  test('a live striped piece in an arm is included, not excluded — detection only reports geometry', () => {
+    const board = buildBoard([
+      ['p', 'q', 'r', 's', 't'],
+      ['u', 'v', 'A', 'w', 'x'],
+      ['y', 'A', 'A', 'A', 'z'],
+      ['m', 'c', 'A', 'o', 'k'],
+      ['e', 'f', 'g', 'h', 'i'],
+    ]);
+    board[1][2] = { id: '1-2', type: 'striped', matchType: 'A', direction: 'col' };
+    const crosses = checkCrossShapes(board);
+    expect(crosses).toHaveLength(1);
+    expect(crosses[0].matchType).toBe('A');
+    expect(sortPositions(crosses[0])).toEqual([
+      { row: 1, col: 2 },
+      { row: 2, col: 1 },
+      { row: 2, col: 2 },
+      { row: 2, col: 3 },
+      { row: 3, col: 2 },
+    ]);
+  });
+
+  test('hasLegalMoves and checkMatches already treat a cross-forming swap as legal with no new wiring', () => {
+    // A distinct board where swapping (2,2)<->(1,2) completes a T: row 2
+    // cols1-3 and col 2 rows2-4. Neither arm exists yet (both need (2,2)).
+    const board = buildBoard([
+      ['p0', 'p1', 'p2', 'p3', 'p4'],
+      ['p5', 'p6', 'A', 'p8', 'p9'],
+      ['p10', 'A', 'p12', 'A', 'p14'],
+      ['p15', 'p16', 'A', 'p18', 'p19'],
+      ['p20', 'p21', 'A', 'p23', 'p24'],
+    ]);
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+    // hasLegalMoves finds this swap legal via its EXISTING checkMatches
+    // clause alone — no checkCrossShapes addition was made to legalPair.
+    expect(hasLegalMoves(board)).toBe(true);
+
+    const swapped = swapPieces(board, { row: 2, col: 2 }, { row: 1, col: 2 });
+    expect(checkMatches(swapped).length).toBeGreaterThanOrEqual(2);
+    expect(checkCrossShapes(swapped)).toHaveLength(1);
+  });
+
+  test('shuffle returns a board free of runs, squares, and crossing points', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B', 'B'],
+      ['A', 'A', 'B', 'C'],
+      ['B', 'C', 'A', 'A'],
+      ['C', 'B', 'A', 'C'],
+    ]);
+    const shuffled = shuffle(board, seededRng(7));
+    expect(checkMatches(shuffled)).toHaveLength(0);
+    expect(checkSquares(shuffled)).toHaveLength(0);
+    expect(checkCrossShapes(shuffled)).toHaveLength(0);
   });
 });
 

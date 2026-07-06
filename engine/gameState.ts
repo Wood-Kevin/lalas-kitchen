@@ -5,9 +5,11 @@ import {
   Position,
   Match,
   Square,
+  CrossShape,
   StripeDirection,
   checkMatches,
   checkSquares,
+  checkCrossShapes,
   swapPieces,
   calculateCascades,
   hasLegalMoves,
@@ -538,7 +540,8 @@ type AnchorSpec =
 function resolveMatchEffects(
   board: Board,
   matches: Match[],
-  squares: Square[]
+  squares: Square[],
+  crosses: CrossShape[]
 ): {
   clearedPositions: Position[];
   anchors: Array<{ pos: Position } & AnchorSpec>;
@@ -603,6 +606,40 @@ function resolveMatchEffects(
       for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
     } else {
       for (const p of cells) addClear(p.row, p.col);
+    }
+  }
+
+  // A crossing point (matrix.ts's checkCrossShapes): a horizontal run and a
+  // vertical run, each EXACTLY length 3, sharing one cell (the classic
+  // L/T/plus) — a second, additive area-bomb spawn alongside the square
+  // above. Every CrossShape here is ALREADY guaranteed both-arms-exactly-3 by
+  // construction (checkCrossShapes never reports a 4/5-arm intersection at
+  // all), so this loop never needs to re-derive or gate on arm length itself
+  // — a 4/5-arm intersection already spawned its own striped/color-bomb
+  // anchor in the run loop above, unaffected by this loop's existence.
+  //
+  // No runCovered-style overlap check is needed (unlike squares): a cross's
+  // own five cells were ALREADY added to the ordinary clear set by the two
+  // Matches processed above (each arm is a real Match), so this loop's only
+  // new job is converting the SHARED cell into an area-bomb anchor instead of
+  // letting it clear — the existing "an anchor cell is never also gapped"
+  // step below (the anchorByKey deletion from clearedKeys) already covers
+  // that, unmodified. A square overlapping a cross's arm already stands down
+  // via the existing runCovered check just below, since a cross's arm cells
+  // are literal Match positions and therefore already in runCovered.
+  for (const cross of crosses) {
+    const anchor = cross.positions[0];
+    // A live striped piece anywhere in the cross already fired its own sweep
+    // via the run loop above (whichever arm's Match contained it) — so the
+    // cross stands down and spawns no area bomb, the same "an existing
+    // special fires itself rather than seeding a new one" rule the run and
+    // square branches already apply.
+    const hasStriped = cross.positions.some((p) => board[p.row][p.col].type === 'striped');
+    if (hasStriped) continue;
+
+    anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'area_bomb' });
+    for (let i = 1; i < cross.positions.length; i++) {
+      addClear(cross.positions[i].row, cross.positions[i].col);
     }
   }
 
@@ -690,11 +727,21 @@ function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResoluti
     // 3-in-a-row), so the cascade continues while EITHER exists — otherwise a
     // cascade that settles into a bare 2x2 would leave it un-triggered.
     const squares = checkSquares(currentBoard);
+    // Crossing points (matrix.ts's checkCrossShapes) need no loop-continuation
+    // clause of their own, unlike squares — a cross's two arms are always
+    // already-counted ordinary Matches, so `matches.length === 0` can never
+    // coincide with a cross existing.
+    const crosses = checkCrossShapes(currentBoard);
     if (matches.length === 0 && squares.length === 0) break;
 
     cascadeCount += 1;
 
-    const { clearedPositions, anchors, specialsFired } = resolveMatchEffects(currentBoard, matches, squares);
+    const { clearedPositions, anchors, specialsFired } = resolveMatchEffects(
+      currentBoard,
+      matches,
+      squares,
+      crosses
+    );
     maxSpecialsFired = Math.max(maxSpecialsFired, specialsFired);
 
     // Blockers don't match directly — they take damage from whatever clears
@@ -1180,6 +1227,11 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // an area bomb — see resolveMatchEffects). A pure square forms no
     // 3-in-a-row, so checkSquares must be consulted here too, or a valid
     // square-forming move would be wrongly snapped back as a no-match swap.
+    // No checkCrossShapes clause is needed here, deliberately — a crossing
+    // point's two arms are themselves already ordinary 3-runs checkMatches
+    // independently reports, so checkMatches(swapped) is already non-empty
+    // whenever a cross-forming swap exists. See engine/DECISIONS.md's
+    // crossing-run entry.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
       return { state, events: [], steps: [], multiSpecialFired: false };

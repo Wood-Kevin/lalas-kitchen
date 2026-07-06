@@ -94,6 +94,31 @@ export interface Square {
   positions: Position[];
 }
 
+// A crossing point: a horizontal run AND a vertical run, each EXACTLY length
+// 3, sharing one cell — the classic L/T/plus. A THIRD match shape, additive
+// to checkMatches' straight runs and checkSquares' 2x2 blocks: unlike a
+// square, a cross's own two arms are each already an ordinary 3-run that
+// checkMatches independently reports — this scan's only job is to name the
+// CELL THEY SHARE as its own anchor (mirroring Square.positions[0]'s
+// top-left convention), the shape checkMatches has no notion of. positions[0]
+// is always the crossing cell, the anchor that becomes the area bomb; the
+// other four are the two arms' remaining cells, in no particular order beyond
+// "row arm's other two cells, then column arm's other two cells" (not
+// load-bearing for callers).
+//
+// Only EXACTLY-length-3 arms count on both axes — baked into the scan
+// itself, not filtered afterward by the caller (see checkCrossShapes below).
+// A 4- or 5-long arm through this cell already spawns its own striped piece
+// or color bomb via checkMatches' ordinary run handling (see gameState.ts's
+// resolveMatchEffects); letting a cross also claim that cell would
+// double-spawn a special over the same event, so checkCrossShapes never even
+// reports it as a candidate. This is a confirmed, deliberate scope line, not
+// an oversight — see engine/DECISIONS.md's crossing-run entry.
+export interface CrossShape {
+  matchType: string | undefined;
+  positions: Position[];
+}
+
 // Two pieces only match if both carry a matchType and it's equal. A piece
 // with no matchType can never form a run. Blockers are excluded outright
 // regardless of matchType — a blocker carries a matchType purely so its
@@ -216,6 +241,69 @@ export function checkSquares(board: Board): Square[] {
   }
 
   return squares;
+}
+
+// Finds every crossing point where a horizontal run and a vertical run, each
+// EXACTLY length 3, share a cell (see CrossShape above). Built entirely on
+// runsInLine (the same primitive checkMatches uses), so blocker/void/
+// color_bomb/area_bomb are excluded "for free" via piecesMatch — no separate
+// eligibility gate is needed here, unlike checkSquares' squareEligible (which
+// reimplements corner adjacency from scratch and so needs its own gate). A
+// live striped piece IS included (mirrors squareEligible's decision to allow
+// a striped corner): this scan only reports geometry — "an existing special
+// fires itself instead of a new one spawning" is gameState.ts's
+// resolveMatchEffects' call, not this function's.
+export function checkCrossShapes(board: Board): CrossShape[] {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+
+  // Every cell covered by an exactly-length-3 row run, keyed by "r,c".
+  const rowRunAt = new Map<string, { start: number; length: number }>();
+  for (let r = 0; r < rows; r++) {
+    for (const run of runsInLine(board[r])) {
+      if (run.length !== 3) continue;
+      for (let c = run.start; c < run.start + run.length; c++) {
+        rowRunAt.set(`${r},${c}`, run);
+      }
+    }
+  }
+
+  // Same for columns.
+  const colRunAt = new Map<string, { start: number; length: number }>();
+  for (let c = 0; c < cols; c++) {
+    const column = board.map((row) => row[c]);
+    for (const run of runsInLine(column)) {
+      if (run.length !== 3) continue;
+      for (let r = run.start; r < run.start + run.length; r++) {
+        colRunAt.set(`${r},${c}`, run);
+      }
+    }
+  }
+
+  const crosses: CrossShape[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const rowRun = rowRunAt.get(`${r},${c}`);
+      const colRun = colRunAt.get(`${r},${c}`);
+      if (!rowRun || !colRun) continue;
+
+      const rowCells: Position[] = [];
+      for (let cc = rowRun.start; cc < rowRun.start + rowRun.length; cc++) {
+        if (cc !== c) rowCells.push({ row: r, col: cc });
+      }
+      const colCells: Position[] = [];
+      for (let rr = colRun.start; rr < colRun.start + colRun.length; rr++) {
+        if (rr !== r) colCells.push({ row: rr, col: c });
+      }
+
+      crosses.push({
+        matchType: board[r][c].matchType,
+        positions: [{ row: r, col: c }, ...rowCells, ...colCells],
+      });
+    }
+  }
+
+  return crosses;
 }
 
 export function swapPieces(board: Board, posA: Position, posB: Position): Board {
@@ -422,7 +510,10 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
     // A freshly shuffled board must be free of BOTH straight runs and 2x2
     // squares — a latent square would auto-spawn an area bomb on the player's
     // next move without them having formed it, so it counts as "already
-    // matched" here exactly like a run does.
+    // matched" here exactly like a run does. No checkCrossShapes clause is
+    // needed: a latent crossing point's two arms are themselves already
+    // ordinary runs, so checkMatches(candidate) is already non-empty whenever
+    // a cross exists — see engine/DECISIONS.md's crossing-run entry.
     if (
       checkMatches(candidate).length === 0 &&
       checkSquares(candidate).length === 0 &&
@@ -487,6 +578,11 @@ export function hasLegalMoves(board: Board): boolean {
     }
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
     if (a.type === 'striped' && b.type === 'striped') return true;
+    // No checkCrossShapes clause is needed here, deliberately — unlike a pure
+    // 2x2 square, a crossing point's two arms are themselves already ordinary
+    // 3-runs that checkMatches independently reports, so checkMatches(swapped)
+    // is already non-empty whenever a cross exists. See engine/DECISIONS.md's
+    // crossing-run entry.
     return checkMatches(swapped).length > 0 || checkSquares(swapped).length > 0;
   };
 

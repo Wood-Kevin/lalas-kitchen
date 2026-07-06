@@ -10,7 +10,16 @@ import {
   createInMemoryStorage,
   countFiredSpecials,
 } from './gameState';
-import { Board, Piece, Position, checkMatches, checkSquares, hasLegalMoves } from './matrix';
+import {
+  Board,
+  Piece,
+  Position,
+  checkMatches,
+  checkSquares,
+  checkCrossShapes,
+  hasLegalMoves,
+  swapPieces,
+} from './matrix';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
@@ -1790,12 +1799,18 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(hasLegalMoves(areaPlusSpecial)).toBe(false);
   });
 
-  test('an L-shape (a square overlapping a straight run) does not spawn an area bomb — L/T stays deferred', () => {
+  test('a square overlapping a straight run (NOT a genuine two-arm crossing) does not spawn an area bomb — square/run overlap stays deferred', () => {
     const board = distinctBoard(5, 5);
-    // Four A's placed so ONE swap forms an L of five: a vertical 3-run in
-    // column 1 (rows 0-2) AND the 2x2 {(0,1),(0,2),(1,1),(1,2)} at once. Neither
-    // the run nor the square pre-exists (both need cell (0,1), which the swap
-    // fills). The square's cells overlap the run, so it stands down — no bomb.
+    // Four A's placed so ONE swap forms a square-overlapping-a-run shape: a
+    // vertical 3-run in column 1 (rows 0-2) AND the 2x2 {(0,1),(0,2),(1,1),(1,2)}
+    // at once. Neither the run nor the square pre-exists (both need cell
+    // (0,1), which the swap fills). The square's cells overlap the run, so it
+    // stands down — no bomb. NOTE: there is no horizontal run of length >= 3
+    // anywhere in this configuration (row 0 and row 1 each only have 2 A's),
+    // so this was never a genuine two-arm crossing — a true L/T/plus crossing
+    // is now a separate, built trigger (see the crossing-run describe block
+    // below); this test is unaffected by that feature and still covers the
+    // still-deferred square/run-overlap case.
     board[1][1] = piece('A', '1-1');
     board[2][1] = piece('A', '2-1');
     board[0][2] = piece('A', '0-2');
@@ -1806,6 +1821,12 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(checkMatches(board)).toHaveLength(0);
     expect(checkSquares(board)).toHaveLength(0);
 
+    const swapped = swapPieces(board, { row: 0, col: 0 }, { row: 0, col: 1 });
+    // Defensive proof this is not a genuine crossing: no horizontal run of
+    // length >= 3 exists through the shared cells, so checkCrossShapes must
+    // find nothing here, independent of the square/run-overlap outcome below.
+    expect(checkCrossShapes(swapped)).toHaveLength(0);
+
     const result = applyMove(stateWith(board, 'A'), { row: 0, col: 0 }, { row: 0, col: 1 });
 
     // The overlapping square stood down: no area bomb spawned. (The column-1
@@ -1813,6 +1834,205 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
     // A real move happened.
     expect(result.state.movesRemaining).toBe(9);
+  });
+});
+
+describe('applyMove — area bombs (L/T/plus crossing-run trigger)', () => {
+  // Same pattern as the 2x2-square block above (distinct grid, explicit
+  // per-test overrides, redeclared locally per this file's convention).
+  const distinctBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`c${r}${c}`, `${r}-${c}`))
+    );
+  const distinctSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 40 }, (_, i) => `s${i}`));
+  const hasId = (board: Board, id: string): boolean => board.flat().some((p) => p.id === id);
+  const findById = (board: Board, id: string): Piece | undefined => board.flat().find((p) => p.id === id);
+  const countType = (board: Board, type: string): number => board.flat().filter((p) => p.type === type).length;
+  const survivingGridPieces = (board: Board): number =>
+    board.flat().filter((p) => /^\d+-\d+$/.test(p.id)).length;
+
+  const stateWith = (board: Board, targetMatchType: string): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType, targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    spawnPiece: distinctSpawns(),
+  });
+
+  // NOTE (a structural finding from designing these tests): a full 4-armed
+  // plus cannot be produced by a single legal adjacent swap from a
+  // match-free board — the crossing cell's only grid-neighbours are its own
+  // two arms, so any swap into it necessarily "steals" that neighbour's own
+  // arm-tip content, breaking the very arm it belongs to. An L (crossing is
+  // the endpoint of both arms) or a T (crossing is the endpoint of one arm,
+  // the middle of the other) both work via one real swap, because the
+  // crossing cell then has a free neighbour OUTSIDE the shape to donate a
+  // foreign matching piece without robbing either arm. So the tests below use
+  // that "foreign donor one cell beyond the crossing cell" recipe; the plus's
+  // degree-4 geometry is covered at the checkCrossShapes unit level only (see
+  // matrix.test.ts), since resolveMatchEffects' cross loop treats every
+  // degree identically regardless of how many arm cells there are.
+
+  test('a genuine T-shape crossing swap spawns exactly one area bomb, crediting the other four cells', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor, one cell above the crossing point (2,2)
+    board[2][1] = piece('A', '2-1');
+    board[2][3] = piece('A', '2-3');
+    board[3][2] = piece('A', '3-2');
+    board[4][2] = piece('A', '4-2');
+    // Pre-move sanity: neither arm exists yet — both need (2,2), still distinct.
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+
+    // Swapping the donor into (2,2) completes row 2 cols 1-3 (middle) AND
+    // column 2 rows 2-4 (top endpoint) — a T, both arms exactly length 3.
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+    // The anchor keeps the id of whichever piece ends up AT the crossing cell
+    // after the swap — here that's the donor, id '1-2' (swapPieces moves the
+    // piece object, including its id, not just its matchType).
+    const bomb = findById(result.state.board, '1-2');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    expect(bomb?.direction).toBeUndefined();
+    // The other four cross cells cleared (the anchor converted, not cleared).
+    for (const id of ['2-1', '2-3', '3-2', '4-2']) expect(hasId(result.state.board, id)).toBe(false);
+    // The piece the swap displaced (the crossing cell's original occupant,
+    // now sitting at (1,2)) is untouched, ordinary content.
+    expect(hasId(result.state.board, '2-2')).toBe(true);
+    // 4 objectives + 1 anchor — the same accounting shape a 5-run's color
+    // bomb uses, since a pure 3x3 cross is also exactly 5 cells.
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 4);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a genuine L-shape crossing swap spawns exactly one area bomb', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor, one cell above the crossing point (2,2)
+    board[2][3] = piece('A', '2-3');
+    board[2][4] = piece('A', '2-4');
+    board[3][2] = piece('A', '3-2');
+    board[4][2] = piece('A', '4-2');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+
+    // Completes row 2 cols 2-4 AND column 2 rows 2-4 — crossing (2,2) is the
+    // shared endpoint of both arms, a genuine L.
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    const bomb = findById(result.state.board, '1-2');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    for (const id of ['2-3', '2-4', '3-2', '4-2']) expect(hasId(result.state.board, id)).toBe(false);
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a 4-long arm crossing an exactly-3 arm preserves old behavior — no area bomb, striped spawns as usual', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor
+    board[2][1] = piece('A', '2-1');
+    board[2][3] = piece('A', '2-3');
+    board[2][4] = piece('A', '2-4'); // stretches the row arm to length 4
+    board[3][2] = piece('A', '3-2');
+    board[4][2] = piece('A', '4-2');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    // The crossing candidate involved a 4-long arm, so it stood down entirely
+    // — the confirmed precedence rule. The 4-run's own striped spawn fires
+    // exactly as it does today, at the run's own leftmost cell, unaffected by
+    // the perpendicular exactly-3 arm's existence.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'striped')).toBe(1);
+    const striped = findById(result.state.board, '2-1');
+    expect(striped?.type).toBe('striped');
+    expect(striped?.direction).toBe('row');
+    expect(striped?.matchType).toBe('A');
+    for (const id of ['1-2', '2-3', '2-4', '3-2', '4-2']) expect(hasId(result.state.board, id)).toBe(false);
+    expect(result.state.objectives[0].currentCount).toBe(5);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a 5-long arm crossing an exactly-3 arm preserves old behavior — no area bomb, color bomb spawns as usual', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor
+    board[2][0] = piece('A', '2-0');
+    board[2][1] = piece('A', '2-1');
+    board[2][3] = piece('A', '2-3');
+    board[2][4] = piece('A', '2-4'); // full row of 5 once the swap lands
+    board[3][2] = piece('A', '3-2');
+    board[4][2] = piece('A', '4-2');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(1);
+    const bomb = findById(result.state.board, '2-0');
+    expect(bomb?.type).toBe('color_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    expect(result.state.objectives[0].currentCount).toBe(6);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a live striped piece anywhere in the cross stands down the area bomb — the striped piece fires its own sweep instead', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor
+    board[2][1] = piece('A', '2-1');
+    board[2][3] = piece('A', '2-3');
+    board[3][2] = piece('A', '3-2');
+    // The far vertical tip is already a live striped piece, same matchType.
+    board[4][2] = { id: '4-2', type: 'striped', matchType: 'A', direction: 'row' };
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    // No area bomb — the cross stood down because it caught a live special.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    // The striped piece consumed itself firing its own sweep.
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    expect(hasId(result.state.board, '4-2')).toBe(false);
+    // Its 'row' direction sweeps the WHOLE of row 4, reaching beyond the
+    // cross's own 5 cells — proof a genuine sweep fired, not just the ordinary
+    // clear a plain cross would have produced.
+    for (const id of ['4-0', '4-1', '4-3', '4-4']) expect(hasId(result.state.board, id)).toBe(false);
+    // The rest of the cross (the row arm + the other col-arm cell) cleared
+    // alongside it.
+    for (const id of ['2-1', '2-3', '3-2']) expect(hasId(result.state.board, id)).toBe(false);
+    expect(result.state.movesRemaining).toBe(9);
+  });
+
+  test('a square overlapping a crossing arm stands down — only the cross\'s one area bomb spawns', () => {
+    const board = distinctBoard(5, 5);
+    board[1][2] = piece('A', '1-2'); // donor
+    board[2][1] = piece('A', '2-1');
+    board[2][3] = piece('A', '2-3');
+    board[3][2] = piece('A', '3-2');
+    board[4][2] = piece('A', '4-2');
+    // A 2x2 at {(2,2),(2,3),(3,2),(3,3)} reuses three cells already in the
+    // cross's two arms and adds just one new cell (3,3) — it shares cells
+    // with both arms, so it should stand down via the existing runCovered
+    // check (the same rule that stands down any square overlapping any run),
+    // proving squares and crosses never conflict.
+    board[3][3] = piece('A', '3-3');
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 1, col: 2 });
+
+    // Exactly one area bomb — the cross's, not a second one from the square.
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
   });
 });
 
