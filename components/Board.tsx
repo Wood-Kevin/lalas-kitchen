@@ -808,6 +808,8 @@ export function Board({
         <WonOverlay
           objectives={gameState.objectives}
           levelIndex={levelIndex}
+          movesRemaining={gameState.movesRemaining}
+          movesLimit={levelConfig.movesLimit}
           config={skinConfig}
           spriteAssets={spriteAssets}
           onPlayAgain={handlePlayAgain}

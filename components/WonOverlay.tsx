@@ -7,11 +7,18 @@ import { getSpriteForMatchType } from './spriteMap';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
 import { RecipeCardReveal } from './RecipeCardReveal';
+import { computeStarRating } from './wonActions';
 
 export interface WonOverlayProps {
   objectives: Objective[];
   // Display-only "LEVEL N" label — see Board.tsx's levelIndex prop comment.
   levelIndex: number;
+  // The star rating (see wonActions.ts's computeStarRating) is derived here,
+  // not passed in pre-computed, so this component owns the one formula —
+  // both values already exist on GameState/LevelConfig by the time Board.tsx
+  // shows this overlay, no engine change needed.
+  movesRemaining: number;
+  movesLimit: number;
   config: SkinConfig;
   // Same sprite registry Board already threads to every Tile, reused here
   // so the plated-dish illustration and the objective chip both show the
@@ -91,6 +98,8 @@ function Sparkle({ style, color, delayMs }: { style: object; color: string; dela
 export function WonOverlay({
   objectives,
   levelIndex,
+  movesRemaining,
+  movesLimit,
   config,
   spriteAssets,
   onPlayAgain,
@@ -104,6 +113,7 @@ export function WonOverlay({
   // chip row below is what actually shows every objective's final count.
   const sprite = resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
+  const stars = computeStarRating(movesRemaining, movesLimit);
 
   return (
     <View style={styles.backdrop}>
@@ -127,6 +137,16 @@ export function WonOverlay({
 
         <Text style={[styles.levelLabel, { color: accent }]}>LEVEL {levelIndex}</Text>
         <Text style={[styles.headline, { color: text }]}>Order&apos;s Up!</Text>
+        <View style={styles.starRow}>
+          {[1, 2, 3].map((slot) => (
+            <Text
+              key={slot}
+              style={[styles.star, { color: slot <= stars ? YOLK : border }]}
+            >
+              ★
+            </Text>
+          ))}
+        </View>
         <Text style={[styles.subtext, { color: mutedText }]}>
           {unlockedRecipeCard ? 'A recipe was added to your cookbook.' : 'Plated with moves to spare — nicely done.'}
         </Text>
@@ -239,6 +259,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 22,
     fontWeight: '800',
+  },
+  starRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
+  },
+  star: {
+    fontSize: 22,
   },
   subtext: {
     marginTop: 6,
