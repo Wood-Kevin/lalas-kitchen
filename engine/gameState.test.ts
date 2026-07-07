@@ -1975,6 +1975,97 @@ describe('createGameState', () => {
 
     expect(state.layerCells).toEqual({});
   });
+
+  // Contiguity check used by the two tests below — see generator.test.ts for
+  // the same helper, restated here since createGameState is the actual
+  // wiring point (LevelConfig.denialSpread -> generator.ts's
+  // clusterBlockers), not just the placement algorithm itself.
+  function isOneContiguousRegion(positions: { row: number; col: number }[]): boolean {
+    if (positions.length <= 1) return true;
+    const key = (p: { row: number; col: number }): string => `${p.row},${p.col}`;
+    const remaining = new Set(positions.map(key));
+    const byKey = new Map(positions.map((p) => [key(p), p]));
+    const queue = [positions[0]];
+    remaining.delete(key(positions[0]));
+    const offsets = [
+      { row: -1, col: 0 },
+      { row: 1, col: 0 },
+      { row: 0, col: -1 },
+      { row: 0, col: 1 },
+    ];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const o of offsets) {
+        const nk = `${cur.row + o.row},${cur.col + o.col}`;
+        if (remaining.has(nk)) {
+          remaining.delete(nk);
+          queue.push(byKey.get(nk)!);
+        }
+      }
+    }
+    return remaining.size === 0;
+  }
+
+  test('a denialSpread: true level places its blockers as one contiguous region', () => {
+    const state = createGameState({
+      seed: 7,
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ targetMatchType: 'A', targetCount: 12 }],
+      blockerCount: 4,
+      blockerMatchType: 'cling',
+      blockerHitsToClear: 1,
+      denialSpread: true,
+    });
+
+    const blockerPositions: { row: number; col: number }[] = [];
+    state.board.forEach((row, r) =>
+      row.forEach((p, c) => {
+        if (p.type === 'blocker') blockerPositions.push({ row: r, col: c });
+      })
+    );
+    expect(blockerPositions).toHaveLength(4);
+    expect(isOneContiguousRegion(blockerPositions)).toBe(true);
+  });
+
+  test('a level below the denial-spread threshold (denialSpread omitted) is unaffected — no clustering applied', () => {
+    // Same seed/config as the clustered test above, minus denialSpread — this
+    // is exactly what a generated level below DENIAL_SPREAD_MIN_LEVEL_NUMBER
+    // produces (see appPersistence.ts's buildGeneratedLevelConfig). Proves
+    // createGameState only clusters when the level is genuinely flagged,
+    // never as a byproduct of blockerCount/blockerMatchType alone.
+    const clustered = createGameState({
+      seed: 7,
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ targetMatchType: 'A', targetCount: 12 }],
+      blockerCount: 4,
+      blockerMatchType: 'cling',
+      blockerHitsToClear: 1,
+      denialSpread: true,
+    });
+    const unflagged = createGameState({
+      seed: 7,
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ targetMatchType: 'A', targetCount: 12 }],
+      blockerCount: 4,
+      blockerMatchType: 'cling',
+      blockerHitsToClear: 1,
+    });
+
+    expect(unflagged.board).not.toEqual(clustered.board);
+    expect(unflagged.board.flat().filter((p) => p.type === 'blocker')).toHaveLength(4);
+  });
 });
 
 describe('save/load round trip', () => {

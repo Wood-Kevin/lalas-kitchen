@@ -127,6 +127,144 @@ describe('generateLevel — blocker placement', () => {
   });
 });
 
+describe('generateLevel — clustered blocker placement (denial-zone-eligible levels)', () => {
+  // BFS connectivity check over 4-directional adjacency — the actual
+  // contiguity claim clusterBlockers makes.
+  function isOneContiguousRegion(positions: Position[]): boolean {
+    if (positions.length <= 1) return true;
+    const key = (p: Position): string => `${p.row},${p.col}`;
+    const remaining = new Set(positions.map(key));
+    const byKey = new Map(positions.map((p) => [key(p), p]));
+    const start = positions[0];
+    const queue: Position[] = [start];
+    remaining.delete(key(start));
+    const offsets = [
+      { row: -1, col: 0 },
+      { row: 1, col: 0 },
+      { row: 0, col: -1 },
+      { row: 0, col: 1 },
+    ];
+    while (queue.length > 0) {
+      const cur = queue.pop()!;
+      for (const o of offsets) {
+        const nk = `${cur.row + o.row},${cur.col + o.col}`;
+        if (remaining.has(nk)) {
+          remaining.delete(nk);
+          queue.push(byKey.get(nk)!);
+        }
+      }
+    }
+    return remaining.size === 0;
+  }
+
+  const clusterConfig: GeneratorConfig = {
+    rows: 8,
+    cols: 8,
+    pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+    blockerCount: 4,
+    blockerMatchType: 'cling',
+    blockerHitsToClear: 1,
+    clusterBlockers: true,
+  };
+
+  test('places blockers as one contiguous adjacent region, not scattered', () => {
+    for (const seed of [1, 2, 3, 42, 999]) {
+      const board = generateLevel(seed, clusterConfig);
+      const blockerPositions: Position[] = [];
+      board.forEach((row, r) =>
+        row.forEach((p, c) => {
+          if (p.type === 'blocker') blockerPositions.push({ row: r, col: c });
+        })
+      );
+      expect(blockerPositions).toHaveLength(4);
+      expect(isOneContiguousRegion(blockerPositions)).toBe(true);
+    }
+  });
+
+  test('still places the requested count with the right matchType and hit count', () => {
+    const board = generateLevel(7, clusterConfig);
+    const blockers = board.flat().filter((p) => p.type === 'blocker');
+    expect(blockers).toHaveLength(4);
+    for (const blocker of blockers) {
+      expect(blocker.matchType).toBe('cling');
+      expect(blocker.hitsRemaining).toBe(1);
+    }
+  });
+
+  test('a clustered board still never contains an accidental match on creation', () => {
+    for (const seed of [1, 2, 3, 42, 999, 123456]) {
+      const board = generateLevel(seed, clusterConfig);
+      expect(checkMatches(board)).toEqual([]);
+    }
+  });
+
+  test('a clustered board still always has at least one legal move', () => {
+    for (const seed of [1, 2, 3, 42, 999, 123456]) {
+      const board = generateLevel(seed, clusterConfig);
+      expect(hasLegalMoves(board)).toBe(true);
+    }
+  });
+
+  test('the same seed reproduces an identical clustered board', () => {
+    expect(generateLevel(11, clusterConfig)).toEqual(generateLevel(11, clusterConfig));
+  });
+
+  test('a clustered region never lands on a void cell, even reseeding across a disconnected shaped board', () => {
+    // A 7x7 board voided down to two disconnected pockets (top-left 3x3 block
+    // and bottom-right 3x3 block, separated by a void moat) — big enough that
+    // no single pocket can hold all 6 requested blockers, forcing the
+    // reseed-a-new-region fallback to kick in at least once.
+    const rows = 7;
+    const cols = 7;
+    const voidCells: Position[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const inTopLeft = r < 3 && c < 3;
+        const inBottomRight = r >= 4 && c >= 4;
+        if (!inTopLeft && !inBottomRight) voidCells.push({ row: r, col: c });
+      }
+    }
+    const isVoidCell = (r: number, c: number): boolean => voidCells.some((p) => p.row === r && p.col === c);
+
+    const board = generateLevel(3, {
+      rows,
+      cols,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      voidCells,
+      blockerCount: 6,
+      blockerMatchType: 'cling',
+      blockerHitsToClear: 1,
+      clusterBlockers: true,
+    });
+
+    const blockers = board.flat().filter((p) => p.type === 'blocker');
+    expect(blockers).toHaveLength(6);
+    board.forEach((row, r) =>
+      row.forEach((p, c) => {
+        if (p.type === 'blocker') expect(isVoidCell(r, c)).toBe(false);
+      })
+    );
+    expect(checkMatches(board)).toEqual([]);
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+
+  test('omitting clusterBlockers (or setting it false) keeps the original scatter placement unchanged', () => {
+    const scattered = generateLevel(7, {
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E'],
+      blockerCount: 4,
+      blockerMatchType: 'cling',
+      blockerHitsToClear: 1,
+    });
+    // Same seed, same everything except the flag — this is the exact
+    // pre-existing "places the requested number of blockers" test's board,
+    // proving the new parameter is opt-in and doesn't change default output.
+    const explicitlyOff = generateLevel(7, { ...clusterConfig, blockerCount: 4, clusterBlockers: false });
+    expect(explicitlyOff).toEqual(scattered);
+  });
+});
+
 describe('generateLevel — non-rectangular (void) board shape', () => {
   // A plus on a 7x7 board: the four 2x2 corner blocks are voids, leaving a
   // fat plus of playable cells (the same shape the hand-built showcase level

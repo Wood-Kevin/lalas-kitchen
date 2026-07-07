@@ -3936,3 +3936,66 @@ Level Map, not a mocked screenshot of isolated components. See
 494/494 — neither change touches anything the engine/service test suite
 exercises (this project has no React component-test infra, so Home/LevelMap
 rendering was never covered by it either before or after this session).
+
+## Clustered denial-zone placement: grow one region instead of scattering
+
+`DEFERRED_COMPLEXITY.md`'s denial-zone-spread entry logged this as
+deliberately skipped: the generator scattered blockers via `fisherYates`
+(`engine/generator.ts`), so a denial zone only ever became visually
+*contiguous* once the dynamic spread mechanic had grown it that way over
+several unaddressed moves — a fresh eligible level loaded with the same
+count of blockers scattered independently at random, not reading as "one
+zone" from the start.
+
+Investigated first, per the standing Playtest Feedback Protocol: confirmed
+`placeBlockers` really was a plain `fisherYates(allPositions, rng).slice(...)`
+with zero adjacency awareness, and confirmed the ask applies only to
+denial-zone-eligible levels (`generatedLevelNumber >= DENIAL_SPREAD_MIN_LEVEL_NUMBER`,
+10) — every level below that threshold, and every hand-built level, keeps the
+original independent scatter untouched, since a static zone below the
+threshold was never the complaint.
+
+**Design.** `engine/generator.ts` gained `GeneratorConfig.clusterBlockers?:
+boolean` and a new `clusteredPositions` helper: pick one random start cell (via
+the existing seeded `rng`), then repeatedly pop a random cell off the
+*frontier* — the set of non-void cells adjacent to the region grown so far —
+claim it, and fold its own unclaimed neighbours into the frontier. This is a
+randomized region-growth walk, not a fixed shape template — it produces a
+different, but always contiguous, blob per seed, matching how the rest of
+this generator already varies procedurally. If the frontier empties out
+before reaching the requested count (a board region smaller than
+`blockerCount`, e.g. a shape template like `ring` splitting the board into
+disconnected pockets), it reseeds a fresh region from a random still-unclaimed
+cell and keeps growing — the same "never fewer than `min(blockerCount,
+available cells)`" guarantee the original scatter's `.slice()` already gave,
+just grown in contiguous pieces instead of picked singly. `placeBlockers`
+branches on the flag; the scatter branch is byte-identical to before.
+
+**Why a geometry flag, not a "denial zone" concept in the generator.** The
+Leak Test in CLAUDE.md says the engine shouldn't encode skin/gameplay
+vocabulary it doesn't need — but this is a step further, even within the
+engine: `generator.ts`'s job is placement geometry, and it has no legitimate
+reason to know *why* a caller wants a cluster versus a scatter, only that it
+should grow one. `engine/gameState.ts`'s `createGameState` is the one place
+that translates the actual gameplay-eligibility flag
+(`LevelConfig.denialSpread`, already gated in `appPersistence.ts`) into
+`clusterBlockers: config.denialSpread` when calling `generateLevel`. A level
+below the threshold gets `denialSpread: undefined`, so `clusterBlockers` is
+never even passed `true` — the eligibility gate itself needed zero new logic,
+it's the same flag the spread mechanic already reads.
+
+**Guarantees re-confirmed, not just assumed.** Clustered placement still runs
+before `hasLegalMoves`'s post-placement check in `generateLevel` (unchanged
+call order), still excludes void cells at both the seed and frontier-neighbour
+steps (mirroring the scatter branch's own void exclusion), and — since a
+blocker is excluded from matching outright, same as before — still never
+needs a second `repairAccidentalMatches` pass. Verified directly, not assumed:
+`engine/generator.test.ts`'s new "clustered blocker placement" describe block
+adds a BFS contiguity check, re-runs the existing no-accidental-match/
+has-legal-move assertions with `clusterBlockers: true`, and adds a
+deliberately-disconnected two-pocket void board to exercise the reseed
+fallback. `engine/gameState.test.ts` adds two `createGameState`-level wiring
+tests (a `denialSpread: true` config clusters; the identical config without
+it doesn't). See `docs/verification/clustered-denial-zone-placement/` for a
+real generated level-10 board rendered with the skin's real sprites, showing
+an actual contiguous region rather than scattered cells.

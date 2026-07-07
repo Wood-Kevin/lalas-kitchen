@@ -291,6 +291,14 @@ export function createGameState(config: LevelConfig): GameState {
     blockerMatchType: config.blockerMatchType,
     blockerHitsToClear: config.blockerHitsToClear,
     voidCells: config.voidCells,
+    // A denial-spread-eligible level's zone should already read as one
+    // contiguous region the moment it loads, not rely on several spread
+    // moves to grow that contiguity in — see generator.ts's clusterBlockers
+    // doc comment and CLAUDE.md's Phase 8 section. This is the one place the
+    // gameplay-eligibility flag (denialSpread) gets translated into the
+    // generator's purely-geometric placement switch; generator.ts itself has
+    // no idea what a "denial zone" is.
+    clusterBlockers: config.denialSpread,
   });
 
   // Keyed by "row,col" — see GameState.layerCells's doc comment for why this

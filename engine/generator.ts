@@ -21,6 +21,15 @@ export interface GeneratorConfig {
   blockerCount?: number;
   blockerMatchType?: string;
   blockerHitsToClear?: number;
+  // When true, blockerCount cells are grown as one contiguous region (a
+  // random start cell plus adjacent-cell growth) instead of scattered
+  // independently at random. Purely a placement-geometry switch — the
+  // generator has no opinion on WHY a caller wants a cluster (that's
+  // gameState.ts's createGameState translating LevelConfig.denialSpread,
+  // the actual gameplay-eligibility flag, into this placement strategy).
+  // Omitted/false means the original independent-scatter placement,
+  // identical output to every board generated before this flag existed.
+  clusterBlockers?: boolean;
 }
 
 // mulberry32: a small, dependency-free seeded PRNG. See DECISIONS.md for why
@@ -114,40 +123,134 @@ function repairAccidentalMatches(board: Board, pieceTypeIds: string[], rng: () =
   );
 }
 
-// Placed after the board is already fully filled and match-free. Converting
-// an existing cell to a blocker can only ever remove a matchType from play
-// at that position, never introduce a new run — a blocker is excluded from
-// matching outright (see matrix.ts's piecesMatch) — so this step never needs
-// to re-run repairAccidentalMatches. Positions are chosen via a fisherYates
-// shuffle of every board cell rather than picking `blockerCount` independent
-// random cells, so there's no risk of the same cell being chosen twice.
-function placeBlockers(
-  board: Board,
-  blockerCount: number,
-  blockerMatchType: string | undefined,
-  blockerHitsToClear: number | undefined,
-  rng: () => number
-): void {
-  if (blockerMatchType === undefined) {
-    throw new Error('generateLevel: blockerCount > 0 requires blockerMatchType.');
-  }
-
+function nonVoidPositions(board: Board): Position[] {
   const rows = board.length;
   const cols = board[0]?.length ?? 0;
-  const hitsToClear = blockerHitsToClear ?? 1;
-
-  const allPositions: Position[] = [];
+  const positions: Position[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       // A void is a hole in the board shape, not a placeable cell — a blocker
       // must never land on one (it would resurrect a cell the level meant to
       // remove), so voids are excluded from the candidate pool.
       if (board[r][c].type === 'void') continue;
-      allPositions.push({ row: r, col: c });
+      positions.push({ row: r, col: c });
     }
   }
+  return positions;
+}
 
-  const chosen = fisherYates(allPositions, rng).slice(0, Math.min(blockerCount, allPositions.length));
+const CLUSTER_ADJACENT_OFFSETS: Position[] = [
+  { row: -1, col: 0 },
+  { row: 1, col: 0 },
+  { row: 0, col: -1 },
+  { row: 0, col: 1 },
+];
+
+// Grows one contiguous region of up to blockerCount non-void cells, rather
+// than scattering that many cells independently (the original placeBlockers
+// behavior below, still used whenever clusterBlockers is false/omitted): pick
+// a random start cell, then repeatedly pick a random cell off the frontier of
+// cells adjacent to the region-so-far, claiming it and folding its own
+// unclaimed neighbours into the frontier. This is what makes a denial zone
+// read as one region from the moment a level loads, rather than relying on
+// the spread mechanic to grow contiguity in over several moves (see
+// gameState.ts's createGameState and CLAUDE.md's Phase 8 section).
+//
+// Falls back to reseeding a fresh region from a random unclaimed cell
+// whenever the frontier runs dry before reaching blockerCount — a board
+// region can be smaller than blockerCount (e.g. a shape template that splits
+// the board into disconnected pockets), and this guarantees the same
+// target-count-or-fewer-if-the-board-is-smaller guarantee the original
+// scatter placement already gives, just grown in contiguous pieces rather
+// than scattered singly.
+function clusteredPositions(board: Board, blockerCount: number, rng: () => number): Position[] {
+  const rows = board.length;
+  const cols = board[0]?.length ?? 0;
+  const allPositions = nonVoidPositions(board);
+  const targetCount = Math.min(blockerCount, allPositions.length);
+  if (targetCount === 0) return [];
+
+  const key = (p: Position): string => `${p.row},${p.col}`;
+  const chosen: Position[] = [];
+  const chosenSet = new Set<string>();
+  const frontier: Position[] = [];
+  const seedOrder = fisherYates(allPositions, rng);
+  let seedIdx = 0;
+
+  const nextSeed = (): Position | undefined => {
+    while (seedIdx < seedOrder.length && chosenSet.has(key(seedOrder[seedIdx]))) seedIdx++;
+    return seedIdx < seedOrder.length ? seedOrder[seedIdx++] : undefined;
+  };
+
+  const claim = (pos: Position): void => {
+    chosen.push(pos);
+    chosenSet.add(key(pos));
+    for (const offset of CLUSTER_ADJACENT_OFFSETS) {
+      const nr = pos.row + offset.row;
+      const nc = pos.col + offset.col;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (board[nr][nc].type === 'void') continue;
+      const neighbor = { row: nr, col: nc };
+      if (!chosenSet.has(key(neighbor))) frontier.push(neighbor);
+    }
+  };
+
+  const firstSeed = nextSeed();
+  if (!firstSeed) return [];
+  claim(firstSeed);
+
+  while (chosen.length < targetCount) {
+    if (frontier.length === 0) {
+      const seed = nextSeed();
+      if (!seed) break;
+      claim(seed);
+      continue;
+    }
+    const idx = Math.floor(rng() * frontier.length);
+    const candidate = frontier[idx];
+    frontier[idx] = frontier[frontier.length - 1];
+    frontier.pop();
+    // A neighbour can be pushed onto the frontier by more than one already-
+    // claimed cell before it's ever popped, so re-check membership here.
+    if (chosenSet.has(key(candidate))) continue;
+    claim(candidate);
+  }
+
+  return chosen;
+}
+
+// Placed after the board is already fully filled and match-free. Converting
+// an existing cell to a blocker can only ever remove a matchType from play
+// at that position, never introduce a new run — a blocker is excluded from
+// matching outright (see matrix.ts's piecesMatch) — so this step never needs
+// to re-run repairAccidentalMatches. Scattered positions are chosen via a
+// fisherYates shuffle of every board cell rather than picking `blockerCount`
+// independent random cells, so there's no risk of the same cell being chosen
+// twice; clustered positions come from clusteredPositions above, which
+// carries the same no-duplicate guarantee by construction (a cell is only
+// ever added to `chosen` once).
+function placeBlockers(
+  board: Board,
+  blockerCount: number,
+  blockerMatchType: string | undefined,
+  blockerHitsToClear: number | undefined,
+  rng: () => number,
+  clustered: boolean
+): void {
+  if (blockerMatchType === undefined) {
+    throw new Error('generateLevel: blockerCount > 0 requires blockerMatchType.');
+  }
+
+  const hitsToClear = blockerHitsToClear ?? 1;
+
+  let chosen: Position[];
+  if (clustered) {
+    chosen = clusteredPositions(board, blockerCount, rng);
+  } else {
+    const allPositions = nonVoidPositions(board);
+    chosen = fisherYates(allPositions, rng).slice(0, Math.min(blockerCount, allPositions.length));
+  }
+
   for (const pos of chosen) {
     board[pos.row][pos.col] = {
       id: `blocker-${pos.row}-${pos.col}`,
@@ -159,7 +262,8 @@ function placeBlockers(
 }
 
 export function generateLevel(seed: number, config: GeneratorConfig): Board {
-  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear, voidCells } = config;
+  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear, voidCells, clusterBlockers } =
+    config;
 
   if (pieceTypeIds.length < 2) {
     throw new Error('generateLevel: pieceTypeIds must contain at least 2 distinct types.');
@@ -197,7 +301,7 @@ export function generateLevel(seed: number, config: GeneratorConfig): Board {
   repairAccidentalMatches(board, pieceTypeIds, rng);
 
   if (blockerCount) {
-    placeBlockers(board, blockerCount, blockerMatchType, blockerHitsToClear, rng);
+    placeBlockers(board, blockerCount, blockerMatchType, blockerHitsToClear, rng, !!clusterBlockers);
   }
 
   if (!hasLegalMoves(board)) {
