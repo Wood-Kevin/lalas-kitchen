@@ -280,6 +280,27 @@ export function shouldShowBlockerTutorial(board: Board, seenTutorials: string[])
   return findBlockerMatchType(board) !== undefined && !seenTutorials.includes(BLOCKER_TUTORIAL_ID);
 }
 
+// The one-time board-shape tutorial's id in `SaveData.seenTutorials` — shown
+// the first time a level's board actually contains a non-playable void cell
+// (see engine/matrix.ts's `'void'` PieceType and engine/boardShapes.ts). A
+// plain static blocker cluster looks and behaves like an obstacle the player
+// already understands from BLOCKER_TUTORIAL_ID; a gap in the grid itself is
+// the genuinely new thing worth explaining, since otherwise it could read as
+// a rendering bug rather than an intentional board shape.
+export const BOARD_SHAPE_TUTORIAL_ID = 'board_shape';
+
+function boardHasVoidCell(board: Board): boolean {
+  return board.some((row) => row.some((piece) => piece.type === 'void'));
+}
+
+// Same shape and reasoning as shouldShowBlockerTutorial above: a void cell is
+// fixed at level generation (LevelConfig.voidCells), never introduced
+// mid-level, so this is a mount-time check against the level's initial board,
+// not a re-derived post-move scan.
+export function shouldShowBoardShapeTutorial(board: Board, seenTutorials: string[]): boolean {
+  return boardHasVoidCell(board) && !seenTutorials.includes(BOARD_SHAPE_TUTORIAL_ID);
+}
+
 // Adds a tutorial id to the seen list if it isn't already there — same
 // idempotent-add shape as markLevelCompleted above (dismissing an
 // already-seen tutorial, if that ever became reachable, must not grow the
@@ -344,6 +365,38 @@ export function findSpecialPieceTutorial(
       if (SPECIAL_TUTORIAL_IDS.includes(piece.type) && !seenTutorials.includes(piece.type)) {
         return { id: piece.type, piece };
       }
+    }
+  }
+  return undefined;
+}
+
+// The one-time spread-warning tutorial's id in `SaveData.seenTutorials` —
+// shown the first time the dynamic denial-zone spread mechanic's transient
+// `spreadWarning` flag (see engine/matrix.ts's Piece and
+// engine/gameState.ts's stepDenialZone) actually marks a cell. A static
+// denial zone needs no explanation beyond BLOCKER_TUTORIAL_ID's "match
+// ingredients next to it" — the warning crack is the genuinely new behavior,
+// since it means this ordinary cell is about to become another blocker
+// unless matched first.
+export const SPREAD_WARNING_TUTORIAL_ID = 'spread_warning';
+
+// Same re-derived-after-every-move shape as findSpecialPieceTutorial above,
+// not a mount-time check: a warned cell never exists on a level's initial
+// board (the earliest possible warning is spreadInterval - 1 unaddressed
+// moves in), and it can be cleared and re-marked elsewhere as play
+// continues, so this has to be scanned fresh each time rather than latched
+// once. Returns the warned piece itself (its real in-play sprite, the same
+// "show the real thing being explained" convention every other tutorial
+// icon follows) so the overlay can resolve its icon via getSpriteForPiece,
+// exactly like findSpecialPieceTutorial's own returned piece.
+export function findSpreadWarningTutorial(
+  board: Board,
+  seenTutorials: string[]
+): SpecialPieceTutorial | undefined {
+  if (seenTutorials.includes(SPREAD_WARNING_TUTORIAL_ID)) return undefined;
+  for (const row of board) {
+    for (const piece of row) {
+      if (piece.spreadWarning) return { id: SPREAD_WARNING_TUTORIAL_ID, piece };
     }
   }
   return undefined;

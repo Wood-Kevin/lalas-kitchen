@@ -14,7 +14,10 @@ import {
   findBlockerMatchType,
   shouldShowBlockerTutorial,
   BLOCKER_TUTORIAL_ID,
+  shouldShowBoardShapeTutorial,
+  BOARD_SHAPE_TUTORIAL_ID,
   findSpecialPieceTutorial,
+  findSpreadWarningTutorial,
   SpecialPieceTutorial,
   shouldShowChainReactionTutorial,
   CHAIN_REACTION_TUTORIAL_ID,
@@ -210,11 +213,21 @@ export function Board({
   const [showBlockerTutorial, setShowBlockerTutorial] = useState(() =>
     shouldShowBlockerTutorial(gameState.board, seenTutorials)
   );
+  // Same mount-time shape as showBlockerTutorial above, and for the same
+  // reason: a level's void cells (see engine/matrix.ts's `'void'` PieceType)
+  // are fixed at generation (LevelConfig.voidCells), never introduced
+  // mid-level, so the initial board is the correct — and only — place to
+  // check.
+  const [showBoardShapeTutorial, setShowBoardShapeTutorial] = useState(() =>
+    shouldShowBoardShapeTutorial(gameState.board, seenTutorials)
+  );
   // The special-piece tutorial currently showing (striped / color bomb / area
-  // bomb), or null. Unlike showBlockerTutorial this can't be a mount-time
-  // check: a special piece never exists on a level's initial board — the
-  // player forges it mid-level — so it's re-derived after every committed move
-  // (see the post-move effect below), not once at mount.
+  // bomb / spread warning), or null. Unlike showBlockerTutorial this can't be
+  // a mount-time check: a special piece never exists on a level's initial
+  // board — the player forges it mid-level — and a spread-zone warning is
+  // likewise only ever marked after real unaddressed moves, so both are
+  // re-derived after every committed move (see the post-move effect below),
+  // not once at mount.
   const [specialTutorial, setSpecialTutorial] = useState<SpecialPieceTutorial | null>(null);
   // Ids dismissed during THIS Board's lifetime, folded into the seen check
   // alongside the persisted `seenTutorials` prop. The prop does eventually
@@ -330,18 +343,23 @@ export function Board({
   }, [gameState]);
 
   // Show a special piece's one-time tutorial the first time it comes to rest on
-  // the committed board. Keyed on gameState (the same identity onStateChange
-  // uses) so it fires exactly when a move settles, never mid-cascade — the
-  // player watches the piece land, then the calm explanation appears. Skipped
-  // once the level has ended (status !== in_progress) so it never pops over the
-  // Won/Paused overlay, and while another tutorial is already up so two never
-  // stack. Both the persisted prop and this session's dismissals feed the seen
-  // check, keeping the once-ever guarantee honest across the persist round-trip.
+  // the committed board — or, failing that, the spread-warning tutorial the
+  // first time a cell actually carries the denial-zone's warning crack (see
+  // findSpreadWarningTutorial; same "re-derived after every move" reasoning as
+  // a special piece, since a warning is only ever marked by a real unaddressed
+  // move, never present on a level's initial board). Keyed on gameState (the
+  // same identity onStateChange uses) so it fires exactly when a move settles,
+  // never mid-cascade — the player watches the piece land, then the calm
+  // explanation appears. Skipped once the level has ended (status !==
+  // in_progress) so it never pops over the Won/Paused overlay, and while
+  // another tutorial is already up so two never stack. Both the persisted prop
+  // and this session's dismissals feed the seen check, keeping the once-ever
+  // guarantee honest across the persist round-trip.
   useEffect(() => {
     if (gameState.status !== 'in_progress') return;
-    if (showOnboardingTutorial || showBlockerTutorial || specialTutorial) return;
+    if (showOnboardingTutorial || showBoardShapeTutorial || showBlockerTutorial || specialTutorial) return;
     const seen = [...seenTutorials, ...dismissedSpecialTutorialsRef.current];
-    const match = findSpecialPieceTutorial(gameState.board, seen);
+    const match = findSpecialPieceTutorial(gameState.board, seen) ?? findSpreadWarningTutorial(gameState.board, seen);
     if (match) setSpecialTutorial(match);
     // Only a committed gameState change should retrigger this — see the
     // onStateChange effect above for the same deps reasoning.
@@ -387,6 +405,7 @@ export function Board({
       gameState.status === 'in_progress' &&
       !snapBack &&
       !showOnboardingTutorial &&
+      !showBoardShapeTutorial &&
       !showBlockerTutorial &&
       !specialTutorial &&
       !animatingRef.current
@@ -417,7 +436,7 @@ export function Board({
     // reactive — see its own doc comment above); attemptSwap's immediate hide
     // is what covers the moment a move starts, before gameState settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, snapBack, showOnboardingTutorial, showBlockerTutorial, specialTutorial]);
+  }, [gameState, snapBack, showOnboardingTutorial, showBoardShapeTutorial, showBlockerTutorial, specialTutorial]);
 
   useEffect(() => {
     // Same unmount safety net as stepTimersRef's own cleanup effect above,
@@ -740,6 +759,11 @@ export function Board({
     onTutorialSeen(HOW_TO_PLAY_TUTORIAL_ID);
   }
 
+  function handleDismissBoardShapeTutorial() {
+    setShowBoardShapeTutorial(false);
+    onTutorialSeen(BOARD_SHAPE_TUTORIAL_ID);
+  }
+
   function handleDismissBlockerTutorial() {
     setShowBlockerTutorial(false);
     onTutorialSeen(BLOCKER_TUTORIAL_ID);
@@ -910,6 +934,7 @@ export function Board({
                     dragEnabled={
                       gameState.status === 'in_progress' &&
                       !showOnboardingTutorial &&
+                      !showBoardShapeTutorial &&
                       !showBlockerTutorial &&
                       !specialTutorial &&
                       !snapBack &&
@@ -972,7 +997,23 @@ export function Board({
           onDismiss={handleDismissOnboardingTutorial}
         />
       )}
-      {!showOnboardingTutorial && showBlockerTutorial && (
+      {/* Board shape comes right after onboarding and before the blocker
+          card: a shaped board is the most immediately visible thing about
+          this level (gaps in the grid itself), so it's explained before any
+          content sitting within that shape. Both are mount-time overlays
+          layered the same way (see their useState initializers above) — once
+          onboarding dismisses, this reveals underneath if the level actually
+          has void cells; if not, this block is simply always false. */}
+      {!showOnboardingTutorial && showBoardShapeTutorial && (
+        <SpecialTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          tutorialId={BOARD_SHAPE_TUTORIAL_ID}
+          piece={null}
+          onDismiss={handleDismissBoardShapeTutorial}
+        />
+      )}
+      {!showOnboardingTutorial && !showBoardShapeTutorial && showBlockerTutorial && (
         <BlockerTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
@@ -980,7 +1021,7 @@ export function Board({
           onDismiss={handleDismissBlockerTutorial}
         />
       )}
-      {!showOnboardingTutorial && specialTutorial && (
+      {!showOnboardingTutorial && !showBoardShapeTutorial && specialTutorial && (
         <SpecialTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}

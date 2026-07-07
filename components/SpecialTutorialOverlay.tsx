@@ -8,22 +8,27 @@ import { spriteLabel } from './spriteLabel';
 
 // The calm one-line explanation shown the first time each special piece comes
 // to rest on the board, keyed by the same id findSpecialPieceTutorial returns
-// (identical to the engine PieceType) — plus two more, keyed the same way even
-// though neither is a PieceType: `chain_reaction` (appPersistence.ts's
-// CHAIN_REACTION_TUTORIAL_ID), for the moment more than one special fires
-// together, and `how_to_play` (HOW_TO_PLAY_TUTORIAL_ID), the genuine onboarding
+// (identical to the engine PieceType) — plus four more, keyed the same way
+// even though none is a PieceType: `chain_reaction`
+// (CHAIN_REACTION_TUTORIAL_ID), for the moment more than one special fires
+// together; `how_to_play` (HOW_TO_PLAY_TUTORIAL_ID), the genuine onboarding
 // card teaching the base swap-to-match mechanic itself, shown before any of
-// the others (see appPersistence.ts's shouldShowOnboardingTutorial). Copy
-// lives here, beside the only thing that renders it, rather than in
-// appPersistence.ts — the persistence layer owns WHICH tutorial and WHETHER
-// it's been seen; the wording is presentation. That's the same split
+// the others; `board_shape` (BOARD_SHAPE_TUTORIAL_ID), shown the first time a
+// level's board contains a void cell; and `spread_warning`
+// (SPREAD_WARNING_TUTORIAL_ID), shown the first time the denial-zone spread
+// mechanic marks a cell with its warning crack (see appPersistence.ts for all
+// four). Copy lives here, beside the only thing that renders it, rather than
+// in appPersistence.ts — the persistence layer owns WHICH tutorial and
+// WHETHER it's been seen; the wording is presentation. That's the same split
 // BlockerTutorialOverlay makes by hardcoding its own headline/subtext. Tone
 // matches "A Covered Dish": warm, plain, one action, no urgency (see
 // CLAUDE.md's calm-not-frantic brief) — chain_reaction's copy leans into
 // noticing the moment rather than re-explaining any one piece's mechanic,
-// since the player has already seen each piece's own card by then, and
+// since the player has already seen each piece's own card by then;
 // how_to_play's copy is the one card that doesn't assume the player already
-// knows how to make a match at all.
+// knows how to make a match at all; board_shape explains a gap is
+// intentional, not a bug; spread_warning explains the crack is a chance to
+// act, not just a status.
 export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtext: string }> = {
   how_to_play: {
     headline: 'Tap and Swap',
@@ -44,6 +49,14 @@ export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtex
   chain_reaction: {
     headline: 'Everything at Once',
     subtext: 'Sometimes one move sets off more than one special together — the more you make, the more they find each other.',
+  },
+  board_shape: {
+    headline: 'A Different Shape',
+    subtext: "A few spots on this board aren't part of play — just match around the gaps like normal.",
+  },
+  spread_warning: {
+    headline: 'A Warning Crack',
+    subtext: 'That crack means a covered dish is about to spread here — match this spot first to stop it.',
   },
 };
 
@@ -73,15 +86,22 @@ export interface SpecialTutorialOverlayProps {
   // never a hardcoded reference. A striped piece's icon therefore reflects the
   // base ingredient it was forged from.
   //
-  // Null for the chain_reaction and how_to_play tutorials: chain_reaction
-  // celebrates a MOMENT (more than one special firing together), not any
-  // single piece — by the time the move settles, the specials that fired are
-  // already cleared, so there's no resting piece to point getSpriteForPiece
-  // at. how_to_play explains the base mechanic itself, before any piece has
-  // even been swapped, so there's likewise no single piece to anchor to.
-  // Both fall back to the same text-label placeholder convention every
-  // un-arted piece already uses (see the icon fallback below), never a
-  // hardcoded sprite reference.
+  // Null for the chain_reaction, how_to_play, and board_shape tutorials:
+  // chain_reaction celebrates a MOMENT (more than one special firing
+  // together), not any single piece — by the time the move settles, the
+  // specials that fired are already cleared, so there's no resting piece to
+  // point getSpriteForPiece at. how_to_play explains the base mechanic
+  // itself, before any piece has even been swapped, so there's likewise no
+  // single piece to anchor to. board_shape explains the board's SHAPE (its
+  // void cells), not any one piece on it — a void has no rendered Tile at
+  // all (see Board.tsx's `if (piece.type === 'void') return null`), so there
+  // is nothing for getSpriteForPiece to resolve. spread_warning, by
+  // contrast, DOES pass a real piece — the actual ordinary cell the warning
+  // just marked (see appPersistence.ts's findSpreadWarningTutorial) — the
+  // same "show the real thing" convention BlockerTutorialOverlay uses.
+  // Every null case falls back to the same text-label placeholder
+  // convention every un-arted piece already uses (see the icon fallback
+  // below), never a hardcoded sprite reference.
   piece: Piece | null;
   onDismiss: () => void;
 }

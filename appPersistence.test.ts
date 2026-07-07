@@ -12,10 +12,14 @@ import {
   eligibleBlockerIds,
   findBlockerMatchType,
   findSpecialPieceTutorial,
+  findSpreadWarningTutorial,
+  SPREAD_WARNING_TUTORIAL_ID,
   findRecipeCardForLevel,
   STRIPED_TUTORIAL_ID,
   COLOR_BOMB_TUTORIAL_ID,
   AREA_BOMB_TUTORIAL_ID,
+  BOARD_SHAPE_TUTORIAL_ID,
+  shouldShowBoardShapeTutorial,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
@@ -62,6 +66,17 @@ function colorBombPiece(id: string): Piece {
 
 function areaBombPiece(id: string): Piece {
   return { id, type: 'area_bomb' };
+}
+
+function voidPiece(id: string): Piece {
+  return { id, type: 'void' };
+}
+
+// A cell the denial-zone spread mechanic has just marked with its transient
+// warning flag (see engine/gameState.ts's stepDenialZone) — still an
+// ordinary, matchable piece, just carrying `spreadWarning: true`.
+function spreadWarningPiece(id: string, matchType: string): Piece {
+  return { id, type: 'normal', matchType, spreadWarning: true };
 }
 
 function boardOf(rows: Piece[][]): Board {
@@ -826,6 +841,33 @@ describe('shouldShowBlockerTutorial', () => {
   });
 });
 
+describe('shouldShowBoardShapeTutorial', () => {
+  test('true when the board has a void cell and the tutorial has never been seen', () => {
+    const board = boardOf([[piece('a', 'tomato'), voidPiece('v')]]);
+    expect(shouldShowBoardShapeTutorial(board, [])).toBe(true);
+  });
+
+  test('false when the board has a void cell but the tutorial was already dismissed', () => {
+    const board = boardOf([[piece('a', 'tomato'), voidPiece('v')]]);
+    expect(shouldShowBoardShapeTutorial(board, [BOARD_SHAPE_TUTORIAL_ID])).toBe(false);
+  });
+
+  test('false on a plain rectangular board with no void cells, regardless of seenTutorials', () => {
+    const board = boardOf([[piece('a', 'tomato'), piece('b', 'lemon')]]);
+    expect(shouldShowBoardShapeTutorial(board, [])).toBe(false);
+  });
+
+  test('a blocker alone does not count as a board shape', () => {
+    const board = boardOf([[piece('a', 'tomato'), blockerPiece('d', 'cling')]]);
+    expect(shouldShowBoardShapeTutorial(board, [])).toBe(false);
+  });
+
+  test('dismissing the blocker tutorial does not suppress this one — distinct id', () => {
+    const board = boardOf([[voidPiece('v')]]);
+    expect(shouldShowBoardShapeTutorial(board, [BLOCKER_TUTORIAL_ID])).toBe(true);
+  });
+});
+
 describe('shouldShowOnboardingTutorial', () => {
   test('true on a genuinely fresh save\'s level 1 — nothing completed, never seen', () => {
     expect(shouldShowOnboardingTutorial(1, [], [])).toBe(true);
@@ -881,6 +923,16 @@ describe('markTutorialSeen', () => {
     seen = markTutorialSeen(seen, AREA_BOMB_TUTORIAL_ID);
     seen = markTutorialSeen(seen, STRIPED_TUTORIAL_ID); // re-dismiss is idempotent
     expect(seen).toEqual([STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID]);
+  });
+
+  // Same proof for the two newest tutorial ids — board_shape (mount-time) and
+  // spread_warning (post-move) — both flow through this exact same generic
+  // writer, no special-casing needed for either.
+  test('handles board_shape and spread_warning exactly like any other id', () => {
+    let seen = markTutorialSeen([], BOARD_SHAPE_TUTORIAL_ID);
+    seen = markTutorialSeen(seen, SPREAD_WARNING_TUTORIAL_ID);
+    seen = markTutorialSeen(seen, BOARD_SHAPE_TUTORIAL_ID); // re-dismiss is idempotent
+    expect(seen).toEqual([BOARD_SHAPE_TUTORIAL_ID, SPREAD_WARNING_TUTORIAL_ID]);
   });
 });
 
@@ -947,6 +999,47 @@ describe('findSpecialPieceTutorial', () => {
     ]);
     const allSeen = [STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
     expect(findSpecialPieceTutorial(board, allSeen)).toBeUndefined();
+  });
+});
+
+describe('findSpreadWarningTutorial', () => {
+  test('no warned cell on the board — returns undefined (shows nothing)', () => {
+    const board = boardOf([[piece('a', 'tomato'), blockerPiece('d', 'cling')]]);
+    expect(findSpreadWarningTutorial(board, [])).toBeUndefined();
+  });
+
+  test('a warned cell the player has not seen — returns the tutorial and the real warned piece', () => {
+    const warned = spreadWarningPiece('w', 'lemon');
+    const board = boardOf([[piece('a', 'tomato'), warned]]);
+    expect(findSpreadWarningTutorial(board, [])).toEqual({ id: SPREAD_WARNING_TUTORIAL_ID, piece: warned });
+  });
+
+  test('shows exactly once — already seen is skipped even while the board still carries a warning', () => {
+    const warned = spreadWarningPiece('w', 'lemon');
+    const board = boardOf([[warned]]);
+    expect(findSpreadWarningTutorial(board, [SPREAD_WARNING_TUTORIAL_ID])).toBeUndefined();
+  });
+
+  test('a blocker alone (no warning flag) never triggers this — distinct from the static blocker tutorial', () => {
+    const board = boardOf([[blockerPiece('d', 'cling')]]);
+    expect(findSpreadWarningTutorial(board, [])).toBeUndefined();
+  });
+
+  test('dismissing the other tutorials does not suppress this one — distinct id', () => {
+    const warned = spreadWarningPiece('w', 'lemon');
+    const board = boardOf([[warned]]);
+    const seen = [BLOCKER_TUTORIAL_ID, STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
+    expect(findSpreadWarningTutorial(board, seen)).toEqual({ id: SPREAD_WARNING_TUTORIAL_ID, piece: warned });
+  });
+
+  test('returns the first warned cell row-major when more than one is somehow present', () => {
+    const first = spreadWarningPiece('w1', 'tomato');
+    const second = spreadWarningPiece('w2', 'lemon');
+    const board = boardOf([
+      [piece('a', 'herb'), first],
+      [second, piece('b', 'onion')],
+    ]);
+    expect(findSpreadWarningTutorial(board, [])).toEqual({ id: SPREAD_WARNING_TUTORIAL_ID, piece: first });
   });
 });
 

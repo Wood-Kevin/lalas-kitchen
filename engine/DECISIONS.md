@@ -3294,3 +3294,91 @@ screen correctly shows the real post-spend count. Exactly one life was ever
 spent across the whole run, not three. All 453 existing engine/component
 tests still pass, plus 4 new `shouldOfferContinue` cases in
 `components/pauseActions.test.ts`. See `docs/verification/mid-level-continue/`.
+
+## Two more one-time tutorials: `board_shape` and `spread_warning`
+
+The five existing tutorials each explain a piece or a moment (a blocker, a
+special, a chain reaction, the base mechanic itself), but two real mechanics
+built earlier this project — non-rectangular boards and the dynamic
+denial-zone spread — had no explanation at all. Investigated first, per the
+standing Playtest Feedback Protocol, rather than assumed: the actual question
+was *when* each thing genuinely first becomes visible to a player, not just
+*that* it should get a card.
+
+**A static denial zone needs no new tutorial — the warning crack is the
+actually-new thing.** A cluster of blockers, spreading or not, looks and
+behaves exactly like the ordinary obstacle `BLOCKER_TUTORIAL_ID` ("A Covered
+Dish") already explains. What a player has never seen before is a cell
+cracking and dimming the move before it becomes another blocker — that's the
+one genuinely new behavior, and it's what `spread_warning` explains, not "this
+level has blockers" a second time.
+
+**A shaped board's gap is fixed at generation, so it needs a mount-time check,
+not a post-move scan.** Unlike a special piece (forged mid-level) or a spread
+warning (marked by a real unaddressed move), a level's `voidCells` are baked
+into its `LevelConfig` before the first tile ever renders — the same timing
+`shouldShowBlockerTutorial` already relies on for the blocker card. Getting
+this backwards (treating it as a post-move signal) would have meant the very
+first thing a player sees — gaps in the grid — goes unexplained for a beat,
+which is exactly the "could read as a rendering bug" risk this session was
+asked to avoid.
+
+**Both reuse the existing plumbing with zero new shape.** No third overlay
+component, no new `SaveData` field, no new dismiss path.
+`appPersistence.ts`'s `BOARD_SHAPE_TUTORIAL_ID`/`shouldShowBoardShapeTutorial`
+is a one-line board scan for any `type === 'void'` cell, mirroring
+`shouldShowBlockerTutorial` exactly; `Board.tsx`'s `showBoardShapeTutorial` is
+a mount-time `useState` initializer alongside `showBlockerTutorial`, gating
+`canAcceptMove`/`dragEnabled`/the post-move effect the same way, and rendering
+between the onboarding card and the blocker card — a shaped board is the most
+immediately visible thing about a level, so it's explained before content
+sitting *within* that shape. `SPREAD_WARNING_TUTORIAL_ID`/
+`findSpreadWarningTutorial` scans for `piece.spreadWarning`, returning the
+real warned piece itself (so its icon resolves through the same
+`getSpriteForPiece` path every other tutorial's real-piece icon uses); it's
+folded straight into `Board.tsx`'s *existing* post-move `specialTutorial`
+effect as a fallback after `findSpecialPieceTutorial` (`match ??
+findSpreadWarningTutorial(...)`), so the two share one state slot, one
+session-level dismissal ref, and one dismiss handler — no new "which tutorial
+is showing" union, no new priority logic. `board_shape`'s icon is `piece:
+null` (a void has no rendered Tile to anchor an icon to at all, the same
+structural reason `chain_reaction`/`how_to_play` fall back to the text-label
+placeholder); `spread_warning`'s icon is a real piece, since the warned cell
+is a genuine ordinary tile, not an abstract moment.
+
+**Copy** (`SPECIAL_TUTORIAL_CONTENT` in `SpecialTutorialOverlay.tsx`) matches
+the existing calm, one-action tone: `board_shape` — "A Different Shape" /
+"A few spots on this board aren't part of play — just match around the gaps
+like normal"; `spread_warning` — "A Warning Crack" / "That crack means a
+covered dish is about to spread here — match this spot first to stop it."
+
+**Verified live against the real running app over CDP**, not a board fed
+directly into either detection function. `board_shape`: a realistic prior-
+progress save seeded via `localStorage` (completed levels 1–3, `how_to_play`
+already seen, `board_shape` deliberately not), a real click on "Start
+cooking," landing on the real hand-built Level 4 "Cutting Board"
+(`PLUS_SHOWCASE_VOIDS`) — the overlay appears on first paint, before any tap,
+over the genuinely gap-cornered board; dismissing persists immediately;
+a full page reload and re-entry confirms the once-ever guarantee across a
+real relaunch, not just a re-render. `spread_warning`: the real gated
+generated level 14 (`generatedLevelNumber(14, 4) === 10` — the same level
+`docs/verification/denial-zone-spread/` already verified the numbers for:
+`movesLimit 20`, `denialSpread: true`, `spreadInterval = round(0.25×20) = 5`),
+every other tutorial pre-seeded as seen so only `spread_warning` could fire,
+then real drag gestures dispatched at actual on-screen tile coordinates (tile
+identity/position read non-invasively off the live DOM, no state-reading hook
+needed to plan moves) driving genuinely unaddressed matches away from the
+blocker cluster. A temporary **read-only** `window.__peekGameState` (returns
+`gameState`, never calls `applyMove` or mutates anything) confirmed the real
+engine counters after each move; two of the six real moves had no safe match
+available on that exact random board and honestly fell back to a real
+addressing match instead (disclosed in the verification doc with the actual
+counter values, not hidden) before the fourth genuinely-unaddressed move
+produced a real, engine-computed `spreadWarning: true` on an ordinary tomato
+tile. Dismissing was confirmed to add *only* `spread_warning` to
+`seenTutorials` (diffed against the pre-seeded array), and a second, later
+warning cycle reached by continued real play correctly did not resurface the
+card. See `docs/verification/board-shape-tutorial/` and
+`docs/verification/spread-warning-tutorial/`. All 465 tests pass, including
+new `shouldShowBoardShapeTutorial`/`findSpreadWarningTutorial` coverage in
+`appPersistence.test.ts`.
