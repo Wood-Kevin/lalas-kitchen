@@ -1,4 +1,11 @@
-import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, cutCornersVoids, plusVoids, ringVoids } from './boardShapes';
+import {
+  BOARD_SHAPE_ROTATION,
+  BOARD_SHAPE_TEMPLATES,
+  cutCornersVoids,
+  playableCellRatio,
+  plusVoids,
+  ringVoids,
+} from './boardShapes';
 
 function toKeySet(positions: { row: number; col: number }[]): Set<string> {
   return new Set(positions.map((p) => `${p.row},${p.col}`));
@@ -99,5 +106,23 @@ describe('BOARD_SHAPE_TEMPLATES / BOARD_SHAPE_ROTATION', () => {
       const voids = BOARD_SHAPE_TEMPLATES[id](8, 5);
       expect(voids.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('playableCellRatio', () => {
+  test('a plain rectangle (no voids) is fully playable', () => {
+    expect(playableCellRatio(8, 5)).toBe(1);
+    expect(playableCellRatio(8, 5, [])).toBe(1);
+  });
+
+  test('real percentages on the real generated board size (8x5, 40 cells) — the exact numbers behind the ring-unfairness report', () => {
+    expect(playableCellRatio(8, 5, ringVoids(8, 5))).toBeCloseTo(22 / 40); // 55%
+    expect(playableCellRatio(8, 5, cutCornersVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
+    expect(playableCellRatio(8, 5, plusVoids(8, 5))).toBeCloseTo(32 / 40); // 80%
+  });
+
+  test('ring is the most restrictive of the 3 templates at this board size', () => {
+    const ratios = BOARD_SHAPE_ROTATION.map((id) => playableCellRatio(8, 5, BOARD_SHAPE_TEMPLATES[id](8, 5)));
+    expect(Math.min(...ratios)).toBe(playableCellRatio(8, 5, ringVoids(8, 5)));
   });
 });

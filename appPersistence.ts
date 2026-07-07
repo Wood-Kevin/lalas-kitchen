@@ -1,4 +1,4 @@
-import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId } from './engine/boardShapes';
+import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId, playableCellRatio } from './engine/boardShapes';
 import { Board, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
 import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
@@ -560,20 +560,40 @@ export function generatedPieceTypeCount(levelNumber: number, availableTypeCount:
 // by one every 2 levels from the hand-built queue's own last value (24, see
 // LEVEL_QUEUE), floored at 18 so a long session never becomes mechanically
 // unwinnable.
-export function generatedMovesLimit(levelNumber: number): number {
+//
+// `playableRatio` (see engine/boardShapes.ts's playableCellRatio) scales this
+// down further for a shaped board — real playtesting on a `ring` level (55%
+// playable) reported it as unfair, and confirmed this number was computed
+// with zero awareness of voidCells. Defaults to 1 (a plain rectangle) so
+// every pre-existing call site is unaffected. The MIN_MOVES floor is
+// re-applied after scaling, not just before, so a heavily-voided board still
+// can't drop below the same mechanically-unwinnable guarantee a full board
+// gets.
+export function generatedMovesLimit(levelNumber: number, playableRatio: number = 1): number {
   const BASE_MOVES = 24;
   const MIN_MOVES = 18;
   const step = Math.floor((levelNumber - 1) / 2);
-  return Math.max(MIN_MOVES, BASE_MOVES - step);
+  const fullBoardMoves = Math.max(MIN_MOVES, BASE_MOVES - step);
+  return Math.max(MIN_MOVES, Math.round(fullBoardMoves * playableRatio));
 }
 
 // Mirrors LEVEL_QUEUE's own light per-level growth in target count, capped
 // well below generatedMovesLimit's floor so the objective stays reachable
 // even at max difficulty.
-export function generatedTargetCount(levelNumber: number): number {
+//
+// `playableRatio` (see engine/boardShapes.ts's playableCellRatio) scales this
+// down for a shaped board, same reasoning and same default as
+// generatedMovesLimit above: a smaller board has fewer cells to generate
+// matches on, so the same total-pieces burden a full board can absorb is
+// disproportionately harder on a board that's lost, say, 45% of its cells to
+// a `ring` template. MIN_TARGET floors the result so a heavily-voided board
+// never asks for a degenerately trivial handful of pieces.
+export function generatedTargetCount(levelNumber: number, playableRatio: number = 1): number {
   const BASE_TARGET = 20;
   const MAX_TARGET = 26;
-  return Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
+  const MIN_TARGET = 10;
+  const fullBoardTarget = Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
+  return Math.max(MIN_TARGET, Math.round(fullBoardTarget * playableRatio));
 }
 
 // How many simultaneous objectives a generated level asks for. Gated on
@@ -716,6 +736,21 @@ export function buildGeneratedLevelConfig(
   const typeCount = generatedPieceTypeCount(levelNumber, allPieceTypeIds.length);
   const pieceTypeIds = allPieceTypeIds.slice(0, typeCount);
 
+  // Computed before objectives/movesLimit below — real playtesting on a
+  // `ring`-shaped level (55% playable at this board's fixed size) reported it
+  // as genuinely unfair, and confirmed the two functions below were computing
+  // difficulty from levelNumber alone, with zero awareness that a shape
+  // template had just removed nearly half the board. playableRatio (see
+  // engine/boardShapes.ts's playableCellRatio) feeds that awareness in.
+  // Independent of every gate below — a shaped board and a blocker/
+  // denial-spread level can coexist freely, since placeBlockers/the spread
+  // logic already exclude void cells structurally (see engine/generator.ts
+  // and engine/gameState.ts's stepDenialZone, both void-aware from the
+  // hand-built showcase level onward).
+  const shapeId = generatedShapeId(levelNumber);
+  const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](rows, cols) : undefined;
+  const playableRatio = playableCellRatio(rows, cols, voidCells);
+
   // Distinct-by-construction: consecutive indices into pieceTypeIds, modulo
   // its own length. objectiveCount is capped at pieceTypeIds.length (see
   // generatedObjectiveCount), so this can never wrap around and repeat a
@@ -731,8 +766,9 @@ export function buildGeneratedLevelConfig(
   // same number. ceil so an odd total never rounds a level below its
   // intended burden — though in practice two objectives only ever appear
   // once the target has saturated at 26 (both need levelNumber >= 7), so
-  // this splits cleanly to 13 + 13.
-  const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber) / objectiveCount);
+  // this splits cleanly to 13 + 13 on a full board (scaled down together by
+  // playableRatio on a shaped one).
+  const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber, playableRatio) / objectiveCount);
   const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
     targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
     targetCount: perObjectiveTarget,
@@ -751,20 +787,12 @@ export function buildGeneratedLevelConfig(
   const denialSpread =
     blockerCount > 0 && chosenBlocker && levelNumber >= DENIAL_SPREAD_MIN_LEVEL_NUMBER;
 
-  // Independent of every gate above — a shaped board and a blocker/
-  // denial-spread level can coexist freely, since placeBlockers/the spread
-  // logic already exclude void cells structurally (see engine/generator.ts
-  // and engine/gameState.ts's stepDenialZone, both void-aware from the
-  // hand-built showcase level onward).
-  const shapeId = generatedShapeId(levelNumber);
-  const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](rows, cols) : undefined;
-
   return {
     seed: generatedLevelSeed(levelIndex),
     rows,
     cols,
     pieceTypeIds,
-    movesLimit: generatedMovesLimit(levelNumber),
+    movesLimit: generatedMovesLimit(levelNumber, playableRatio),
     objectives,
     ...(blockerCount > 0 && chosenBlocker
       ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }

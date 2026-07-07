@@ -3559,3 +3559,77 @@ prior test coverage existed for this exact interaction — it requires a real
 `Pressable`/DOM event round trip, which this repo's jest-only test infra
 can't exercise, so live verification was the only way to catch or confirm
 it).
+
+## Fixed: generated-level difficulty ramp was blind to shape-template playable area
+
+A real playtest report, investigated per the standing Playtest Feedback
+Protocol: a generated board using the `ring` shape template (playable cells
+limited to the outer perimeter, center voided) felt genuinely unfair, not
+just visually different.
+
+**Investigated first, confirmed against real numbers, not estimated**: at
+the fixed generated-level board size (8 rows x 5 cols, 40 cells),
+`ringVoids` leaves only 22 playable cells (55%) — the most restrictive of
+the 3 curated templates, versus `cut_corners` at 28/40 (70%) and `plus` at
+32/40 (80%). Separately, `buildGeneratedLevelConfig` (`appPersistence.ts`)
+computed `movesLimit` (via `generatedMovesLimit`) and each objective's
+`targetCount` (via `generatedTargetCount`) purely as a function of
+`levelNumber`, calling both **before** `voidCells` was even computed in the
+function body — neither had ever consulted how many cells a shape template
+had just removed. This is the same two-independently-correct-systems
+pattern this project has hit before (the piece-type ramp and the objective
+gate, the recipe-card art and the placeholder contract): `engine/
+boardShapes.ts`'s templates and `appPersistence.ts`'s difficulty ramp were
+each built and tuned without ever being checked against each other. Traced
+live against the real first generated `ring` level (generated level number
+16, reached via `generatedShapeId`'s threshold-8/cadence-4 rotation): it
+demanded the same 18-move limit and 26-piece total target (13+13 across two
+objectives) that a plain rectangle at the same level number gets, despite
+having 45% fewer cells to generate matches on.
+
+**The fix**: `engine/boardShapes.ts` gained `playableCellRatio(rows, cols,
+voidCells)`, a pure geometry helper (defaults `voidCells` to `[]`, so a
+plain rectangle is always exactly `1`) — placed there rather than in
+`appPersistence.ts` since it's a function of a shape template's own output,
+testable the same way the templates themselves are. `generatedMovesLimit`
+and `generatedTargetCount` each gained an optional second parameter,
+`playableRatio` (defaulting to `1` — every pre-existing call site and test
+is a no-op), applied as a proportional scale-down on top of each function's
+existing unscaled calculation, with each function's existing floor
+(`MIN_MOVES` 18, and a new `MIN_TARGET` 10 mirroring it) re-applied *after*
+scaling — so a heavily-voided board still can't drop below the same
+mechanically-unwinnable/degenerately-trivial guarantees a full board
+already gets. `buildGeneratedLevelConfig` was reordered (shape/`voidCells`
+computed first, `playableRatio` derived, then threaded into both scaled
+calls) rather than adding a second pass — the values were already computed
+once per call, this just changes what order.
+
+**A deliberate judgment call, confirmed with the architect rather than
+guessed**: both `movesLimit` and `targetCount` scale down together,
+preserving the tuned target-per-move ratio a full board already has, rather
+than leaving `movesLimit` unscaled (which would have made a shaped level
+strictly *easier* than intended, overcorrecting past "comparable
+difficulty" into "trivial"). In practice this makes `movesLimit` a near
+no-op at every level number where a shape is currently eligible (level 8+)
+— by then `generatedMovesLimit`'s own step-down has already pinned it to
+its 18-move floor, and scaling a number already at its floor down further
+just gets floored right back to 18. The real, load-bearing effect is on
+`targetCount`: the same real first `ring` level (generated level number 16)
+now asks for a 14-piece total (7+7), not 26 — a ~46% cut, matching the
+55% playable ratio almost exactly (26 x 0.55 = 14.3, rounds to 14).
+
+Verified against real numbers, not just a passing test suite: traced
+`ringVoids(8, 5)`/`cutCornersVoids(8, 5)`/`plusVoids(8, 5)` directly (22,
+28, 32 playable cells respectively) and `buildGeneratedLevelConfig` at the
+real first-`ring`-level index (`movesLimit`/`objectives` before vs. after
+the fix) before writing the fix, then re-ran the same trace after to
+confirm the scaled-down numbers. New coverage: `engine/
+boardShapes.test.ts`'s `playableCellRatio` describe block (a plain
+rectangle is always `1`; the real 8x5 percentages for all 3 templates;
+`ring` is confirmed the most restrictive) and `appPersistence.test.ts`'s
+expanded `generatedMovesLimit`/`generatedTargetCount`/
+`buildGeneratedLevelConfig` describes (proportional scaling, the floors
+still holding post-scale, `playableRatio` omitted/`1` being a true no-op,
+and an end-to-end regression guard that a real shaped level's total target
+and moves are strictly less than the unscaled levelNumber-only values). All
+484 tests pass.

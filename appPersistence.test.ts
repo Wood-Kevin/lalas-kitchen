@@ -364,6 +364,25 @@ describe('generatedMovesLimit', () => {
   test('floors at 18 moves no matter how far the ramp continues', () => {
     expect(generatedMovesLimit(500)).toBe(18);
   });
+
+  test('a shaped board (playableRatio < 1) scales moves down proportionally', () => {
+    // levelNumber 1 -> 24 full-board moves; a 90%-playable board should ask
+    // for ~90% of that, not the unscaled full-board number. (A lower ratio
+    // like cut_corners' real 70% would round below the MIN_MOVES floor here
+    // and get pulled back up to 18 — see the floor test below — so this uses
+    // a ratio that stays clear of the floor to isolate the scaling itself.)
+    expect(generatedMovesLimit(1, 0.9)).toBe(Math.round(24 * 0.9));
+  });
+
+  test('the MIN_MOVES floor still holds after scaling down for a shape', () => {
+    // A real ring level (55% playable) at a levelNumber already pinned to the
+    // 18-move floor must not drop below it just because playableRatio < 1.
+    expect(generatedMovesLimit(500, 0.55)).toBe(18);
+  });
+
+  test('playableRatio 1 (a plain rectangle) is a no-op — same as omitting it', () => {
+    expect(generatedMovesLimit(5, 1)).toBe(generatedMovesLimit(5));
+  });
 });
 
 describe('generatedTargetCount', () => {
@@ -371,6 +390,20 @@ describe('generatedTargetCount', () => {
     expect(generatedTargetCount(1)).toBe(21);
     expect(generatedTargetCount(6)).toBe(26);
     expect(generatedTargetCount(500)).toBe(26);
+  });
+
+  test('a shaped board (playableRatio < 1) scales the target down proportionally', () => {
+    // levelNumber 6 -> 26 full-board target; a 70%-playable board should ask
+    // for ~70% of that.
+    expect(generatedTargetCount(6, 0.7)).toBe(Math.round(26 * 0.7));
+  });
+
+  test('the MIN_TARGET floor holds even for a severely reduced board', () => {
+    expect(generatedTargetCount(1, 0.1)).toBe(10);
+  });
+
+  test('playableRatio 1 (a plain rectangle) is a no-op — same as omitting it', () => {
+    expect(generatedTargetCount(10, 1)).toBe(generatedTargetCount(10));
   });
 });
 
@@ -599,6 +632,39 @@ describe('buildGeneratedLevelConfig', () => {
     const config = buildGeneratedLevelConfig(11, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
     expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[0]](8, 6));
     expect(config.blockerCount).toBeGreaterThan(0);
+  });
+
+  // Regression guard for a real playtest report: a `ring`-shaped generated
+  // level (55% playable at this project's actual fixed 8x5 board size) felt
+  // unfair, because movesLimit/objectives were computed purely from
+  // levelNumber with zero awareness of how many cells the shape had just
+  // removed. This locks in that a shaped level's target/moves are now
+  // genuinely lower than an equivalent-levelNumber plain rectangle would get
+  // — not just present but numerically smaller, which is the actual fix.
+  test('a shaped level asks for proportionally less than an equivalent plain rectangle', () => {
+    // levelIndex 11 -> generated level number 8 -> the first on-cadence shape
+    // (BOARD_SHAPE_ROTATION[0]) at 8x6. Compare against the same levelIndex
+    // with no blockers/skin content that would carve voidCells (there's no
+    // "force no shape" knob, so instead compare the shaped config directly
+    // against generatedMovesLimit/generatedTargetCount's own unscaled values,
+    // which is exactly what a plain rectangle at this levelNumber would get).
+    const shaped = buildGeneratedLevelConfig(11, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
+    const rows = 8;
+    const cols = 6;
+    const voidCells = shaped.voidCells ?? [];
+    expect(voidCells.length).toBeGreaterThan(0); // sanity: this level really is shaped
+    const ratio = (rows * cols - voidCells.length) / (rows * cols);
+    expect(ratio).toBeLessThan(1);
+
+    const unscaledMoves = generatedMovesLimit(8);
+    const unscaledTarget = generatedTargetCount(8);
+    expect(shaped.movesLimit).toBeLessThan(unscaledMoves);
+    const totalTarget = shaped.objectives.reduce((sum, o) => sum + o.targetCount, 0);
+    expect(totalTarget).toBeLessThan(unscaledTarget);
+
+    // And it matches the scaled functions directly — buildGeneratedLevelConfig
+    // isn't applying some separate, undocumented scaling of its own.
+    expect(shaped.movesLimit).toBe(generatedMovesLimit(8, ratio));
   });
 
   test('a generated shaped level produces a real, match-free, playable board through the full pipeline', () => {

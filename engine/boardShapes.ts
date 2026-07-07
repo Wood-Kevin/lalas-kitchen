@@ -88,3 +88,22 @@ export const BOARD_SHAPE_TEMPLATES: Record<BoardShapeId, (rows: number, cols: nu
 // deterministic-by-levelNumber shape every other generated-level lever
 // (blocker id rotation, objective targetMatchType rotation) already uses.
 export const BOARD_SHAPE_ROTATION: BoardShapeId[] = ['cut_corners', 'plus', 'ring'];
+
+// How much of a rows x cols rectangle a shape template actually leaves
+// playable, as a 0-1 fraction. Real playtesting on a generated `ring` level
+// (55% playable at the fixed 8x5 generated-board size — the most severe of
+// the 3 templates, vs. cut_corners' 70% and plus's 80%) reported it as
+// genuinely unfair, not just visually different: appPersistence.ts's
+// difficulty ramp (generatedTargetCount/generatedMovesLimit) was computed
+// purely from levelNumber, with zero awareness of how many cells a shape
+// template had just removed. This is that missing awareness, factored out as
+// its own pure geometry function (rather than inlined at the one call site)
+// so it's independently testable against each template the same way the
+// templates themselves are. voidCells defaults to empty so a plain rectangle
+// (no shape applied) always yields exactly 1.
+export function playableCellRatio(rows: number, cols: number, voidCells: Position[] = []): number {
+  const total = rows * cols;
+  if (total <= 0) return 1;
+  const playable = Math.max(0, total - voidCells.length);
+  return playable / total;
+}
