@@ -2664,6 +2664,63 @@ audible fidelity; and no human has listened to the tones to confirm they
 read as calm/pleasant rather than merely functioning. See
 `docs/verification/real-audio-backend/README.md`.
 
+## Fixed: a real device build crash caused by a phantom `expo-asset` version, introduced by this same session's `expo-audio` install
+
+A fresh native Android build crashed at startup with `java.lang.NoClassDefFoundError`
+inside `expo.modules.asset.AssetModule`, before the app itself ran. Investigated
+before touching anything, per the Playtest Feedback Protocol — this turned out
+to share a root cause with the work directly above, not a fresh, unrelated bug.
+
+`package-lock.json` showed **two different `expo-asset` packages installed
+side by side**: the correct one nested at `expo/node_modules/expo-asset@12.0.13`
+(matching `expo/bundledNativeModules.json`'s own SDK 54 pin), and a second,
+much newer one hoisted to the top of `node_modules` at `expo-asset@57.0.3` —
+a version line far past SDK 54, installed as a side effect of `expo-audio`'s
+own `package.json` declaring an **unconstrained** peer dependency,
+`"expo-asset": "*"`. npm's auto-install-peers behavior (default since npm 7)
+resolved that unbounded range against the npm registry's current latest
+rather than reusing the already-present SDK-compatible nested copy, and
+installed it fresh at the top level, where it shadows the correct version
+for any sibling package whose own module resolution walks up to the app's
+top-level `node_modules` rather than staying nested inside `expo`'s private
+tree. Confirmed this was the actual mechanism, not a guess, by running the
+exact command `android/settings.gradle` invokes live at every build
+(`expo-modules-autolinking resolve -p android`, called dynamically via
+`autolinkLibrariesFromCommand`, not baked into any committed/cached file) —
+it deterministically linked the wrong top-level `57.0.3` copy of
+`expo.modules.asset.AssetModule`, the exact class in the crash, compiled
+against Expo Modules APIs far newer than this app's actual
+`expo-modules-core@3.0.30` (confirmed to exist as only one copy — this was
+never a duplicate-core problem, only a duplicate-`expo-asset` one).
+
+**A clean rebuild was investigated as an alternative explanation and ruled
+out, not just assumed away.** The mismatch is a static fact about what's
+physically installed in `node_modules`, not anything cached in a build
+folder — the same deterministic autolinking command returns the identical
+wrong version on repeat runs, so a clean/cache-cleared rebuild would
+re-resolve the identical incompatible `expo-asset@57.0.3` and crash the same
+way. This conclusion is inference from the deterministic nature of the
+autolinking input, not from watching a real device build fail twice — this
+environment has no Android SDK/JDK, so the actual native build was never run
+here; only the live resolution command that build depends on was.
+
+**The fix:** add `expo-asset` as an explicit top-level dependency, pinned to
+the SDK 54 bundled version (`"expo-asset": "~12.0.13"` in `package.json`),
+so npm dedupes onto one correct copy instead of installing a second,
+unconstrained one to satisfy `expo-audio`'s peer range. `npm install`
+removed 6 packages (the rogue `57.0.3` copy and its own now-unneeded
+dependents) and left exactly one `expo-asset@12.0.13` in the tree. Re-running
+`expo-modules-autolinking resolve -p android` afterward confirmed `expo-asset`
+now resolves to `12.0.13` — worth noting, this also incidentally fixed an
+identical latent shadow-copy of `expo-constants@57.0.3` that the same npm
+peer resolution had installed alongside it (autolinking happened to still
+pick the correct nested `expo-constants` copy before this fix, so it wasn't
+independently crashing yet, but the phantom copy is gone now too). All 503
+tests still pass; this was a dependency-resolution fix with no source code
+changes. Still unverified, disclosed rather than assumed: a real native
+Android build actually launching cleanly on device, since no Android
+SDK/JDK/device was available in this environment to confirm directly.
+
 **Cascade passes get sound but no haptic.** A haptic pulse on every fast
 pass of a long chain would read as a buzzy alarm — directly against
 CLAUDE.md's calm-not-frantic constraint. The haptic fires once, on the
