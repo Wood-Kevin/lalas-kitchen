@@ -28,3 +28,10 @@ export function resolveSpriteAsset(
   if (source) return { kind: 'image', source };
   return { kind: 'label', label: spriteLabel(spritePath) };
 }
+
+// A 'score' objective has no matchType, so it can't resolve a sprite through
+// getSpriteForMatchType/resolveSpriteAsset at all. This is a deliberate fixed
+// glyph, not spriteLabel's generic "no art yet" fallback ('?') — that
+// placeholder reads elsewhere in this codebase as a genuine bug (an unknown
+// matchType), and a score objective isn't one.
+export const SCORE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '★' };

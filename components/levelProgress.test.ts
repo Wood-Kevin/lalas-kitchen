@@ -110,6 +110,7 @@ describe('buildLevelSummary', () => {
       levelIndex: 1,
       displayName: 'Tomato Toss',
       targetMatchType: 'tomato',
+      objectiveType: 'collect',
     });
   });
 
@@ -119,6 +120,17 @@ describe('buildLevelSummary', () => {
       levelIndex: 5,
       displayName: 'Level 5',
       targetMatchType: 'lemon',
+      objectiveType: 'collect',
+    });
+  });
+
+  test('a score-type first objective has no targetMatchType and reports objectiveType "score"', () => {
+    const config = { displayName: 'Score Rush', objectives: [{ type: 'score' as const, targetCount: 900 }] };
+    expect(buildLevelSummary(config, 5)).toEqual({
+      levelIndex: 5,
+      displayName: 'Score Rush',
+      targetMatchType: undefined,
+      objectiveType: 'score',
     });
   });
 

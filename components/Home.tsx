@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SkinConfig } from './skinConfig';
-import { SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
+import { SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
 import { LevelSummary, buildRecipeBookSubtitle } from './levelProgress';
@@ -67,10 +67,10 @@ export function Home({
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
 
   const heroSprite = resolveSpriteAsset('home-hero-500h-crop.webp', spriteAssets);
-  const nextIconSprite = resolveSpriteAsset(
-    getSpriteForMatchType(nextLevel.targetMatchType, config),
-    spriteAssets
-  );
+  const nextIconSprite =
+    nextLevel.objectiveType === 'score'
+      ? SCORE_OBJECTIVE_SPRITE
+      : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
 
   return (
     <View style={[styles.container, { backgroundColor: config.palette.background[0] }]}>

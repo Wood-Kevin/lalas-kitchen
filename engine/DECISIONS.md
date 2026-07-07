@@ -3382,3 +3382,135 @@ card. See `docs/verification/board-shape-tutorial/` and
 `docs/verification/spread-warning-tutorial/`. All 465 tests pass, including
 new `shouldShowBoardShapeTutorial`/`findSpreadWarningTutorial` coverage in
 `appPersistence.test.ts`.
+
+## Scoring system: a second, `'score'`-type objective, built from scratch
+
+**Investigated first, per the standing protocol**: no concept of score existed
+anywhere in the engine before this session — a repo-wide search turned up only
+two incidental uses of the word "score" (`components/wonActions.ts`'s
+non-competitive star-rating comment, `components/LevelMap.tsx`'s matching
+comment), neither a real scoring mechanism. So this was new infrastructure,
+not a thin wrapper over something already tracked.
+
+**`ObjectiveType` gained a `'score'` variant** alongside the existing
+`'collect'` (`engine/gameState.ts`). `Objective.targetMatchType` became
+optional — `undefined` for `'score'`, which has no single matchType to track;
+its `currentCount` is the level's running cumulative score instead.
+`LevelConfig.objectives` widened to a union (`{ type?: 'collect';
+targetMatchType; targetCount }` or `{ type: 'score'; targetCount }`) —
+omitting `type` still means `'collect'`, so every level built before this
+feature (every hand-built `LEVEL_QUEUE` entry, every `buildGeneratedLevelConfig`
+output) is byte-identical, unchanged.
+
+**Every cleared cell scores at one of three tiers** (`ScoreTier`:
+`'ordinary'`/`'special'`/`'bomb'`, `SCORE_TIER_POINTS`: 10/25/50 points/cell) —
+a direct implementation of the session's brief ("an ordinary 3-match worth a
+base amount, a 4-match or striped piece worth more, a 5-match or color bomb
+worth more still"). The tier is assigned at the exact point each existing
+clear-set builder already decides *why* a cell is clearing, not re-derived
+after the fact from the settled board (which can't tell "swept by a striped
+line" from "part of a plain run" once both are just cleared cells):
+- `resolveMatchEffects`'s run branch: a plain 3-match cell is `'ordinary'`; a
+  4-run's non-anchor cells (which spawn a striped piece) are `'special'`; a
+  5-run's non-anchor cells (which spawn a color bomb) are `'bomb'`; a 6+ run
+  — bigger and rarer than the 5-run that spawns a bomb, so it shouldn't score
+  worse than one — is also `'bomb'` (a real judgment call: the original brief
+  never mentioned 6+ runs, and lumping them with plain 3-matches, as the
+  pre-scoring code's `else` branch did structurally, felt wrong once points
+  were on the line).
+- A striped-piece trigger (`fireStripedTriggersAndClearAll`, whether reached
+  via an in-match sweep, a square's embedded striped corner, or a swap combo)
+  scores its whole event — both the swept line and the triggering cells —
+  at `'special'`, matching the 4-run tier it's the *other* way to reach the
+  same "striped piece did something" moment.
+- A 2×2 square's non-anchor cells (spawning an area bomb) are `'special'`, the
+  same "spawn event, not yet the bomb's own detonation" tier a 4-run gets.
+- A cross's own two arms are already exactly-length-3 runs (`checkCrossShapes`
+  guarantees this), so they're already `'ordinary'` via the run loop with no
+  extra tagging needed — the cross loop's own `addClear` calls default to
+  `'ordinary'` and are no-ops against cells already tiered.
+- A solo color-bomb detonation (`resolveColorBomb`), an area-bomb blast
+  (`resolveAreaBomb`), and both special-piece combos (`resolveStripedCross`,
+  `resolveStripedBombCombo`) each pass a single `seedTier` into the shared
+  `resolveClearSet` tail — `'bomb'` for the color bomb and both combos,
+  `'special'` for the area bomb (the same tier its 2×2-square *spawn* already
+  gets, since its blast is the delayed continuation of that same spawn event,
+  not a bigger one). **The two combos score at the top `'bomb'` tier, not a
+  fourth tier above it** — a real judgment call, confirmed against this
+  project's actual design principles rather than assumed: a deliberate combo
+  is harder to set up and more valuable to the player than a solo bomb, so it
+  should never score *less*, but adding a fourth tier for two mechanisms felt
+  like unjustified extra surface area against the "an ordinary 3-match / a
+  4-match or striped / a 5-match or bomb" three-tier brief actually given.
+- `expandChainClears` (the shared chain-reaction expander) now threads tiers
+  through the chain too: a caller's own seed cells keep the tier it assigned
+  them, and each *chained* special contributes its own tier as it's
+  discovered — a chained striped sweep or area-bomb blast at `'special'`, a
+  chained color-bomb detonation at `'bomb'` — via `upgradeTier`, which only
+  ever raises a cell's tier, never lowers it (a cell touched by more than one
+  mechanism in the same pass keeps the highest tier it actually earned,
+  never double-counted across mechanisms).
+- A blocker cleared by adjacent damage always scores at the flat `'ordinary'`
+  tier, regardless of what triggered the clear next to it — a blocker never
+  forms a run or spawns a special itself, so there's no higher-tier event to
+  attribute its clear to.
+
+**Cascades and chains contribute their own points, scaling with depth** —
+`passScoreMultiplier(passIndex) = 1 + passIndex × CASCADE_CHAIN_BONUS_PER_PASS`
+(0.25/pass), applied per cascade pass. `resolveCascades` gained a
+`startPassIndex` parameter (default 0, an ordinary swap's first pass) so a
+detonation-triggered move (`resolveClearSet`, always pass 0 itself) can hand
+its own chained refill cascade a continuing index (`resolveCascades(...,
+1)`) instead of resetting the multiplier to 1x — a bomb combo's own refill
+chain climbs the same ramp an ordinary swap's cascade would. This was the
+session's one real alternative not taken: flat per-cell scoring with no chain
+bonus, which would make the HUD number track `clearedByMatchType` almost
+exactly and give a long chain no more weight than the same cells cleared
+across several separate moves. Rejected because this game already celebrates
+chain depth elsewhere (`COMBO_STREAK_THRESHOLD`'s event) — scoring should
+recognize the same moment, not undercut it.
+
+**`applyMove`'s objective update branches on `type`**: a `'collect'`
+objective still reads `clearedByMatchType[targetMatchType]` exactly as
+before; a `'score'` objective adds the move's total `scoreGained`
+(`CascadeResolution.score`, summed from every pass/detonation above) to its
+`currentCount` instead. The two update from the same move independently, with
+zero shared state — confirmed directly by a test with both objective types on
+one level.
+
+**Presentation layer**: a `'score'` objective has no `targetMatchType` to
+resolve a sprite from, so `Hud.tsx`/`WonOverlay.tsx`/`Home.tsx` each branch on
+`objective.type`/`objectiveType` and fall back to a new
+`SCORE_OBJECTIVE_SPRITE` (`components/spriteAsset.ts`, a fixed ★ label) rather
+than piping `undefined` through `getSpriteForMatchType`/`resolveSpriteAsset`,
+which would have produced the generic "?" placeholder — a signal this
+codebase already uses elsewhere for a genuine bug (an unresolvable matchType),
+not a legitimate objective type. `components/levelProgress.ts`'s
+`LevelSummary` gained `objectiveType` (and made `targetMatchType` optional) so
+`Home.tsx`'s "Up Next" preview — which reads whatever level is next, including
+a future score-objective level, without knowing in advance which kind it is —
+never hits that same undefined-matchType path.
+
+**One hand-built level, "Score Rush"** (`App.tsx`'s `LEVEL_QUEUE`, a fifth
+entry) exercises this end-to-end: `objectives: [{ type: 'score', targetCount:
+1000 }]`, movesLimit 24. The target (1000) and the tier points (10/25/50) and
+cascade bonus (0.25/pass) are hand-picked, not playtested — wide enough to
+feel different on the HUD (a plain 3-match nets 30, a solo bomb detonation can
+net several hundred) without being tuned against real play data yet. See
+`DEFERRED_COMPLEXITY.md`.
+
+**Verified live against the real running app over CDP**: a save seeded
+directly into `localStorage` with `completedLevels: [1,2,3,4]` so Home's real
+"next unplayed level" logic resolved to Level 5, reached through the ordinary
+"Start cooking" flow (not a temporary code change). The real engine
+(`generateLevel(401, ...)` — Level 5's actual seed — piped into
+`findAnyLegalMove`) found a genuine legal first move, dispatched as two real
+tap gestures on the actual tile DOM nodes. The HUD's Target panel read "★
+0/1000" on load, then "★ 30/1000" after the one real move (a 3-cell ordinary
+garlic match: 3 × 10 × 1x), exactly matching the hand-derived expectation
+computed *before* the move was dispatched — not read off the result and
+back-fit. See `docs/verification/score-objective/`. All 474 tests pass
+(466 before this session, +8 new: 7 scoring-system cases in
+`engine/gameState.test.ts` plus one `createGameState` wiring case), including
+updated `levelProgress.test.ts`/`appPersistence.test.ts` coverage for the
+now-optional `targetMatchType`.

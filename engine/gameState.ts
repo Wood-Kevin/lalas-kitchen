@@ -26,11 +26,18 @@ import { generateLevel } from './generator';
 // Position/Board belong on that same seam.
 export type { Position, Board };
 
-export type ObjectiveType = 'collect';
+// 'score' is the second objective type (see the scoring-system entry in
+// engine/DECISIONS.md and CLAUDE.md's Data Model Notes): instead of counting
+// cleared pieces of one matchType, it tracks cumulative move-score earned
+// during the level (see applyMove's per-move scoreGained accumulation below).
+export type ObjectiveType = 'collect' | 'score';
 
 export interface Objective {
   type: ObjectiveType;
-  targetMatchType: string;
+  // Only meaningful for 'collect' — the matchType this objective counts
+  // toward targetCount. undefined for 'score', which has no single matchType
+  // to track; its currentCount is the level's running score instead.
+  targetMatchType?: string;
   targetCount: number;
   currentCount: number;
 }
@@ -185,10 +192,18 @@ export interface LevelConfig {
   movesLimit: number;
   lives: number;
   // Always non-empty. Every objective must be met to win (see applyMove) —
-  // never let two entries share a targetMatchType, since clearedByMatchType
-  // is keyed by matchType and a shared target would double-credit the same
-  // clear toward two different objectives at once.
-  objectives: Array<{ targetMatchType: string; targetCount: number }>;
+  // never let two 'collect' entries share a targetMatchType, since
+  // clearedByMatchType is keyed by matchType and a shared target would
+  // double-credit the same clear toward two different objectives at once.
+  // `type` defaults to 'collect' when omitted (every level built before
+  // 'score' existed stays byte-identical); a 'score' entry has no
+  // targetMatchType, since it tracks cumulative move-score instead of one
+  // piece type — see ObjectiveType/Objective above and the scoring-system
+  // entry in engine/DECISIONS.md.
+  objectives: Array<
+    | { type?: 'collect'; targetMatchType: string; targetCount: number }
+    | { type: 'score'; targetCount: number }
+  >;
   // Optional so generator-driven levels (appPersistence.ts's
   // buildGeneratedLevelConfig) can leave it unset rather than fabricate a
   // name — components/levelProgress.ts's resolveLevelDisplayName falls back
@@ -243,12 +258,16 @@ export function createGameState(config: LevelConfig): GameState {
     board,
     movesRemaining: config.movesLimit,
     lives: config.lives,
-    objectives: config.objectives.map((objective) => ({
-      type: 'collect',
-      targetMatchType: objective.targetMatchType,
-      targetCount: objective.targetCount,
-      currentCount: 0,
-    })),
+    objectives: config.objectives.map((objective) =>
+      objective.type === 'score'
+        ? { type: 'score', targetCount: objective.targetCount, currentCount: 0 }
+        : {
+            type: 'collect',
+            targetMatchType: objective.targetMatchType,
+            targetCount: objective.targetCount,
+            currentCount: 0,
+          }
+    ),
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
@@ -301,6 +320,68 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
 // already excludes both for the same reason).
 function isClearable(piece: Piece): boolean {
   return piece.type !== 'blocker' && piece.type !== 'void';
+}
+
+// The scoring system (see engine/DECISIONS.md's scoring-system entry): every
+// cleared cell is worth points according to the TIER of the mechanism that
+// cleared it, not a flat per-cell amount. 'ordinary' is a plain 3-match (or a
+// blocker cleared by adjacent damage); 'special' is a cell cleared while
+// creating OR firing a striped piece or area bomb (a 4-run, a 2x2 square, a
+// striped sweep, an area-bomb blast); 'bomb' is a cell cleared while creating
+// OR firing a color bomb, a 6+-long run, or either special-piece combo
+// (striped+striped, striped+bomb) — the combos are scored at the top tier
+// deliberately, since they're a harder, more deliberate play than a solo
+// bomb, not a lesser one. A cell touched by more than one mechanism in the
+// same pass (e.g. sitting in both a plain run and a chained sweep) keeps the
+// HIGHEST tier it qualified for, never double-counted — see upgradeTier.
+type ScoreTier = 'ordinary' | 'special' | 'bomb';
+
+const SCORE_TIER_RANK: Record<ScoreTier, number> = { ordinary: 1, special: 2, bomb: 3 };
+
+// Point value per cleared cell, by tier. Flat round numbers, not
+// genre-benchmarked — the first real judgment call this feature needed (see
+// DECISIONS.md): a 3-tier spread wide enough that a player can feel the
+// difference between an ordinary match and a bomb combo on the same HUD
+// number, without needing four-and-five-digit totals to show it.
+const SCORE_TIER_POINTS: Record<ScoreTier, number> = { ordinary: 10, special: 25, bomb: 50 };
+
+// Each successive cascade pass within a single move scores at a higher
+// multiplier than the last — a real "cascades and chains contribute their
+// own points" mechanic, not just the trivial fact that a second pass has more
+// cells to sum. passIndex is 0 for the very first pass of the move (an
+// ordinary swap's first match, or a bomb/combo's own detonation), so the
+// first pass is always scored at 1x. A rejected alternative: flat per-cell
+// scoring with no chain bonus, which would make the HUD score number track
+// clearedByMatchType almost exactly and give a long chain no more weight than
+// the same cells cleared across several separate moves — this app already
+// celebrates chain depth elsewhere (COMBO_STREAK_THRESHOLD's event), so
+// scoring should too.
+const CASCADE_CHAIN_BONUS_PER_PASS = 0.25;
+
+function passScoreMultiplier(passIndex: number): number {
+  return 1 + passIndex * CASCADE_CHAIN_BONUS_PER_PASS;
+}
+
+// Records `tier` for `key`, but only ever upgrades — a cell already marked
+// 'bomb' is never downgraded to 'special' by a later, weaker call touching
+// the same cell in the same pass.
+function upgradeTier(tierByKey: Map<string, ScoreTier>, key: string, tier: ScoreTier): void {
+  const existing = tierByKey.get(key);
+  if (!existing || SCORE_TIER_RANK[tier] > SCORE_TIER_RANK[existing]) {
+    tierByKey.set(key, tier);
+  }
+}
+
+// Sums SCORE_TIER_POINTS over every position, defaulting to 'ordinary' for
+// any position with no recorded tier (a blocker cleared by adjacent damage,
+// which never goes through addClear/expandChainClears at all).
+function sumTierPoints(positions: Position[], tierByKey: Map<string, ScoreTier>): number {
+  let total = 0;
+  for (const p of positions) {
+    const tier = tierByKey.get(`${p.row},${p.col}`) ?? 'ordinary';
+    total += SCORE_TIER_POINTS[tier];
+  }
+  return total;
 }
 
 // Every cell in a striped piece's sweep line — its whole row ('row') or whole
@@ -401,20 +482,34 @@ function mostCommonMatchType(board: Board): string | undefined {
 // has finitely many cells, each cell enters `cleared` at most once, and only a
 // freshly-cleared non-origin special is ever enqueued — so the chain must run dry
 // the moment it stops reaching new specials, or once the whole board is cleared.
-// Pure: reads the board, returns the fully-expanded position list.
-function expandChainClears(board: Board, seed: Position[], originKeys: Set<string>): Position[] {
+// Pure: reads the board, returns the fully-expanded position list alongside the
+// score tier each cleared cell earned. `seedTiers` carries the tier the CALLER
+// already assigned its own seed cells (an ordinary match's cells, a bomb's
+// detonation, a combo's cleared set); a chained special's own cells are tiered
+// as they're discovered ('special' for a chained striped sweep or area-bomb
+// blast, 'bomb' for a chained color-bomb detonation) via upgradeTier, so a cell
+// already seeded at a higher tier is never downgraded by a later chain touch.
+function expandChainClears(
+  board: Board,
+  seed: Position[],
+  originKeys: Set<string>,
+  seedTiers: Map<string, ScoreTier>
+): { positions: Position[]; tierByKey: Map<string, ScoreTier> } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keyOf = (r: number, c: number): string => `${r},${c}`;
   const cleared = new Set<string>();
+  const tierByKey = new Map<string, ScoreTier>();
   const queue: Position[] = [];
 
-  const add = (r: number, c: number): void => {
+  const add = (r: number, c: number, tier: ScoreTier): void => {
     if (r < 0 || r >= rows || c < 0 || c >= cols) return;
     if (!isClearable(board[r][c])) return;
     const key = keyOf(r, c);
-    if (cleared.has(key)) return;
+    const alreadyCleared = cleared.has(key);
     cleared.add(key);
+    upgradeTier(tierByKey, key, tier);
+    if (alreadyCleared) return;
     // A special the calling effect didn't already fire is a chain source. Origins
     // still clear (added above) but are never enqueued, so they don't re-fire.
     const type = board[r][c].type;
@@ -426,33 +521,36 @@ function expandChainClears(board: Board, seed: Position[], originKeys: Set<strin
     }
   };
 
-  for (const p of seed) add(p.row, p.col);
+  for (const p of seed) add(p.row, p.col, seedTiers.get(keyOf(p.row, p.col)) ?? 'ordinary');
 
   while (queue.length > 0) {
     const pos = queue.shift() as Position;
     const piece = board[pos.row][pos.col];
     if (piece.type === 'striped') {
       const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-      for (const q of sweepLinePositions(rows, cols, pos, direction)) add(q.row, q.col);
+      for (const q of sweepLinePositions(rows, cols, pos, direction)) add(q.row, q.col, 'special');
     } else if (piece.type === 'area_bomb') {
-      for (const q of areaBlastPositions(rows, cols, pos)) add(q.row, q.col);
+      for (const q of areaBlastPositions(rows, cols, pos)) add(q.row, q.col, 'special');
     } else if (piece.type === 'color_bomb') {
       const target = mostCommonMatchType(board);
       if (target !== undefined) {
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
             const cell = board[r][c];
-            if (cell.type !== 'blocker' && cell.matchType === target) add(r, c);
+            if (cell.type !== 'blocker' && cell.matchType === target) add(r, c, 'bomb');
           }
         }
       }
     }
   }
 
-  return [...cleared].map((k) => {
-    const [r, c] = k.split(',').map(Number);
-    return { row: r, col: c };
-  });
+  return {
+    positions: [...cleared].map((k) => {
+      const [r, c] = k.split(',').map(Number);
+      return { row: r, col: c };
+    }),
+    tierByKey,
+  };
 }
 
 // How many of the given positions were already a special piece (striped,
@@ -488,6 +586,12 @@ interface CascadeResolution {
   clearedByMatchType: Record<string, number>;
   steps: Board[];
   maxSpecialsFired: number;
+  // Total points earned resolving this move (or this detonation plus
+  // whatever it chains into) — see SCORE_TIER_POINTS/passScoreMultiplier.
+  // Summed straight into a 'score'-type Objective's currentCount by
+  // applyMove; entirely separate from clearedByMatchType, which 'collect'
+  // objectives read instead.
+  score: number;
 }
 
 // The special piece an anchor cell is converted into this pass. A striped
@@ -555,35 +659,45 @@ function resolveMatchEffects(
   clearedPositions: Position[];
   anchors: Array<{ pos: Position } & AnchorSpec>;
   specialsFired: number;
+  tierByKey: Map<string, ScoreTier>;
 } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keyOf = (r: number, c: number): string => `${r},${c}`;
   const clearedKeys = new Set<string>();
   const anchorByKey = new Map<string, AnchorSpec>();
+  // Every cell's scoring tier as it's added to clearedKeys (see ScoreTier) —
+  // upgrade-only, so a cell touched by more than one mechanism this pass
+  // keeps the highest tier it actually qualified for.
+  const tierByKey = new Map<string, ScoreTier>();
   // The striped pieces that fire their own sweep in the loop below — the pass's
   // own triggers. Passed to expandChainClears as origins so they aren't treated
   // as caught specials and re-swept; only OTHER specials on their lines chain.
   const stripedTriggerKeys = new Set<string>();
 
-  const addClear = (r: number, c: number): void => {
-    if (isClearable(board[r][c])) clearedKeys.add(keyOf(r, c));
+  const addClear = (r: number, c: number, tier: ScoreTier = 'ordinary'): void => {
+    if (isClearable(board[r][c])) {
+      const key = keyOf(r, c);
+      clearedKeys.add(key);
+      upgradeTier(tierByKey, key, tier);
+    }
   };
 
   // Fires every live striped piece among `triggers` (its own line sweep) and
-  // clears every cell in `allCells` alongside it. Shared by the run branch
-  // below and the square branch further down — both answer the same question
-  // ("a match already contains a live special — fire it, don't spawn a new
-  // special over it") the same way, so this is the one place that logic lives
-  // rather than being duplicated per shape.
+  // clears every cell in `allCells` alongside it, all at the 'special' score
+  // tier — a striped/area-bomb trigger event, whichever shape carried it in.
+  // Shared by the run branch below and the square branch further down — both
+  // answer the same question ("a match already contains a live special — fire
+  // it, don't spawn a new special over it") the same way, so this is the one
+  // place that logic lives rather than being duplicated per shape.
   const fireStripedTriggersAndClearAll = (triggers: Position[], allCells: Position[]): void => {
     for (const p of triggers) {
       stripedTriggerKeys.add(keyOf(p.row, p.col));
       const piece = board[p.row][p.col];
       const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-      for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col);
+      for (const q of sweepLinePositions(rows, cols, p, direction)) addClear(q.row, q.col, 'special');
     }
-    for (const p of allCells) addClear(p.row, p.col);
+    for (const p of allCells) addClear(p.row, p.col, 'special');
   };
 
   // Every cell any run covers this pass, and — separately — the exact run
@@ -664,13 +778,18 @@ function resolveMatchEffects(
     } else if (cells.length === 5) {
       const anchor = cells[0];
       anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'color_bomb' });
-      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
+      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col, 'bomb');
     } else if (cells.length === 4) {
       const anchor = cells[0];
       anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'striped', direction: match.orientation });
-      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col);
+      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col, 'special');
+    } else if (cells.length >= 6) {
+      // A 6+ run is rarer and bigger than the 5-run that spawns a color bomb,
+      // so it scores at least as well — the 'bomb' tier, not lumped in with a
+      // plain 3-match. See SCORE_TIER_POINTS's doc comment.
+      for (const p of cells) addClear(p.row, p.col, 'bomb');
     } else {
-      for (const p of cells) addClear(p.row, p.col);
+      for (const p of cells) addClear(p.row, p.col, 'ordinary');
     }
   }
 
@@ -738,7 +857,7 @@ function resolveMatchEffects(
     const anchor = square.positions[0];
     anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'area_bomb' });
     for (let i = 1; i < square.positions.length; i++) {
-      addClear(square.positions[i].row, square.positions[i].col);
+      addClear(square.positions[i].row, square.positions[i].col, 'special');
     }
   }
 
@@ -756,7 +875,8 @@ function resolveMatchEffects(
     return { row: r, col: c };
   });
   clearedKeys.clear();
-  for (const p of expandChainClears(board, seedPositions, stripedTriggerKeys)) {
+  const expanded = expandChainClears(board, seedPositions, stripedTriggerKeys, tierByKey);
+  for (const p of expanded.positions) {
     clearedKeys.add(keyOf(p.row, p.col));
   }
 
@@ -781,10 +901,20 @@ function resolveMatchEffects(
     clearedPositions: [...clearedKeys].map(parseKey),
     anchors: [...anchorByKey.entries()].map(([k, spec]) => ({ pos: parseKey(k), ...spec })),
     specialsFired,
+    tierByKey: expanded.tierByKey,
   };
 }
 
-function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResolution {
+// `startPassIndex` lets a caller that already resolved an earlier beat of the
+// same move (resolveClearSet's own detonation, always pass 0) continue the
+// cascade-chain score multiplier from where that beat left off, rather than
+// resetting to 1x — see passScoreMultiplier. An ordinary swap calls this with
+// the default 0, since it IS the first pass of its move.
+function resolveCascades(
+  board: Board,
+  spawnPiece: () => Piece,
+  startPassIndex: number = 0
+): CascadeResolution {
   let currentBoard = board;
   let cascadeCount = 0;
   const clearedByMatchType: Record<string, number> = {};
@@ -797,6 +927,7 @@ function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResoluti
   const steps: Board[] = [];
   // See CascadeResolution's doc comment — a max across passes, not a sum.
   let maxSpecialsFired = 0;
+  let score = 0;
 
   while (true) {
     const matches = checkMatches(currentBoard);
@@ -811,9 +942,10 @@ function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResoluti
     const crosses = checkCrossShapes(currentBoard);
     if (matches.length === 0 && squares.length === 0) break;
 
+    const passIndex = startPassIndex + cascadeCount;
     cascadeCount += 1;
 
-    const { clearedPositions, anchors, specialsFired } = resolveMatchEffects(
+    const { clearedPositions, anchors, specialsFired, tierByKey } = resolveMatchEffects(
       currentBoard,
       matches,
       squares,
@@ -839,6 +971,12 @@ function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResoluti
       const key = damagedBoard[pos.row][pos.col].matchType ?? 'unknown';
       clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
     }
+
+    // This pass's own points (tiered per cleared cell, blockers always at the
+    // 'ordinary' tier — see sumTierPoints), scaled by how deep into the move's
+    // cascade chain this pass sits (see passScoreMultiplier).
+    const passPoints = sumTierPoints(clearedPositions, tierByKey) + newlyClearedBlockers.length * SCORE_TIER_POINTS.ordinary;
+    score += Math.round(passPoints * passScoreMultiplier(passIndex));
 
     const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
     // Convert each anchor cell in place. It keeps its id (so the presentation
@@ -866,7 +1004,7 @@ function resolveCascades(board: Board, spawnPiece: () => Piece): CascadeResoluti
     steps.push(currentBoard);
   }
 
-  return { board: currentBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired };
+  return { board: currentBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired, score };
 }
 
 // Activates a color bomb swap — a genuinely different mechanism from a normal
@@ -928,7 +1066,10 @@ function resolveColorBomb(
     `${bombPos.row},${bombPos.col}`,
     `${otherPos.row},${otherPos.col}`,
   ]);
-  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys);
+  // 'bomb' tier — the top scoring tier, matching "a 5-match or color bomb
+  // worth more still" (see SCORE_TIER_POINTS's doc comment), whether this
+  // detonates one color or the whole board.
+  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys, 'bomb');
 }
 
 // Activates an area-bomb swap — the same swap-triggered camp as the color bomb,
@@ -958,7 +1099,10 @@ function resolveAreaBomb(
   // chain — its blast IS the seed). Any OTHER special caught in the 3x3 is not an
   // origin, so it chains and fires its own effect.
   const originKeys = new Set<string>([`${bombPos.row},${bombPos.col}`]);
-  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys);
+  // 'special' tier — an area bomb is spawned the same "worth more than a
+  // plain match" way a 4-run/striped piece is (a 2x2 square), so it fires at
+  // that same tier, not the top 'bomb' tier reserved for a color bomb/combo.
+  return resolveClearSet(board, clearedPositions, spawnPiece, originKeys, 'special');
 }
 
 // The shared "clear exactly these cells, then let the board settle" pipeline —
@@ -972,19 +1116,28 @@ function resolveAreaBomb(
 // ordinary resolveCascades so any chain matches the refill creates still cascade
 // normally. Returns the exact same shape resolveCascades does — the detonation
 // is step one — so applyMove treats every move kind identically from here on.
+// `seedTier` is the score tier the WHOLE clearedPositions set earns for this
+// detonation ('bomb' for a color-bomb or either combo, 'special' for an area
+// bomb — see each caller); a chain reaction on top of it can still earn a
+// higher tier per cell (a caught color bomb chains at 'bomb' even inside an
+// area-bomb blast) via expandChainClears's own upgrade-only tiering.
 function resolveClearSet(
   board: Board,
   clearedPositions: Position[],
   spawnPiece: () => Piece,
-  originKeys: Set<string>
+  originKeys: Set<string>,
+  seedTier: ScoreTier
 ): CascadeResolution {
+  const seedTiers = new Map<string, ScoreTier>();
+  for (const p of clearedPositions) seedTiers.set(`${p.row},${p.col}`, seedTier);
+
   // Chain reaction first: fold in the clear set of every other special this
   // effect's cells catch (see expandChainClears). originKeys are the specials
   // THIS effect already fired (its bomb, its swapped stripeds, its converted
   // pieces) — they clear but never re-fire. Everything below counts and gaps the
   // fully-expanded set, so a chained sweep/blast credits its own cells to
   // objectives exactly like a first-order clear does.
-  const expanded = expandChainClears(board, clearedPositions, originKeys);
+  const { positions: expanded, tierByKey } = expandChainClears(board, clearedPositions, originKeys, seedTiers);
 
   // How many already-special pieces fired together in this one detonation —
   // a combo's own two swapped specials are always both origins here (so this
@@ -1004,12 +1157,21 @@ function resolveClearSet(
     clearedByMatchType[key] = (clearedByMatchType[key] ?? 0) + 1;
   }
 
+  // This detonation is always the first beat of its move (pass index 0), the
+  // same "first pass is always 1x" rule an ordinary swap's resolveCascades
+  // call gets — see passScoreMultiplier.
+  const detonationPoints =
+    sumTierPoints(expanded, tierByKey) + newlyClearedBlockers.length * SCORE_TIER_POINTS.ordinary;
+  const detonationScore = Math.round(detonationPoints * passScoreMultiplier(0));
+
   const withGaps = cloneBoardWithGaps(damagedBoard, [...expanded, ...newlyClearedBlockers]);
   const firstBoard = calculateCascades(withGaps, spawnPiece);
 
   // The detonation itself is the first beat; any matches its refill creates
-  // chain through the ordinary cascade loop, so combos still resolve normally.
-  const chained = resolveCascades(firstBoard, spawnPiece);
+  // chain through the ordinary cascade loop (starting at pass index 1, so the
+  // chain-bonus multiplier keeps climbing rather than resetting), so combos
+  // still resolve normally.
+  const chained = resolveCascades(firstBoard, spawnPiece, 1);
   for (const [matchType, count] of Object.entries(chained.clearedByMatchType)) {
     clearedByMatchType[matchType] = (clearedByMatchType[matchType] ?? 0) + count;
   }
@@ -1022,6 +1184,7 @@ function resolveClearSet(
     // Max, not sum, with whatever the refill's own ordinary cascade found —
     // see CascadeResolution's doc comment on why this is a per-pass max.
     maxSpecialsFired: Math.max(specialsFired, chained.maxSpecialsFired),
+    score: detonationScore + chained.score,
   };
 }
 
@@ -1052,7 +1215,10 @@ function resolveStripedCross(
   // their individual directions, so neither re-fires its own line as a chain.
   // A THIRD striped (or a bomb) lying on the cross is not an origin and chains.
   const originKeys = new Set<string>([`${posA.row},${posA.col}`, `${posB.row},${posB.col}`]);
-  return resolveClearSet(board, cleared, spawnPiece, originKeys);
+  // 'bomb' tier — a deliberate combo of two specials is scored at the top
+  // tier, a harder/more valuable play than a solo bomb detonation, not a
+  // lesser one (see SCORE_TIER_POINTS's doc comment).
+  return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
 }
 
 // Combo 2: a striped piece swapped directly with a color bomb — the supercombo.
@@ -1101,7 +1267,10 @@ function resolveStripedBombCombo(
     }
   }
   const cleared = keysToClearablePositions(keys, board);
-  return resolveClearSet(board, cleared, spawnPiece, originKeys);
+  // 'bomb' tier — the supercombo is the single strongest effect in the game
+  // (every matching piece on the board converts and fires at once), so it
+  // scores at the top tier, same as the cross combo above.
+  return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
 }
 
 // Turns a set of "r,c" cell keys into the Position list resolveClearSet wants,
@@ -1316,7 +1485,8 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     resolved = resolveCascades(swapped, state.spawnPiece);
   }
 
-  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired } = resolved;
+  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired, score: scoreGained } =
+    resolved;
 
   // Dynamic denial-zone spread (gated levels only — state.denialSpread is
   // undefined everywhere else, so blockers stay static). Runs on the settled
@@ -1350,9 +1520,14 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     totalCleared[matchType] = (totalCleared[matchType] ?? 0) + count;
   }
 
+  // A 'score' objective's currentCount tracks cumulative move-score instead
+  // of any single matchType's clear count — see scoreGained above.
   const objectives: Objective[] = state.objectives.map((objective) => ({
     ...objective,
-    currentCount: objective.currentCount + (clearedByMatchType[objective.targetMatchType] ?? 0),
+    currentCount:
+      objective.type === 'score'
+        ? objective.currentCount + scoreGained
+        : objective.currentCount + (clearedByMatchType[objective.targetMatchType ?? ''] ?? 0),
   }));
 
   const movesRemaining = state.movesRemaining - 1;

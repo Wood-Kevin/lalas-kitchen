@@ -469,7 +469,14 @@ describe('buildGeneratedLevelConfig', () => {
     // regardless of how the piece-type pool has shrunk by that point.
     for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-      const targetTypes = config.objectives.map((o) => o.targetMatchType);
+      // buildGeneratedLevelConfig never produces a 'score' objective today —
+      // see DEFERRED_COMPLEXITY.md — so every entry here is real collect-shaped
+      // data; this throw documents that invariant instead of silently
+      // asserting on a possibly-undefined targetMatchType.
+      const targetTypes = config.objectives.map((o) => {
+        if (o.type === 'score') throw new Error('generated objective should never be score-type');
+        return o.targetMatchType;
+      });
       expect(new Set(targetTypes).size).toBe(targetTypes.length);
     }
   });
@@ -498,6 +505,7 @@ describe('buildGeneratedLevelConfig', () => {
     expect(config.pieceTypeIds).toEqual(['tomato', 'lemon', 'herb', 'garlic', 'chili']);
     expect(config.pieceTypeIds.length).toBeGreaterThan(config.objectives.length);
     for (const objective of config.objectives) {
+      if (objective.type === 'score') throw new Error('generated objective should never be score-type');
       expect(config.pieceTypeIds).toContain(objective.targetMatchType);
     }
   });

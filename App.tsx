@@ -112,6 +112,22 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     objectives: [{ targetMatchType: skinConfig.pieceTypes[3].id, targetCount: 18 }],
     displayName: 'Cutting Board',
   },
+  {
+    // First 'score'-type objective level (see engine/gameState.ts's
+    // ObjectiveType and the scoring-system entry in engine/DECISIONS.md):
+    // reach a target cumulative score, rather than collect a target count of
+    // one piece type. 1000 is a judgment call, not derived from a formula —
+    // an ordinary 3-match alone nets 30, so it's comfortably reachable across
+    // 24 moves of ordinary play, with cascades/specials pulling it in faster,
+    // without being trivially won in the first few swaps.
+    seed: 401,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 24,
+    objectives: [{ type: 'score', targetCount: 1000 }],
+    displayName: 'Score Rush',
+  },
 ];
 
 function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {

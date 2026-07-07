@@ -3,7 +3,7 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { Objective } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
-import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
+import { resolveSpriteAsset, ResolvedSprite, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap } from './spriteAsset';
 
 export interface HudProps {
   objectives: Objective[];
@@ -40,13 +40,13 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
               one row this panel always has, so this isn't a visual change
               unless a level actually has more than one. */}
           {objectives.map((objective, index) => {
-            const targetSprite = resolveSpriteAsset(
-              getSpriteForMatchType(objective.targetMatchType, config),
-              spriteAssets
-            );
+            const targetSprite =
+              objective.type === 'score'
+                ? SCORE_OBJECTIVE_SPRITE
+                : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
             return (
               <View
-                key={objective.targetMatchType}
+                key={objective.type === 'score' ? 'score' : objective.targetMatchType}
                 style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
               >
                 <Glyph sprite={targetSprite} color={config.palette.accent} />

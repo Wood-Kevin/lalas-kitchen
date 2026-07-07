@@ -1457,6 +1457,203 @@ describe('applyMove — multiple objectives', () => {
   });
 });
 
+describe('applyMove — scoring system and score objectives', () => {
+  test('a plain 3-match clears at the ordinary tier (10 pts/cell) in a single pass', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 1000, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      // Distinct from B/C/X and each other so the refill forms no new match.
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.steps).toHaveLength(1);
+    // 3 cells * 10 pts (ordinary tier) * 1x (pass 0 multiplier) = 30.
+    expect(result.state.objectives[0].currentCount).toBe(30);
+  });
+
+  test('a 4-run (creates a striped piece) clears its 3 non-anchor cells at the special tier (25 pts/cell)', () => {
+    // Same board/swap as the striped-piece describe block's "4-in-a-row"
+    // test, reused here purely for its known single-pass, no-cascade shape.
+    const board = buildBoard([
+      ['A', 'A', 'W', 'A'],
+      ['X', 'Y', 'A', 'X'],
+      ['P', 'X', 'X', 'R'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 1000, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.steps).toHaveLength(1);
+    // 3 non-anchor cells * 25 pts (special tier) * 1x = 75. The anchor cell
+    // becomes the striped piece, so it never clears/scores here.
+    expect(result.state.objectives[0].currentCount).toBe(75);
+  });
+
+  test('a 5-run (creates a color bomb) clears its 4 non-anchor cells at the bomb tier (50 pts/cell)', () => {
+    // Same board/swap as the color-bombs describe block's "5-in-a-row" test.
+    const board = buildBoard([
+      ['A', 'A', 'W', 'A', 'A', 'X'],
+      ['P', 'Q', 'A', 'R', 'S', 'T'],
+      ['B', 'C', 'D', 'E', 'F', 'G'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 1000, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.steps).toHaveLength(1);
+    // 4 non-anchor cells * 50 pts (bomb tier) * 1x = 200.
+    expect(result.state.objectives[0].currentCount).toBe(200);
+  });
+
+  test('a solo color-bomb detonation scores every cell it clears (including itself) at the bomb tier', () => {
+    // Same board/swap as the color-bombs describe block's whole-board test.
+    const board = buildBoard([
+      ['A', 'B', 'C', 'A', 'D'],
+      ['E', 'Z', 'A', 'F', 'A'],
+      ['A', 'G', 'H', 'I', 'A'],
+      ['J', 'K', 'A', 'L', 'M'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 10000, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    expect(result.steps).toHaveLength(1);
+    // 7 A's + the bomb cell itself = 8 cells, all at the bomb tier: 8 * 50 = 400.
+    expect(result.state.objectives[0].currentCount).toBe(400);
+  });
+
+  test('a second cascade pass scores at a higher multiplier than the first — chains contribute their own points', () => {
+    // Same board/swap/spawn queue as the cascade-steps describe block's
+    // two-pass test: pass 1 clears a vertical A-run (3 ordinary cells), the
+    // refill immediately forms a vertical B-run (3 more ordinary cells) that
+    // clears as pass 2, then settles with no further match.
+    const board = buildBoard([
+      ['A', 'X', 'Q'],
+      ['R', 'A', 'P'],
+      ['S', 'A', 'P'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 1000, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['B', 'B', 'B', 'P', 'F', 'G']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    expect(result.steps).toHaveLength(2);
+    // Pass 0 (index 0, 1x multiplier): 3 ordinary cells * 10 = 30.
+    // Pass 1 (index 1, 1.25x multiplier): 3 ordinary cells * 10 * 1.25 = 37.5,
+    // rounded to 38. Total: 68 — strictly more than 2 * 30 = 60, proving the
+    // second pass is worth more than a repeat of the first, not just "more
+    // cells cleared".
+    expect(result.state.objectives[0].currentCount).toBe(68);
+  });
+
+  test('a score objective wins the level once its target is reached, exactly like a collect objective', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      // The 3-match above scores exactly 30 — set the target right at that
+      // threshold so this move both meets and wins it.
+      objectives: [{ type: 'score', targetCount: 30, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.objectives[0].currentCount).toBe(30);
+    expect(result.state.status).toBe('won');
+    expect(result.events).toContainEqual({
+      type: 'level_summary',
+      outcome: 'won',
+      reason: null,
+      clearedByMatchType: { A: 3 },
+    });
+  });
+
+  test('a score objective and a collect objective on the same level update independently from one move', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [
+        { type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 },
+        { type: 'score', targetCount: 1000, currentCount: 0 },
+      ],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // The collect objective counts the 3 cleared A's, untouched by scoring...
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    // ...and the score objective counts the move's points, untouched by the
+    // collect objective's own matchType bookkeeping — neither interferes with
+    // the other, and neither alone reaches its (deliberately high) target.
+    expect(result.state.objectives[1].currentCount).toBe(30);
+    expect(result.state.status).toBe('in_progress');
+  });
+});
+
 describe('createGameState', () => {
   test('wires generateLevel into a fresh GameState with zero accidental matches', () => {
     const state = createGameState({
@@ -1501,6 +1698,20 @@ describe('createGameState', () => {
       { type: 'collect', targetMatchType: 'A', targetCount: 12, currentCount: 0 },
       { type: 'collect', targetMatchType: 'B', targetCount: 8, currentCount: 0 },
     ]);
+  });
+
+  test('wires a score-type objective with no targetMatchType, starting at currentCount 0', () => {
+    const state = createGameState({
+      seed: 7,
+      rows: 6,
+      cols: 6,
+      pieceTypeIds: ['A', 'B', 'C', 'D'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 900 }],
+    });
+
+    expect(state.objectives).toEqual([{ type: 'score', targetCount: 900, currentCount: 0 }]);
   });
 });
 

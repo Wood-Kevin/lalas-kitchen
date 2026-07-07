@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withDelay, withRepeat, with
 import { Objective } from '../engine/gameState';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
-import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
+import { ResolvedSprite, resolveSpriteAsset, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap } from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
 import { RecipeCardReveal } from './RecipeCardReveal';
 import { computeStarRating } from './wonActions';
@@ -111,7 +111,10 @@ export function WonOverlay({
   // pinned to the first objective regardless of how many there are, the
   // same way the illustration itself never changes shape per level. The
   // chip row below is what actually shows every objective's final count.
-  const sprite = resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
+  const sprite =
+    objectives[0].type === 'score'
+      ? SCORE_OBJECTIVE_SPRITE
+      : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
 
@@ -154,13 +157,13 @@ export function WonOverlay({
         {!unlockedRecipeCard && (
           <View style={styles.chipRow}>
             {objectives.map((objective) => {
-              const chipSprite = resolveSpriteAsset(
-                getSpriteForMatchType(objective.targetMatchType, config),
-                spriteAssets
-              );
+              const chipSprite =
+                objective.type === 'score'
+                  ? SCORE_OBJECTIVE_SPRITE
+                  : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
               return (
                 <View
-                  key={objective.targetMatchType}
+                  key={objective.type === 'score' ? 'score' : objective.targetMatchType}
                   style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}
                 >
                   <SpriteIcon sprite={chipSprite} size={22} labelColor={secondaryAccent} />
@@ -173,7 +176,9 @@ export function WonOverlay({
                     <Text style={[styles.chipAmount, { color: text }]}>
                       {objective.currentCount} / {objective.targetCount}
                     </Text>
-                    <Text style={[styles.chipLabel, { color: secondaryAccent }]}>COLLECTED</Text>
+                    <Text style={[styles.chipLabel, { color: secondaryAccent }]}>
+                      {objective.type === 'score' ? 'SCORE' : 'COLLECTED'}
+                    </Text>
                   </View>
                 </View>
               );

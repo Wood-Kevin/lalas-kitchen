@@ -90,7 +90,12 @@ export function resolveLevelMapIndices(
 export interface LevelSummary {
   levelIndex: number;
   displayName: string;
-  targetMatchType: string;
+  // Only set when the first objective is 'collect' — undefined for a 'score'
+  // objective, which has no single matchType to show an icon for. Home.tsx
+  // checks objectiveType before reading this, rather than assuming it's
+  // always defined.
+  targetMatchType?: string;
+  objectiveType: 'collect' | 'score';
 }
 
 // Reduces a full LevelConfig down to just what a list row or the "Up Next"
@@ -102,13 +107,15 @@ export function buildLevelSummary(
   config: Pick<LevelConfig, 'displayName' | 'objectives'>,
   levelIndex: number
 ): LevelSummary {
+  // Row/"Up Next" icon space was never asked to grow with objective count —
+  // the first objective is always the one shown, same single-icon layout
+  // regardless of how many targets the level actually has.
+  const firstObjective = config.objectives[0];
   return {
     levelIndex,
     displayName: resolveLevelDisplayName(config.displayName, levelIndex),
-    // Row/"Up Next" icon space was never asked to grow with objective count —
-    // the first objective is always the one shown, same single-icon layout
-    // regardless of how many targets the level actually has.
-    targetMatchType: config.objectives[0].targetMatchType,
+    targetMatchType: firstObjective.type === 'score' ? undefined : firstObjective.targetMatchType,
+    objectiveType: firstObjective.type === 'score' ? 'score' : 'collect',
   };
 }
 
