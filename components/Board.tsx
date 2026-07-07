@@ -787,8 +787,21 @@ export function Board({
   // for the exact same-tick-stale-prop reason documented there — every other
   // caller (the secondary "Play Again" link, WonOverlay's onPlayAgain) omits
   // it and this falls back to the ordinary `lives` prop, unchanged.
+  //
+  // A real bug (confirmed live, see docs/verification/play-again-event-arg/)
+  // proved `livesOverride ?? lives` isn't a safe guard on its own: Pressable
+  // always calls onPress(event), so a caller that ever wires this function
+  // in unwrapped (onPlayAgain={handlePlayAgain}, as PausedOverlay/WonOverlay
+  // both once did) hands the click event itself as livesOverride — truthy,
+  // so `??` never falls back to `lives`. canStartLevel(eventObject) then
+  // reads as `object > 0`, always false, wrongly routing to OutOfLives
+  // regardless of the real lives count. Both call sites are now wrapped
+  // (() => handlePlayAgain()) so this can't happen today, but this explicit
+  // `typeof` check is the durable guard: it only ever trusts a real number,
+  // so a future caller wired the same unwrapped way falls back to `lives`
+  // instead of silently misreading an event object as a lives count.
   function handlePlayAgain(livesOverride?: number) {
-    const currentLives = livesOverride ?? lives;
+    const currentLives = typeof livesOverride === 'number' ? livesOverride : lives;
     if (!canStartLevel(currentLives)) {
       onOutOfLives();
       return;
@@ -1053,7 +1066,12 @@ export function Board({
             movesRemaining={gameState.movesRemaining}
             levelIndex={levelIndex}
             config={skinConfig}
-            onPlayAgain={handlePlayAgain}
+            // Wrapped, not passed directly: PausedOverlay's Pressable calls
+            // onPress(event), and handlePlayAgain's own livesOverride param
+            // would otherwise receive that event object instead of being
+            // left undefined (see handlePlayAgain's own comment on why that
+            // silently broke canStartLevel's gate).
+            onPlayAgain={() => handlePlayAgain()}
             onExit={onExit}
           />
         )
@@ -1066,7 +1084,8 @@ export function Board({
           movesLimit={levelConfig.movesLimit}
           config={skinConfig}
           spriteAssets={spriteAssets}
-          onPlayAgain={handlePlayAgain}
+          // Wrapped for the same reason as PausedOverlay's onPlayAgain above.
+          onPlayAgain={() => handlePlayAgain()}
           onNext={onNextLevel}
           onOpenDashboard={onOpenDashboard}
           unlockedRecipeCard={unlockedRecipeCard}

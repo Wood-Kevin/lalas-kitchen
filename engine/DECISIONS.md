@@ -3514,3 +3514,48 @@ back-fit. See `docs/verification/score-objective/`. All 474 tests pass
 `engine/gameState.test.ts` plus one `createGameState` wiring case), including
 updated `levelProgress.test.ts`/`appPersistence.test.ts` coverage for the
 now-optional `targetMatchType`.
+
+## Fixed: Play Again on `PausedOverlay`/`WonOverlay` wrongly routed to `OutOfLives`
+
+A real playtest report, investigated per the standing Playtest Feedback
+Protocol: the `OutOfLives` "refill your lives" screen appeared right after
+tapping "Play Again", while the player still had 4 lives, not 0.
+
+**Root cause, confirmed live, not assumed**: `components/PausedOverlay.tsx`
+and `components/WonOverlay.tsx` both wired their "Play Again" button as
+`onPress={onPlayAgain}` — passed through unwrapped — and `Board.tsx` wired
+that prop straight to the real `handlePlayAgain(livesOverride?: number)` at
+both call sites. `Pressable`'s `onPress` always calls its handler with the
+click event as its first argument (confirmed against
+`react-native-web`'s own `PressResponder.js`), so every tap called
+`handlePlayAgain(clickEvent)` — the event object landed in `livesOverride`.
+`livesOverride ?? lives` then picked the (truthy) event object over the real
+lives count, and `canStartLevel(eventObject)` — `object > 0` — is always
+`false` for any object, so `onOutOfLives()` fired unconditionally regardless
+of the real count. This was a pre-existing gap the mid-level-continue
+session's own verification never actually exercised — its live capture
+(`docs/verification/mid-level-continue/05-06`) tested `ContinueOffer`'s
+*decline* "Play Again" link, which routes through the parameterless
+`handleContinueDeclinePlayAgain` wrapper and was never affected; the plain
+"Play Again" on `PausedOverlay`/`WonOverlay` was never actually clicked in
+that capture, despite this file's prose describing it as verified.
+
+**The fix**, both in `components/Board.tsx`: (1) both call sites wrapped —
+`onPlayAgain={() => handlePlayAgain()}` — matching the pattern
+`handleContinueDeclinePlayAgain`/`handleContinueDeclineExit` already
+established; (2) `handlePlayAgain` itself hardened —
+`typeof livesOverride === 'number' ? livesOverride : lives` in place of
+`livesOverride ?? lives` — a durable guard so a future caller wired the same
+unwrapped way falls back to the real `lives` prop instead of silently
+misreading an event object as a lives count. Verified live end-to-end both
+before and after the fix (same real repro: a genuine moves-exhausted loss on
+Level 1 with both bonus-move rescues exhausted, over CDP against headless
+Windows Chrome) — before the fix, "Play Again" navigated to `OutOfLives`
+with its flame row showing exactly 4 filled, matching the report precisely;
+after the fix, the same tap correctly restarts the level with the Hud
+showing the real, correctly decremented lives count instead. See
+`docs/verification/play-again-event-arg/`. All 474 tests pass unchanged (no
+prior test coverage existed for this exact interaction — it requires a real
+`Pressable`/DOM event round trip, which this repo's jest-only test infra
+can't exercise, so live verification was the only way to catch or confirm
+it).
