@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
+import { LivesBadge } from './LivesBadge';
+import { SpriteAssetMap } from './spriteAsset';
+import { Fonts } from './fonts';
 import { LevelStatus, LevelSummary } from './levelProgress';
 import { StarRating } from './wonActions';
 import {
@@ -26,8 +29,14 @@ export interface LevelMapRow extends LevelSummary {
 
 export interface LevelMapProps {
   config: SkinConfig;
+  spriteAssets: SpriteAssetMap;
   levels: LevelMapRow[];
   completedCount: number;
+  // The real account-level lives count (App.tsx's own `lives` state, the
+  // same reactive value Hud.tsx and Home.tsx's badge already read) — shown
+  // here as a calm corner badge in the header, never a new value tracked
+  // by LevelMap itself.
+  lives: number;
   onBack: () => void;
   onPlayLevel: (levelIndex: number) => void;
 }
@@ -68,7 +77,7 @@ const CAPTION_BLOCK_HEIGHT = 32;
 // project, and GinghamTrim.tsx already established the house convention of
 // reproducing a mockup effect with plain Views rather than adding a
 // rendering dependency for one visual pass).
-export function LevelMap({ config, levels, completedCount, onBack, onPlayLevel }: LevelMapProps) {
+export function LevelMap({ config, spriteAssets, levels, completedCount, lives, onBack, onPlayLevel }: LevelMapProps) {
   const { accent, panel, border, text, mutedText, secondaryAccent, background } = config.palette;
   const scrollRef = useRef<ScrollView>(null);
   const [mapWidth, setMapWidth] = useState(0);
@@ -111,12 +120,16 @@ export function LevelMap({ config, levels, completedCount, onBack, onPlayLevel }
         >
           <Text style={[styles.backArrow, { color: text }]}>‹</Text>
         </Pressable>
-        <View>
+        <View style={styles.headerTextBlock}>
           <Text style={[styles.title, { color: accent }]}>Level Map</Text>
           <Text style={[styles.statusLine, { color: mutedText }]}>
             {completedCount} cooked · pick up wherever you like
           </Text>
         </View>
+        {/* Calm corner readout, same badge Home.tsx shows — placed here
+            rather than competing with the back button/title as a peer nav
+            element, or with the map's own path/nodes below. */}
+        <LivesBadge config={config} spriteAssets={spriteAssets} lives={lives} />
       </View>
 
       <View
@@ -311,6 +324,9 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 12,
   },
+  headerTextBlock: {
+    flex: 1,
+  },
   backButton: {
     width: 40,
     height: 40,
@@ -325,11 +341,13 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   title: {
+    fontFamily: Fonts.headingBold,
     fontSize: 23,
     fontWeight: '700',
     lineHeight: 26,
   },
   statusLine: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 12,
     marginTop: 1,
   },
@@ -355,6 +373,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   captionText: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -369,6 +388,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
   },
   levelNumber: {
+    fontFamily: Fonts.headingBold,
     fontWeight: '700',
   },
   checkBadge: {
@@ -415,6 +435,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   playButtonLabel: {
+    fontFamily: Fonts.bodyBold,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 12,

@@ -1,14 +1,21 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SkinConfig } from './skinConfig';
 import { CLEARANCE_OBJECTIVE_SPRITE, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
+import { LivesBadge } from './LivesBadge';
+import { Fonts } from './fonts';
 import { LevelSummary, buildRecipeBookSubtitle } from './levelProgress';
 
 export interface HomeProps {
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
+  // The real account-level lives count (App.tsx's own `lives` state, the
+  // same reactive value Hud.tsx and OutOfLives.tsx already read) — shown
+  // here as a calm corner badge, never a new value tracked by Home itself.
+  lives: number;
   // The real next-unplayed level (see App.tsx's use of
   // resolveNextUnplayedLevel + buildLevelSummary) — never the mockup's
   // illustrative "Level 12, Wooden Spoon" placeholder values.
@@ -52,6 +59,7 @@ const HERO_HEIGHT = 260;
 export function Home({
   config,
   spriteAssets,
+  lives,
   nextLevel,
   unlockedRecipeCardCount,
   totalRecipeCardCount,
@@ -86,23 +94,38 @@ export function Home({
             <Text style={{ color: config.palette.mutedText }}>{heroSprite.label}</Text>
           </View>
         )}
-        {/* Dependency-free stand-in for the mockup's CSS gradient fade from
-            the hero image into the screen background — stacked bands of
-            rising opacity instead of a real gradient (see GinghamTrim.tsx
-            for the same tradeoff on the checkerboard trim). */}
-        <View style={styles.heroFade} pointerEvents="none">
-          {[0.15, 0.35, 0.6, 0.85, 1].map((opacity, i) => (
-            <View
-              key={i}
-              style={[styles.heroFadeBand, { backgroundColor: config.palette.background[0], opacity }]}
-            />
-          ))}
-        </View>
+        {/* The mockup's actual CSS gradient fade from the hero image into the
+            screen background — `linear-gradient(to bottom, rgba(bg,0) 55%,
+            rgba(bg,0.85) 85%, bg 100%)` — reproduced with a real gradient
+            over the full hero height (the stops are relative to the whole
+            hero in the mockup, not just its bottom slice). D9/FF are the
+            hex-alpha equivalents of 0.85/1.0, the same `${color}${alphaHex}`
+            convention already used elsewhere in this codebase (e.g.
+            LevelMap.tsx's glow halo). */}
+        <LinearGradient
+          pointerEvents="none"
+          style={styles.heroFade}
+          colors={[
+            `${config.palette.background[0]}00`,
+            `${config.palette.background[0]}00`,
+            `${config.palette.background[0]}D9`,
+            `${config.palette.background[0]}FF`,
+          ]}
+          locations={[0, 0.55, 0.85, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+        />
         <View style={styles.heroTextBlock}>
           <Text style={[styles.title, { color: config.palette.accent }]}>Lala&apos;s Kitchen</Text>
           <Text style={[styles.welcome, { color: config.palette.mutedText }]}>
             &quot;Welcome back, dear. The pot&apos;s already warming.&quot;
           </Text>
+        </View>
+        {/* Corner badge, not a new row — keeps the hero's own title/welcome
+            text as the visual focus (see LivesBadge.tsx's own comment on
+            why this isn't the full bordered/labeled Hud.tsx Panel). */}
+        <View style={styles.livesBadgeSlot}>
+          <LivesBadge config={config} spriteAssets={spriteAssets} lives={lives} />
         </View>
       </View>
 
@@ -217,14 +240,10 @@ const styles = StyleSheet.create({
   },
   heroFade: {
     position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    height: HERO_HEIGHT * 0.55,
-    flexDirection: 'column',
-  },
-  heroFadeBand: {
-    flex: 1,
   },
   heroTextBlock: {
     position: 'absolute',
@@ -232,12 +251,19 @@ const styles = StyleSheet.create({
     right: 24,
     bottom: 14,
   },
+  livesBadgeSlot: {
+    position: 'absolute',
+    top: 14,
+    right: 16,
+  },
   title: {
+    fontFamily: Fonts.headingBold,
     fontSize: 34,
     fontWeight: '700',
     lineHeight: 38,
   },
   welcome: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 4,
     fontSize: 14,
   },
@@ -253,10 +279,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardTitle: {
+    fontFamily: Fonts.headingBold,
     fontSize: 19,
     fontWeight: '700',
   },
   progressLine: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 14,
     lineHeight: 20,
   },
@@ -287,12 +315,17 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   nextLabel: {
+    // The mockup's "UP NEXT · LEVEL N" eyebrow is plain body text (no
+    // font-family override in the design reference), not a heading, despite
+    // sitting next to the Baloo 2 level name below it.
+    fontFamily: Fonts.bodyBold,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   nextName: {
+    fontFamily: Fonts.headingBold,
     fontSize: 21,
     fontWeight: '700',
   },
@@ -302,6 +335,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   startButtonLabel: {
+    fontFamily: Fonts.headingBold,
     fontSize: 17,
     fontWeight: '700',
   },
@@ -314,10 +348,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   browseButtonLabel: {
+    // Explicitly Nunito Sans in the mockup, unlike the other buttons on this
+    // screen — it's the one secondary, non-hero action.
+    fontFamily: Fonts.bodyBold,
     fontSize: 15,
     fontWeight: '700',
   },
   footer: {
+    fontFamily: Fonts.bodyRegular,
     textAlign: 'center',
     fontSize: 12,
     marginBottom: 16,

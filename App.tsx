@@ -50,6 +50,7 @@ import skinConfigJson from './skins/lalas-kitchen/config.json';
 import { spriteRegistry } from './skins/lalas-kitchen/spriteRegistry';
 import { adService } from './services/defaultAdService';
 import { computeStarRating, StarRating } from './components/wonActions';
+import { useAppFonts } from './components/fonts';
 
 const skinConfig = skinConfigJson as SkinConfig;
 
@@ -188,6 +189,7 @@ const HAPTICS_ENABLED_DEFAULT = false;
 type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook';
 
 export default function App() {
+  const [fontsLoaded] = useAppFonts();
   const [screen, setScreen] = useState<Screen>('loading');
   // 1-based index into LEVEL_QUEUE for whichever level is currently active
   // (or was last active, while screen is 'home'/'levels').
@@ -711,9 +713,11 @@ export default function App() {
     return () => subscription.remove();
   }, [persistLatestState]);
 
-  if (screen === 'loading' || (screen === 'game' && !levelConfig)) {
-    // Brief load gate while the save is read — matches the skin background
-    // rather than flashing white while this resolves.
+  if (!fontsLoaded || screen === 'loading' || (screen === 'game' && !levelConfig)) {
+    // Brief load gate while the save is read and the real Baloo 2/Nunito
+    // Sans font files finish loading — matches the skin background rather
+    // than flashing white (or a moment of system-default text) while either
+    // resolves.
     return <View style={{ flex: 1, backgroundColor: skinConfig.palette.background[0] }} />;
   }
 
@@ -746,6 +750,7 @@ export default function App() {
           <Home
             config={skinConfig}
             spriteAssets={spriteRegistry}
+            lives={lives}
             nextLevel={nextLevelSummary}
             unlockedRecipeCardCount={unlockedRecipeCards.length}
             totalRecipeCardCount={skinConfig.recipeCards.length}
@@ -771,8 +776,10 @@ export default function App() {
         ) : screen === 'levels' ? (
           <LevelMap
             config={skinConfig}
+            spriteAssets={spriteRegistry}
             levels={levelMapRows}
             completedCount={completedLevels.length}
+            lives={lives}
             onBack={handleGoHome}
             onPlayLevel={handlePlayLevel}
           />

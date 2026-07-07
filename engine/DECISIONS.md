@@ -3866,3 +3866,73 @@ predicted clear footprint on screen. See
 4- or 5-long arm, and a genuinely ambiguous square-overlapping-a-run — see
 `DEFERRED_COMPLEXITY.md`. This entry closes the "area + special combos" line
 item that file previously carried.
+
+## Font-and-gradient polish: real Baloo 2/Nunito Sans, real hero gradient
+
+Two small, explicitly reversible follow-ups logged in `DEFERRED_COMPLEXITY.md`
+since the original Home/Level Map build sessions: the design mockups specify
+'Baloo 2' for headings and 'Nunito Sans' for body text, but neither was ever
+loaded (Home.tsx/LevelMap.tsx approximated the mockup's weight/size/color
+choices using the system default font); and Home's hero fade into the screen
+background was a dependency-free stack of five increasingly-opaque solid
+bands standing in for the mockup's actual CSS gradient.
+
+**Fonts.** Both packages are first-party Expo Google Fonts wrappers
+(`@expo-google-fonts/baloo-2`, `@expo-google-fonts/nunito-sans`, both
+`0.4.2`), installed alongside `expo-font` (`~14.0.12`) — versions pinned to
+match this project's Expo 54 `bundledNativeModules.json` entries, the same
+manual-pin approach the sound/haptics session used for `expo-haptics` (this
+environment's npm config still rejects `expo install`'s internal
+`--allow-scripts` flag). `components/fonts.ts`'s `useAppFonts()` loads only
+the three weight files this skin's own styles actually reference —
+`Baloo2_700Bold`, `NunitoSans_400Regular`, `NunitoSans_700Bold` — not the full
+weight range either package ships, since every heading style here is
+`fontWeight: '700'` and body text is either unweighted or `'700'`. `App.tsx`
+gates the existing `screen === 'loading'` splash on the hook's `fontsLoaded`
+boolean, the same way it already gates on the save-data load — so a player
+never sees a flash of system-default text before the real fonts paint in.
+
+React Native doesn't synthesize font weights for a custom (non-system)
+typeface, so every heading/body `Text` style in `Home.tsx`/`LevelMap.tsx` now
+sets `fontFamily` directly to one of `Fonts.headingBold` /
+`Fonts.bodyRegular` / `Fonts.bodyBold`, rather than leaning on `fontWeight`
+the way system-font text can. A genuine judgment call, made rather than
+guessed at silently: existing `fontSize`/`fontWeight` numbers were left
+completely untouched. The mockup's own literal pixel values (e.g. a 42px
+hero title) don't match this app's already-built, already-scaled-down layout
+(a 260px hero vs. the mockup's 320px one, a deliberate prior decision, not a
+font bug) — and `DEFERRED_COMPLEXITY.md`'s own entry already asserted the
+existing numbers matched the mockup's *weight/size choices*, just rendered in
+the wrong family. So this session's fix is purely swapping in the real font
+files at the weights already chosen, not re-deriving sizes from the
+differently-proportioned HTML mockup. One deliberate split from the mockup's
+literal per-element font-family choice: `cardTitle` (used for "Your recipe
+book" *and* the Sound/Haptics toggle-row labels, none of which existed as a
+single shared style in the mockup) went to Baloo 2 across the board, since
+all three read as short card-heading-style labels — not because the mockup's
+now-defunct toggle rows say so. Icon/glyph-only text (the back arrow,
+checkmark, lock, star glyphs) was deliberately left on the system font —
+these aren't prose, and the two custom families are Latin display fonts with
+no guarantee of covering arbitrary Unicode symbols.
+
+**Gradient.** `expo-linear-gradient` (`~15.0.8`, matching the same
+`bundledNativeModules.json` pin) replaces the old `heroFade`/`heroFadeBand`
+band stack with one real `LinearGradient`. It now spans the hero's *entire*
+height rather than just the bottom 55% slice the band approximation covered
+— the mockup's own CSS gradient stops (`rgba(bg,0) 55%, rgba(bg,0.85) 85%,
+bg 100%`) are relative to the full container, so covering only a bottom
+slice was itself a small deviation the band version baked in. Colors use
+this codebase's existing hex+alpha convention (`${color}${alphaHex}`, the
+same pattern `LevelMap.tsx`'s glow halo and `WonOverlay.tsx`'s `YOLK` constant
+already use) rather than introducing an `rgba()` helper: `D9` and `FF` are
+the hex equivalents of the mockup's `0.85`/`1.0` alpha stops.
+
+**Verification.** Both changes were confirmed against the real running app
+(Metro web + a headless Windows Chrome driven over CDP from WSL — the
+established rig, since Puppeteer/Playwright Chromium don't launch in this
+WSL2 environment), including a real dispatched click navigating from Home to
+Level Map, not a mocked screenshot of isolated components. See
+`docs/verification/font-and-gradient-polish/`. `npm test` still passes at
+494/494 — neither change touches anything the engine/service test suite
+exercises (this project has no React component-test infra, so Home/LevelMap
+rendering was never covered by it either before or after this session).
