@@ -490,18 +490,21 @@ function sweepLinePositions(
   return out;
 }
 
-// Every cell in the 3x3 block centered on `pos`, clamped to the board edges —
-// the area an area bomb clears when it fires. Includes the center cell, so the
-// bomb consumes itself. Pure grid geometry, the square-shaped sibling of
-// sweepLinePositions above and just as blocker-agnostic: its caller
-// (resolveAreaBomb, the swap trigger) filters blockers out of the clear set, so
-// a blocker on the blast takes normal adjacent damage instead of a force-clear.
-// Kept beside sweepLinePositions since both are "which cells does this special
-// reach" geometry.
-function areaBlastPositions(rows: number, cols: number, pos: Position): Position[] {
+// Every cell in the (2*radius+1)x(2*radius+1) block centered on `pos`, clamped
+// to the board edges — the area an area bomb clears when it fires. Includes
+// the center cell, so the bomb consumes itself. Pure grid geometry, the
+// square-shaped sibling of sweepLinePositions above and just as
+// blocker-agnostic: its callers (resolveAreaBomb and the area-bomb combos
+// below) filter blockers out of the clear set, so a blocker on the blast takes
+// normal adjacent damage instead of a force-clear. Kept beside
+// sweepLinePositions since both are "which cells does this special reach"
+// geometry. `radius` defaults to 1 (the solo area bomb's 3x3); the
+// area+area combo below passes 2 for its bigger 5x5, reusing this same
+// geometry rather than hand-rolling a second block scan.
+function areaBlastPositions(rows: number, cols: number, pos: Position, radius = 1): Position[] {
   const out: Position[] = [];
-  for (let r = pos.row - 1; r <= pos.row + 1; r++) {
-    for (let c = pos.col - 1; c <= pos.col + 1; c++) {
+  for (let r = pos.row - radius; r <= pos.row + radius; r++) {
+    for (let c = pos.col - radius; c <= pos.col + radius; c++) {
       if (r < 0 || r >= rows || c < 0 || c >= cols) continue;
       out.push({ row: r, col: c });
     }
@@ -1382,6 +1385,103 @@ function resolveStripedBombCombo(
   return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
 }
 
+// Combo 3: an area bomb swapped directly with a color bomb. Neither piece
+// carries a matchType (both are colorless), so unlike resolveStripedBombCombo
+// there's no swapped piece to read a target color off of — the same problem
+// a chained, partner-less color bomb already solves via mostCommonMatchType
+// (see expandChainClears above). Reusing that same function here picks the
+// board's single most-common matchType, converts every piece of that type
+// into an area bomb, and fires all of them at once — several 3x3 blasts
+// landing simultaneously, the area-bomb sibling of the striped supercombo's
+// "convert then clear all" pattern. If no colored piece exists at all (a
+// board of nothing but specials/blockers), only the two swapped bombs clear —
+// still a legal, committed move, just with nothing further to convert.
+function resolveAreaColorCombo(
+  board: Board,
+  areaPos: Position,
+  bombPos: Position,
+  spawnPiece: () => Piece
+): CascadeResolution {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const targetMatchType = mostCommonMatchType(board);
+  const keys = new Set<string>();
+  keys.add(`${areaPos.row},${areaPos.col}`);
+  keys.add(`${bombPos.row},${bombPos.col}`);
+  // Both swapped bombs are this combo's own triggers, plus every piece it
+  // converts-and-fires into an area bomb — none of these re-chain. A
+  // DIFFERENT special one of the resulting 3x3 blasts catches is not in here,
+  // so it still chains normally.
+  const originKeys = new Set<string>([`${areaPos.row},${areaPos.col}`, `${bombPos.row},${bombPos.col}`]);
+  if (targetMatchType !== undefined) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const piece = board[r][c];
+        if (piece.type === 'blocker' || piece.matchType !== targetMatchType) continue;
+        originKeys.add(`${r},${c}`);
+        for (const p of areaBlastPositions(rows, cols, { row: r, col: c })) {
+          keys.add(`${p.row},${p.col}`);
+        }
+      }
+    }
+  }
+  const cleared = keysToClearablePositions(keys, board);
+  // 'bomb' tier — same top tier every other area+special combo below uses.
+  return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
+}
+
+// Combo 4: an area bomb swapped directly with a striped piece. Produces a
+// plus-shaped blast — the area bomb's own 3x3 block, unioned with the striped
+// piece's full sweep line in its own direction — reusing areaBlastPositions
+// and sweepLinePositions exactly as they already are, rather than hand-rolling
+// new plus-shaped geometry.
+function resolveAreaStripedCombo(
+  board: Board,
+  areaPos: Position,
+  stripedPos: Position,
+  spawnPiece: () => Piece
+): CascadeResolution {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const stripedPiece = board[stripedPos.row][stripedPos.col];
+  const direction: StripeDirection = stripedPiece.direction === 'row' ? 'row' : 'col';
+  const keys = new Set<string>();
+  for (const p of areaBlastPositions(rows, cols, areaPos)) keys.add(`${p.row},${p.col}`);
+  for (const p of sweepLinePositions(rows, cols, stripedPos, direction)) keys.add(`${p.row},${p.col}`);
+  const cleared = keysToClearablePositions(keys, board);
+  // Both swapped specials are this combo's own triggers — the plus shape
+  // overrides the striped piece's line firing independently, so it doesn't
+  // re-chain. A THIRD special caught in the plus is not an origin and chains.
+  const originKeys = new Set<string>([`${areaPos.row},${areaPos.col}`, `${stripedPos.row},${stripedPos.col}`]);
+  // 'bomb' tier — same top tier every other combo uses.
+  return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
+}
+
+// Combo 5: two area bombs swapped directly into each other. Rather than two
+// separate 3x3 blasts, this fires a single bigger 5x5 blast — centered on
+// `posA` (the position the caller always designates as the anchor, mirroring
+// resolveStripedCross's own posA-centered convention), reusing
+// areaBlastPositions' existing geometry with radius=2 instead of building a
+// new shape. Since the two bombs are always adjacent, posB always falls
+// within the 5x5 already, so it's cleared as part of the blast regardless.
+function resolveAreaAreaCombo(
+  board: Board,
+  posA: Position,
+  posB: Position,
+  spawnPiece: () => Piece
+): CascadeResolution {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const keys = new Set<string>();
+  for (const p of areaBlastPositions(rows, cols, posA, 2)) keys.add(`${p.row},${p.col}`);
+  const cleared = keysToClearablePositions(keys, board);
+  // Both swapped bombs are this combo's own triggers — neither re-fires its
+  // own solo 3x3 as a chain on top of the bigger blast that already contains it.
+  const originKeys = new Set<string>([`${posA.row},${posA.col}`, `${posB.row},${posB.col}`]);
+  // 'bomb' tier — same top tier every other combo uses.
+  return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
+}
+
 // Turns a set of "r,c" cell keys into the Position list resolveClearSet wants,
 // dropping any cell that can't be force-cleared (see isClearable) — a blocker,
 // so it only ever takes adjacent damage, and a void, so a combo's sweep lines
@@ -1524,8 +1624,11 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // committed moves — hasLegalMoves is extended to match). The branch ORDER here
   // is load-bearing:
   //
-  //   0. area bomb + anything  → 3x3 blast (resolveAreaBomb), OR snap back if the
-  //                              partner is another special (deferred combo)
+  //   0. area bomb + anything  → area+color_bomb combo (resolveAreaColorCombo),
+  //                              area+striped combo (resolveAreaStripedCombo),
+  //                              area+area combo (resolveAreaAreaCombo), or a
+  //                              solo 3x3 blast (resolveAreaBomb) for an
+  //                              ordinary partner
   //   1. striped + color bomb  → supercombo (resolveStripedBombCombo)
   //   2. striped + striped     → cross clear (resolveStripedCross)
   //   3. color bomb + anything → solo bomb   (resolveColorBomb)
@@ -1534,10 +1637,13 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // (0) MUST come before (3): an area+color_bomb swap is also "bomb-involving,"
   // but the area bomb is colorless (no matchType), so resolveColorBomb would run
   // a degenerate single-type clear on `undefined` and detonate only the bomb
-  // cell. area+special is a DEFERRED combo (see DEFERRED_COMPLEXITY.md), so it
-  // snaps back with no move spent instead — hasLegalMoves is matched. area+
-  // ordinary fires the local 3x3 blast. The area branch only fires when an area
-  // bomb is actually involved, so it's inert for every non-area swap below.
+  // cell — the exact same class of bug the striped+bomb ordering below already
+  // guards against, learned once and reapplied here. All three area+special
+  // pairings (area+color_bomb, area+striped, area+area) are now real combos,
+  // not a snap-back — see DEFERRED_COMPLEXITY.md's area+special entry, now
+  // resolved. area+ordinary still fires the local 3x3 blast. The area branch
+  // only fires when an area bomb is actually involved, so it's inert for every
+  // non-area swap below.
   // (1) MUST come before (3): a striped+bomb swap is also "bomb-involving," and a
   // striped piece carries a matchType, so resolveColorBomb would happily accept
   // it as an ordinary detonation partner and run the WEAKER single-type clear
@@ -1553,17 +1659,20 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const bBomb = pieceB.type === 'color_bomb';
   let resolved: CascadeResolution;
   if (aArea || bArea) {
+    const areaPos = aArea ? posA : posB;
+    const partnerPos = aArea ? posB : posA;
     const partner = aArea ? pieceB : pieceA;
-    if (partner.type === 'area_bomb' || partner.type === 'striped' || partner.type === 'color_bomb') {
-      // area + special is a deferred combo (area+color_bomb, area+striped,
-      // area+area) — snap back exactly like a no-match swap: no move spent, no
-      // state change. See DEFERRED_COMPLEXITY.md.
-      return { state, events: [], steps: [], multiSpecialFired: false };
+    if (partner.type === 'color_bomb') {
+      resolved = resolveAreaColorCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+    } else if (partner.type === 'striped') {
+      resolved = resolveAreaStripedCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+    } else if (partner.type === 'area_bomb') {
+      resolved = resolveAreaAreaCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+    } else {
+      // area + ordinary: fire the 3x3 blast centered on the bomb, regardless of
+      // what it was swapped with or whether a run would have formed.
+      resolved = resolveAreaBomb(state.board, areaPos, state.spawnPiece);
     }
-    // area + ordinary: fire the 3x3 blast centered on the bomb, regardless of
-    // what it was swapped with or whether a run would have formed.
-    const bombPos = aArea ? posA : posB;
-    resolved = resolveAreaBomb(state.board, bombPos, state.spawnPiece);
   } else if ((aStriped && bBomb) || (aBomb && bStriped)) {
     const stripedPos = aStriped ? posA : posB;
     const bombPos = aBomb ? posA : posB;

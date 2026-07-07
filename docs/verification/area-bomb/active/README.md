@@ -1,5 +1,12 @@
 # Area bomb — active (swap-triggered, colorless) — verification
 
+> **Scenario 2 below (area+special snap-back) is superseded.** All three
+> area+special pairings (area+color_bomb, area+striped, area+area) now fire a
+> real combined effect instead of snapping back — see
+> `docs/verification/area-bomb-combos/` and `engine/DECISIONS.md`'s
+> "Area-bomb combos: the last three pairings" entry. Scenario 1 (the active
+> area+ordinary 3×3 blast) is unaffected and still accurate.
+
 `active-filmstrip.png` verifies the **passive→active reversal** of the area bomb
 (see `engine/DECISIONS.md`'s area-bomb reversal sub-entry). The bomb no longer
 fires by being matched into a run of its own color — it's now **colorless and

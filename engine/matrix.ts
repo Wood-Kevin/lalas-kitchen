@@ -553,14 +553,15 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
 // guards against.
 //
 // A live area bomb is now swap-activated too (it used to trigger passively via a
-// run, needing no clause here). Its rule mirrors the color bomb's but is
-// narrower, matching the deferred-combo decision: a swap of an area bomb with an
-// ORDINARY piece always fires its 3x3 blast, so it's always legal; a swap of an
-// area bomb with ANOTHER special (color bomb / striped / area bomb) is a deferred
-// combo that snaps back (gameState.ts's applyMove), so it is NOT a legal move.
-// The area-bomb clause therefore runs FIRST and returns false for a special
-// partner, so that pair isn't wrongly counted as legal via the color-bomb clause
-// below.
+// run, needing no clause here). It's ALWAYS legal regardless of partner: a swap
+// with an ordinary piece fires its 3x3 blast, and a swap with another special
+// (color bomb / striped / another area bomb) now fires a real combo
+// (resolveAreaColorCombo / resolveAreaStripedCombo / resolveAreaAreaCombo in
+// gameState.ts's applyMove) rather than the snap-back this used to be — see
+// DEFERRED_COMPLEXITY.md's area+special entry, now resolved. The area-bomb
+// clause runs FIRST (before the color-bomb clause below) purely so it's the one
+// that decides an area-bomb pair's legality, not because any pairing is still
+// excluded.
 //
 // Returns the actual pair, not just whether one exists — row-major scan order
 // (top-to-bottom, left-to-right, right-neighbour checked before down-neighbour),
@@ -573,16 +574,10 @@ export function findAnyLegalMove(board: Board): { a: Position; b: Position } | n
   const cols = rows > 0 ? board[0].length : 0;
 
   const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
-    if (a.type === 'area_bomb' || b.type === 'area_bomb') {
-      const partner = a.type === 'area_bomb' ? b : a;
-      // area + ordinary → always legal (fires the blast); area + special →
-      // deferred no-op, not legal.
-      return (
-        partner.type !== 'area_bomb' &&
-        partner.type !== 'striped' &&
-        partner.type !== 'color_bomb'
-      );
-    }
+    // area + anything is always legal now: area + ordinary fires the 3x3
+    // blast, and area + special (color bomb / striped / another area bomb)
+    // fires one of the three real combos above.
+    if (a.type === 'area_bomb' || b.type === 'area_bomb') return true;
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
     if (a.type === 'striped' && b.type === 'striped') return true;
     // No checkCrossShapes clause is needed here, deliberately — unlike a pure

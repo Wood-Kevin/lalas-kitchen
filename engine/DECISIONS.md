@@ -1586,22 +1586,23 @@ has instead of adding a new art requirement.
   is "bomb-involving," so `resolveColorBomb` would otherwise run a degenerate
   clear on the area bomb's `undefined` matchType.
 - `hasLegalMoves` gained an **area clause** (also first): `area + ordinary` is
-  always legal; `area + special` is not (see below).
+  always legal; `area + special` was not, at the time this was originally written
+  (see below — this has since changed, see the "Area-bomb combos: the last three
+  pairings" entry further down).
 - The 3×3 geometry helper `areaBlastPositions` is unchanged; only its caller moved
   from `resolveMatchEffects` (passive) to `resolveAreaBomb` (active).
 
-**The area+special fork (confirmed with the architect).** Because the color bomb
-*also* fires on swap, swapping an area bomb directly into another special (color
-bomb, striped, or another area bomb) is two swap/match-activated specials meeting.
-Rather than define a combined effect, this is a **deferred combo**: such a swap
-**snaps back with no move spent** (the same reject path a no-match ordinary swap
-uses), guarded in `applyMove` before the color-bomb branch and mirrored in
-`hasLegalMoves` (an area+special pair is not a legal move). Only `area + ordinary`
-resolves — it always fires the same local 3×3 blast centered on the bomb,
-regardless of the partner (the bomb is never physically swapped first, so its
-blast geometry never depends on what it swapped with). This keeps the area bomb's
-combo behavior bounded exactly like the still-deferred sweep/blast chaining. See
-`DEFERRED_COMPLEXITY.md`.
+**The area+special fork (confirmed with the architect) — since superseded.**
+Because the color bomb *also* fires on swap, swapping an area bomb directly into
+another special (color bomb, striped, or another area bomb) is two swap/match-
+activated specials meeting. At the time the area bomb was built, this was left as
+a **deferred combo**: such a swap snapped back with no move spent (the same
+reject path a no-match ordinary swap uses), guarded in `applyMove` before the
+color-bomb branch and mirrored in `hasLegalMoves`. This kept the area bomb's
+combo behavior bounded exactly like the then-still-deferred sweep/blast chaining.
+**All three pairings now have a real combined effect** — see the "Area-bomb
+combos: the last three pairings" entry below; the snap-back this paragraph
+describes no longer exists in the code.
 
 **Objective accounting shift.** A colorless area bomb's own cell now credits
 nothing when it detonates (its `matchType` is gone), same as the color bomb — the
@@ -1982,16 +1983,17 @@ are then origins in `resolveClearSet`'s chain expansion so they don't also
 separately re-fire their solo effect on top of the combo. They are the only two
 pairings anyone has designed a combined effect for.
 
-Area bomb + any other special via a direct swap remains an explicit no-op — it
-snaps back with no move spent, per `DEFERRED_COMPLEXITY.md`'s "area + special
-combos" entry (line 10). If a real combined effect for that pairing (or any
-other) is ever wanted, it has to be built as a new named case, the same way the
-two combos above were — the architecture does not fall into one by accident.
-Verified by direct code inspection (no test can prove the absence of a case
-that doesn't exist) plus a new regression test covering the one previously
-reasoned-but-unproven path: two wholly independent specials firing in the same
-pass with no chain/catch relationship between them (`gameState.test.ts`'s
-"two independent striped pieces..." test, `applyMove — multiSpecialFired`
+Area bomb + any other special via a direct swap is **no longer** a no-op — the
+three remaining area-bomb pairings (area+color_bomb, area+striped, area+area)
+are now real combos too, replacing the snap-back this session (see the
+"Area-bomb combos: the last three pairings" entry below). If a real combined
+effect for a pairing is ever wanted, it has to be built as a new named case,
+the same way every combo (including these three) was — the architecture does
+not fall into one by accident. Verified by direct code inspection (no test can
+prove the absence of a case that doesn't exist) plus a new regression test
+covering the one previously reasoned-but-unproven path: two wholly independent
+specials firing in the same pass with no chain/catch relationship between them
+(`gameState.test.ts`'s "two independent striped pieces..." test, `applyMove — multiSpecialFired`
 describe block).
 
 ---
@@ -3771,3 +3773,96 @@ shared pipeline rather than a special case per mechanism; coexistence with
 a `'collect'` objective on the same level; a move touching no layered cell
 leaving everything untouched) plus `createGameState` cases for
 `layerCells` wiring and the derived `targetCount`. All 492 tests pass.
+
+## Area-bomb combos: the last three pairings (area+color_bomb, area+striped, area+area)
+
+The area+special snap-back described above (in the original area-bomb entry
+and its "confirmed with the architect" fork) is now **removed** — the three
+remaining area-bomb pairings each fire a real combined effect instead,
+bringing the area bomb to full parity with the striped piece and color bomb
+(every pairing among the three specials now has a defined effect).
+
+**Investigation first.** The snap-back lived in exactly one place:
+`gameState.ts`'s `applyMove`, inside the `if (aArea || bArea)` branch — a
+`partner.type === 'area_bomb' || 'striped' || 'color_bomb'` check that returned
+the no-move-spent reject tuple. Its `hasLegalMoves` mirror lived in
+`matrix.ts`'s `findAnyLegalMove`, an `area_bomb` clause that excluded exactly
+those three partner types from being "legal." Both were replaced outright, not
+left dangling: the `applyMove` branch now dispatches to one of three new
+resolvers by partner type (falling through to the existing `resolveAreaBomb`
+only for an ordinary partner), and the `hasLegalMoves` clause collapsed to a
+single unconditional `return true` for any area-bomb pair, since every pairing
+is legal now.
+
+**Ordering, stated plainly.** The `aArea || bArea` branch already ran FIRST in
+`applyMove`, before the striped+bomb, striped+striped, and solo-color-bomb
+branches — the exact ordering the original area-bomb work put in place so an
+`area + color_bomb` swap (bomb-involving, but the area bomb is colorless) never
+reaches `resolveColorBomb`'s degenerate single-type clear. That ordering did
+not need to change; only what happens *inside* the area branch changed. This
+was confirmed directly against the code (not assumed) before writing any new
+resolver, since this exact bug — a colorless special being silently consumed by
+the solo color-bomb branch — already bit the striped+bomb combo once before.
+
+**Three new resolvers in `gameState.ts`, all routed through the existing shared
+`resolveClearSet`** (blocker-consistent adjacent damage, chain expansion, and
+cascade resolution, exactly like every other special effect):
+
+- **`resolveAreaColorCombo`** (area + color bomb): converts every piece of the
+  board's most-common matchType into an area bomb and fires all of them at
+  once — several 3×3 blasts landing simultaneously. Unlike
+  `resolveStripedBombCombo` (which reads its target color off the swapped
+  striped piece), neither swapped piece here carries a matchType (both are
+  colorless), so there's no piece to read a target color from. Reused
+  `mostCommonMatchType` — the same function `expandChainClears` already uses
+  for a color bomb caught in a chain with no swap partner — rather than
+  inventing a second "pick a color" mechanism for the same underlying problem.
+- **`resolveAreaStripedCombo`** (area + striped): a plus-shaped blast — the
+  area bomb's own 3×3 block unioned with the striped piece's full sweep line in
+  its own direction. Built entirely from the two existing geometry helpers,
+  `areaBlastPositions` and `sweepLinePositions`, with no new shape logic.
+- **`resolveAreaAreaCombo`** (area + area): a single 5×5 blast, not two
+  separate 3×3s. `areaBlastPositions` gained an optional `radius` parameter
+  (default `1`, so every existing caller is unaffected) rather than a second,
+  parallel geometry function; the 5×5 is `areaBlastPositions(rows, cols, posA,
+  2)` centered on `posA` — the same "center on the position the caller
+  designates as posA" convention `resolveStripedCross` already established.
+  Since the two bombs are always adjacent, `posB` always falls inside the 5×5
+  already, so it's cleared as part of the same blast, not by a second one.
+
+All three follow the existing combo convention exactly: both swapped specials
+are added to `originKeys` (they clear but don't re-fire as a chain on top of
+their own combo), the whole clear set scores at the top `'bomb'` tier (same as
+every other combo), and a third, uninvolved special caught anywhere in the
+resulting clear set still chains normally through `expandChainClears` — no
+special-casing needed there, since chaining already treats any non-origin
+special generically regardless of which effect produced the seed set.
+
+**hasLegalMoves.** `findAnyLegalMove`'s area-bomb clause collapsed from a
+three-way exclusion to `if (a.type === 'area_bomb' || b.type === 'area_bomb')
+return true;` — every area-bomb pairing is legal now, so there's nothing left
+to exclude. It still runs first among the special clauses, but only because it
+has to be the thing that decides an area-bomb pair's legality, not because any
+pairing still needs to be carved out.
+
+**Test coverage** (`gameState.test.ts`'s "applyMove — area bombs" describe
+block): one test per combo confirming the exact footprint (the color combo's
+four isolated, non-overlapping 3×3 blocks; the striped combo's plus shape,
+explicitly checking cells only the sweep — not the block — reaches; the
+area+area combo's full 5×5, checking cells just outside it on every side
+survive), each also asserting `multiSpecialFired: true` (both swapped specials
+fired together in one pass — the same signal the `chain_reaction` tutorial
+already keys off). The `hasLegalMoves` test was rewritten from "legal with
+ordinary, not with special" to explicitly assert all three area+special 1x2
+boards are now legal. The old snap-back test is gone — replaced, not left
+alongside dead code. All 494 tests pass.
+
+Verified live over CDP: three real tap-dispatched swaps against a hand-built
+board loaded into the running app, one per combo, each producing the exact
+predicted clear footprint on screen. See
+`docs/verification/area-bomb-combos/`.
+
+**Still deferred, unaffected by this session:** L/T-shape triggers involving a
+4- or 5-long arm, and a genuinely ambiguous square-overlapping-a-run — see
+`DEFERRED_COMPLEXITY.md`. This entry closes the "area + special combos" line
+item that file previously carried.

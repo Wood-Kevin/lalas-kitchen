@@ -2241,27 +2241,116 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.state.objectives[0].currentCount).toBe(0);
   });
 
-  test('an area+special swap is a deferred combo: it snaps back with no move spent', () => {
-    // The area bomb sits next to a color bomb, a striped piece, and another area
-    // bomb. Each of these swaps is a deferred combo (see DEFERRED_COMPLEXITY.md),
-    // so it must snap back exactly like a no-match swap — no move spent, board
-    // unchanged — and must NOT misfire through the color-bomb branch.
+  test('area + color bomb: converts every piece of the board\'s most-common color into area bombs and fires them all at once', () => {
+    // 7x7 distinct board. Four 'A's placed far enough apart (radius-1 blocks
+    // centered on each don't overlap) that "several 3x3 blasts firing
+    // simultaneously" is unambiguous — each block is fully isolated from the
+    // others and from the swapped bomb pair at the center.
+    const board = distinctBoard(7, 7);
+    board[1][1] = piece('A', '1-1');
+    board[1][5] = piece('A', '1-5');
+    board[5][1] = piece('A', '5-1');
+    board[5][5] = piece('A', '5-5');
+    // 'A' (count 4) is unambiguously the board's most-common matchType — every
+    // other cell is a distinct cXY type (count 1 each).
+    board[3][3] = { id: '3-3', type: 'area_bomb' };
+    board[3][4] = { id: '3-4', type: 'color_bomb' };
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 3, col: 3 }, { row: 3, col: 4 });
+
+    // Both swapped bombs consumed themselves — no specials survive.
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'color_bomb')).toBe(0);
+    // Each of the four 'A's fires its own isolated 3x3 block (9 cells each, no
+    // overlap), proving four SEPARATE blasts landed, not one merged shape.
+    const blockCorners: [number, number][] = [
+      [0, 0], [2, 2], // block around (1,1)
+      [0, 4], [2, 6], // block around (1,5)
+      [4, 0], [6, 2], // block around (5,1)
+      [4, 4], [6, 6], // block around (5,5)
+    ];
+    for (const [r, c] of blockCorners) expect(hasId(result.state.board, `${r}-${c}`)).toBe(false);
+    // The swapped bomb pair's own cells cleared too, and they sit OUTSIDE all
+    // four blocks (row 3 is exactly between the row-1 and row-5 blocks).
+    expect(hasId(result.state.board, '3-3')).toBe(false);
+    expect(hasId(result.state.board, '3-4')).toBe(false);
+    // A cell reachable by none of the four blasts survives untouched.
+    expect(hasId(result.state.board, '0-3')).toBe(true);
+    // 4 isolated 3x3 blocks (9 cells each) + the 2 swapped bomb cells, no overlap.
+    expect(survivingGridPieces(result.state.board)).toBe(49 - (4 * 9 + 2));
+    // Each of the 4 'A' anchor cells still carries matchType 'A' pre-clear, so
+    // the objective credits 4 — the surrounding cXY cells don't match it.
+    expect(result.state.objectives[0].currentCount).toBe(4);
+    expect(result.state.movesRemaining).toBe(9);
+    // Both swapped specials fired together in the same pass — the
+    // chain_reaction tutorial's own trigger signal.
+    expect(result.multiSpecialFired).toBe(true);
+  });
+
+  test('area + striped: a plus-shaped blast unions the 3x3 block with the striped piece\'s full sweep line', () => {
     const board = distinctBoard(5, 5);
     board[2][2] = { id: '2-2', type: 'area_bomb' };
-    board[2][3] = { id: '2-3', type: 'color_bomb' };
-    board[2][1] = { id: '2-1', type: 'striped', matchType: 'A', direction: 'row' };
-    board[1][2] = { id: '1-2', type: 'area_bomb' };
+    board[2][3] = { id: '2-3', type: 'striped', matchType: 'S', direction: 'col' };
+    // One 'A' inside the 3x3 block only, one inside the sweep-only extension —
+    // proves objective credit comes from both shapes, not just one.
+    board[3][1] = piece('A', '3-1');
+    board[0][3] = piece('A', '0-3');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
 
-    for (const partner of [
-      { row: 2, col: 3 }, // area + color bomb
-      { row: 2, col: 1 }, // area + striped
-      { row: 1, col: 2 }, // area + area
-    ]) {
-      const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, partner);
-      expect(result.state.movesRemaining).toBe(10); // no move spent
-      expect(result.steps).toHaveLength(0); // rejected move, no cascade steps
-      expect(result.state.board).toBe(board); // unchanged (same reference)
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    expect(countType(result.state.board, 'striped')).toBe(0);
+    // The full 3x3 centered on the bomb (rows 1-3, cols 1-3).
+    for (const id of ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3']) {
+      expect(hasId(result.state.board, id)).toBe(false);
     }
+    // The striped piece's own full column-3 sweep reaches beyond the 3x3
+    // (rows 0 and 4), proving the plus shape, not just the block.
+    expect(hasId(result.state.board, '0-3')).toBe(false);
+    expect(hasId(result.state.board, '4-3')).toBe(false);
+    // A cell outside both shapes survives.
+    expect(hasId(result.state.board, '0-0')).toBe(true);
+    // 9 (3x3) + 2 (sweep cells beyond the block: rows 0 and 4 of col 3) = 11.
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 11);
+    expect(result.state.objectives[0].currentCount).toBe(2);
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.multiSpecialFired).toBe(true);
+  });
+
+  test('area + area: a single bigger 5x5 blast, not two separate 3x3s', () => {
+    const board = distinctBoard(7, 7);
+    board[3][3] = { id: '3-3', type: 'area_bomb' };
+    board[3][4] = { id: '3-4', type: 'area_bomb' };
+    // One 'A' near each end of the 5x5, to confirm objective credit spans the
+    // whole bigger block.
+    board[1][1] = piece('A', '1-1');
+    board[5][5] = piece('A', '5-5');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 3, col: 3 }, { row: 3, col: 4 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(0);
+    // The full 5x5 centered on posA=(3,3): rows 1-5, cols 1-5.
+    for (let r = 1; r <= 5; r++) {
+      for (let c = 1; c <= 5; c++) expect(hasId(result.state.board, `${r}-${c}`)).toBe(false);
+    }
+    // Cells just outside the 5x5 on every side survive — proving it's exactly
+    // 5x5, not e.g. two separate 3x3s that would leave (0,3)/(6,3) cleared too
+    // only if they happened to fall in a 3x3, which they don't either way, so
+    // check the cells a real "two separate 3x3s" reading WOULD still clear
+    // (they're all inside this 5x5 too) plus cells only a bigger 5x5 reaches.
+    expect(hasId(result.state.board, '1-5')).toBe(false); // only reachable if the blast is 5 wide, not 3
+    expect(hasId(result.state.board, '0-0')).toBe(true); // outside the 5x5 entirely
+    expect(hasId(result.state.board, '6-6')).toBe(true); // outside the 5x5 entirely
+    expect(survivingGridPieces(result.state.board)).toBe(49 - 25);
+    expect(result.state.objectives[0].currentCount).toBe(2);
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.multiSpecialFired).toBe(true);
   });
 
   test('hasLegalMoves keeps a board playable when its only move forms a 2x2 square', () => {
@@ -2276,7 +2365,7 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(hasLegalMoves(board)).toBe(true);
   });
 
-  test('hasLegalMoves: an area-bomb swap is legal with an ordinary neighbour, not with a special one', () => {
+  test('hasLegalMoves: an area-bomb swap is legal with an ordinary neighbour AND with any special partner (all three combos)', () => {
     // An all-distinct board with no run or square possible is stuck on its own.
     const board = buildBoard([
       ['a', 'b', 'c'],
@@ -2290,13 +2379,30 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     board[1][1] = { id: '1-1', type: 'area_bomb' };
     expect(hasLegalMoves(board)).toBe(true);
 
-    // But an area bomb whose ONLY neighbour is another special is NOT legal — that
-    // swap is a deferred combo that snaps back. A 1x2 board of area bomb + color
-    // bomb has no other move, so it reads as stuck.
-    const areaPlusSpecial: Board = [
+    // An area bomb whose ONLY neighbour is another special is now ALSO legal —
+    // each of the three area+special pairings fires a real combo (see
+    // resolveAreaColorCombo / resolveAreaStripedCombo / resolveAreaAreaCombo),
+    // so none of these tiny 1x2 boards is wrongly judged stuck any more.
+    const areaPlusColorBomb: Board = [
       [{ id: 'x', type: 'area_bomb' }, { id: 'y', type: 'color_bomb' }],
     ];
-    expect(hasLegalMoves(areaPlusSpecial)).toBe(false);
+    expect(hasLegalMoves(areaPlusColorBomb)).toBe(true);
+
+    const areaPlusStriped: Board = [
+      [
+        { id: 'x', type: 'area_bomb' },
+        { id: 'y', type: 'striped', matchType: 'A', direction: 'row' },
+      ],
+    ];
+    expect(hasLegalMoves(areaPlusStriped)).toBe(true);
+
+    const areaPlusArea: Board = [
+      [
+        { id: 'x', type: 'area_bomb' },
+        { id: 'y', type: 'area_bomb' },
+      ],
+    ];
+    expect(hasLegalMoves(areaPlusArea)).toBe(true);
   });
 
   test('an unambiguous square embedded in a straight run now spawns an area bomb — a real playtest gap, fixed', () => {
