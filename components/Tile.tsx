@@ -62,6 +62,17 @@ export interface TileProps {
   // the engine has no notion of a "hinted" piece, and the tile underneath
   // stays fully tappable/draggable throughout.
   hint?: boolean;
+  // Present only on a clearance-layers cell with at least one layer left
+  // (see engine/gameState.ts's GameState.layerCells) — undefined for every
+  // ordinary cell, and for a layered cell once it reaches 0 (Board.tsx omits
+  // the prop rather than passing 0, so LayerOverlay never has to distinguish
+  // "not layered" from "fully cleared" — both render nothing). Drives a calm,
+  // steady dusting wash whose opacity scales with how many layers remain, so
+  // a player sees the covering visibly lighten with each clear rather than
+  // needing to read a number. Presentation only — invisible to the engine,
+  // and to piecesMatch/matching in general (the piece underneath stays fully
+  // ordinary/matchable).
+  layersRemaining?: number;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -110,6 +121,7 @@ export function Tile({
   spreadWarning,
   powderWisp,
   hint,
+  layersRemaining,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -261,6 +273,7 @@ export function Tile({
           {spreadWarning && <SpreadWarningOverlay tileSize={tileSize} accentColor={accentColor} />}
           {powderWisp && <PowderWispOverlay tileSize={tileSize} />}
           {hint && <HintGlowOverlay accentColor={accentColor} />}
+          {!!layersRemaining && <LayerOverlay layersRemaining={layersRemaining} />}
         </Pressable>
       </Animated.View>
     </GestureDetector>
@@ -381,6 +394,28 @@ function SpreadWarningOverlay({
         ]}
       />
     </View>
+  );
+}
+
+// A per-layer opacity step for the clearance-layers wash — deliberately a
+// light, neutral covering (not SpreadWarningOverlay's dark hazard wash),
+// since a layer is a calm "something's underneath, reveal it" mechanic, not a
+// threat. Capped so even the max hand-authored layer count (2, see
+// engine/gameState.ts's LevelConfig.layerCells) never reads as fully opaque —
+// the piece underneath should stay legible as a real, matchable piece the
+// whole time.
+const LAYER_OPACITY_STEP = 0.22;
+
+function LayerOverlay({ layersRemaining }: { layersRemaining: number }) {
+  return (
+    <View
+      pointerEvents="none"
+      testID="layer-overlay"
+      style={[
+        styles.layerWash,
+        { opacity: Math.min(0.66, layersRemaining * LAYER_OPACITY_STEP) },
+      ]}
+    />
   );
 }
 
@@ -913,6 +948,19 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     opacity: 0.85,
     transform: [{ rotate: '24deg' }],
+  },
+  // The clearance-layers dusting wash — a flat, light, neutral covering (see
+  // LAYER_OPACITY_STEP). No breathing, no crack: unlike a hazard warning, a
+  // layer is calm and static between clears, and its own opacity (set by the
+  // caller per layersRemaining) is the only thing that changes over time.
+  layerWash: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: '#FFFBEF',
   },
   // The stuck-player hint's layers — a full-tile container plus a single
   // breathing glow wash, deliberately just these two (no dim, no crack) so it

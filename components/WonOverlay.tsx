@@ -4,7 +4,13 @@ import Animated, { useAnimatedStyle, useSharedValue, withDelay, withRepeat, with
 import { Objective } from '../engine/gameState';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
-import { ResolvedSprite, resolveSpriteAsset, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap } from './spriteAsset';
+import {
+  CLEARANCE_OBJECTIVE_SPRITE,
+  ResolvedSprite,
+  resolveSpriteAsset,
+  SCORE_OBJECTIVE_SPRITE,
+  SpriteAssetMap,
+} from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
 import { RecipeCardReveal } from './RecipeCardReveal';
 import { computeStarRating } from './wonActions';
@@ -114,7 +120,9 @@ export function WonOverlay({
   const sprite =
     objectives[0].type === 'score'
       ? SCORE_OBJECTIVE_SPRITE
-      : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
+      : objectives[0].type === 'clearance'
+        ? CLEARANCE_OBJECTIVE_SPRITE
+        : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
 
@@ -160,10 +168,16 @@ export function WonOverlay({
               const chipSprite =
                 objective.type === 'score'
                   ? SCORE_OBJECTIVE_SPRITE
-                  : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
+                  : objective.type === 'clearance'
+                    ? CLEARANCE_OBJECTIVE_SPRITE
+                    : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
               return (
                 <View
-                  key={objective.type === 'score' ? 'score' : objective.targetMatchType}
+                  key={
+                    objective.type === 'score' || objective.type === 'clearance'
+                      ? objective.type
+                      : objective.targetMatchType
+                  }
                   style={[styles.chip, { backgroundColor: SAGE_WASH, borderColor: secondaryAccent }]}
                 >
                   <SpriteIcon sprite={chipSprite} size={22} labelColor={secondaryAccent} />
@@ -177,7 +191,7 @@ export function WonOverlay({
                       {objective.currentCount} / {objective.targetCount}
                     </Text>
                     <Text style={[styles.chipLabel, { color: secondaryAccent }]}>
-                      {objective.type === 'score' ? 'SCORE' : 'COLLECTED'}
+                      {objective.type === 'score' ? 'SCORE' : objective.type === 'clearance' ? 'CLEARED' : 'COLLECTED'}
                     </Text>
                   </View>
                 </View>

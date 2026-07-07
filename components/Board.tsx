@@ -933,6 +933,12 @@ export function Board({
                       ((hintPair.a.row === r && hintPair.a.col === c) ||
                         (hintPair.b.row === r && hintPair.b.col === c))
                     }
+                    // Only present (and only ever >0) for a clearance-layers
+                    // cell that still has a layer left — see
+                    // engine/gameState.ts's GameState.layerCells. A cell with
+                    // no entry, or one already decremented to 0, passes
+                    // undefined so Tile renders no wash.
+                    layersRemaining={gameState.layerCells[`${r},${c}`] || undefined}
                     onPress={() => handleTilePress({ row: r, col: c })}
                     // Drag-to-swap, added alongside tap: a live drag from this
                     // tile highlights and (on release) swaps toward the

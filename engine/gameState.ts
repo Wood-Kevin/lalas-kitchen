@@ -30,13 +30,21 @@ export type { Position, Board };
 // engine/DECISIONS.md and CLAUDE.md's Data Model Notes): instead of counting
 // cleared pieces of one matchType, it tracks cumulative move-score earned
 // during the level (see applyMove's per-move scoreGained accumulation below).
-export type ObjectiveType = 'collect' | 'score';
+// 'clearance' is the third (see the clearance-layers entry in
+// engine/DECISIONS.md): it tracks how many hidden per-cell layers have been
+// cleared, like 'score' has no single matchType to track — its targetCount is
+// derived from the level's own GameState.layerCells total at createGameState
+// time, not hand-authored (see LevelConfig.layerCells below), so there's no
+// way for a level author's objective targetCount to drift out of sync with
+// the actual layered cells placed.
+export type ObjectiveType = 'collect' | 'score' | 'clearance';
 
 export interface Objective {
   type: ObjectiveType;
   // Only meaningful for 'collect' — the matchType this objective counts
-  // toward targetCount. undefined for 'score', which has no single matchType
-  // to track; its currentCount is the level's running score instead.
+  // toward targetCount. undefined for 'score' (currentCount is the level's
+  // running score instead) and for 'clearance' (currentCount is the running
+  // total of layers cleared instead).
   targetMatchType?: string;
   targetCount: number;
   currentCount: number;
@@ -116,6 +124,21 @@ export interface GameState {
   // undefined means blockers never spread — every level below the threshold,
   // and every level built before this mechanic existed. See DenialSpreadState.
   denialSpread?: DenialSpreadState;
+  // Hidden per-cell layer counts, keyed by "row,col" — a clearance-layers cell
+  // (see LevelConfig.layerCells and engine/DECISIONS.md's clearance-layers
+  // entry). Unlike a blocker's hitsRemaining (carried ON the Piece, since a
+  // blocker piece never moves or gets replaced until it clears), a layer must
+  // stay pinned to the GRID POSITION: calculateCascades refills a cleared cell
+  // with a freshly spawned piece of a different id, so the count can't live on
+  // any single Piece. Always present (an empty object for every level with no
+  // layerCells — every level built before this mechanic, and every level that
+  // doesn't use it), the same "always present, empty is the no-op state"
+  // convention totalCleared already uses, rather than DenialSpreadState's
+  // gated-undefined shape (there's no difficulty threshold to gate here — a
+  // layered cell is purely hand-authored content). A key present with value 0
+  // means fully cleared (never deleted, so re-clearing that cell later, if it
+  // happens, is a harmless no-op — see applyMove's decrementLayers).
+  layerCells: Record<string, number>;
 }
 
 export interface ComboStreakEvent {
@@ -199,10 +222,15 @@ export interface LevelConfig {
   // 'score' existed stays byte-identical); a 'score' entry has no
   // targetMatchType, since it tracks cumulative move-score instead of one
   // piece type — see ObjectiveType/Objective above and the scoring-system
-  // entry in engine/DECISIONS.md.
+  // entry in engine/DECISIONS.md. A 'clearance' entry has neither
+  // targetMatchType NOR a hand-authored targetCount — createGameState derives
+  // its targetCount from summing this same config's layerCells, so a level
+  // author can never let the two numbers drift out of sync (see the
+  // clearance-layers entry in engine/DECISIONS.md).
   objectives: Array<
     | { type?: 'collect'; targetMatchType: string; targetCount: number }
     | { type: 'score'; targetCount: number }
+    | { type: 'clearance' }
   >;
   // Optional so generator-driven levels (appPersistence.ts's
   // buildGeneratedLevelConfig) can leave it unset rather than fabricate a
@@ -230,6 +258,17 @@ export interface LevelConfig {
   // support. Hand-authored today; generator-driven shapes are deferred (see
   // DEFERRED_COMPLEXITY.md).
   voidCells?: Position[];
+  // Clearance-layers cells — a hidden per-cell layer count (1 or 2, the
+  // level author's choice, mirroring blockerHitsToClear's own convention)
+  // that decrements by one whenever the piece sitting on that cell is
+  // cleared by ANY effect (an ordinary match, a special sweep, a chain, a
+  // combo, a bomb blast) — never by a blocker's adjacent damage, since a
+  // layered cell never also carries a blocker this session (see
+  // engine/DECISIONS.md's clearance-layers entry). Omitted/empty means no
+  // layered cells, the default for every level built before this mechanic.
+  // Hand-authored today, like voidCells — generator integration is a
+  // separate, later step (see DEFERRED_COMPLEXITY.md).
+  layerCells?: Array<{ position: Position; layers: number }>;
 }
 
 // What fraction of a level's move budget an untouched denial zone is allowed to
@@ -254,6 +293,17 @@ export function createGameState(config: LevelConfig): GameState {
     voidCells: config.voidCells,
   });
 
+  // Keyed by "row,col" — see GameState.layerCells's doc comment for why this
+  // can't live on the Piece/Board the way blocker hitsRemaining does.
+  const layerCells: Record<string, number> = {};
+  for (const cell of config.layerCells ?? []) {
+    layerCells[`${cell.position.row},${cell.position.col}`] = cell.layers;
+  }
+  // A 'clearance' objective's targetCount is ALWAYS derived from the level's
+  // own layerCells total, never hand-authored — see LevelConfig.objectives'
+  // doc comment on why (no way for the two numbers to drift out of sync).
+  const totalLayers = Object.values(layerCells).reduce((sum, n) => sum + n, 0);
+
   return {
     board,
     movesRemaining: config.movesLimit,
@@ -261,16 +311,19 @@ export function createGameState(config: LevelConfig): GameState {
     objectives: config.objectives.map((objective) =>
       objective.type === 'score'
         ? { type: 'score', targetCount: objective.targetCount, currentCount: 0 }
-        : {
-            type: 'collect',
-            targetMatchType: objective.targetMatchType,
-            targetCount: objective.targetCount,
-            currentCount: 0,
-          }
+        : objective.type === 'clearance'
+          ? { type: 'clearance', targetCount: totalLayers, currentCount: 0 }
+          : {
+              type: 'collect',
+              targetMatchType: objective.targetMatchType,
+              targetCount: objective.targetCount,
+              currentCount: 0,
+            }
     ),
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells,
     // seed + 1, not config.seed itself: generateLevel's own rng instance is
     // internal and fully consumed by the time it returns, so ongoing
     // cascade spawns need a fresh stream. Offsetting by 1 keeps it
@@ -320,6 +373,38 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
 // already excludes both for the same reason).
 function isClearable(piece: Piece): boolean {
   return piece.type !== 'blocker' && piece.type !== 'void';
+}
+
+// Decrements GameState.layerCells by one at every position in `positions`
+// that still has a layer remaining (a position with no entry, or already at
+// 0, is a no-op — a plain board cell, or an already-fully-cleared layer cell
+// hit again by a later effect). Called from applyMove with the FULL set of
+// positions a move's resolution cleared (CascadeResolution.clearedPositions),
+// so every clearing mechanism — ordinary match, special sweep, chain, combo,
+// bomb blast — reduces a layer the same way, via the same shared clear-set
+// bookkeeping every one of those already produces; no separate per-mechanism
+// layer logic was needed (see engine/DECISIONS.md's clearance-layers entry).
+// Returns the original object, not a copy, when nothing changed, so a move
+// that touches no layered cell doesn't create a new object identity every
+// turn. `layersCleared` is how many positions actually lost a layer this
+// call — summed straight into a 'clearance' objective's currentCount by
+// applyMove, the same way scoreGained feeds a 'score' objective.
+function decrementLayers(
+  layerCells: Record<string, number>,
+  positions: Position[]
+): { layerCells: Record<string, number>; layersCleared: number } {
+  let layersCleared = 0;
+  let next = layerCells;
+  for (const p of positions) {
+    const key = `${p.row},${p.col}`;
+    const remaining = layerCells[key];
+    if (remaining !== undefined && remaining > 0) {
+      if (next === layerCells) next = { ...layerCells };
+      next[key] = remaining - 1;
+      layersCleared += 1;
+    }
+  }
+  return { layerCells: next, layersCleared };
 }
 
 // The scoring system (see engine/DECISIONS.md's scoring-system entry): every
@@ -592,6 +677,17 @@ interface CascadeResolution {
   // applyMove; entirely separate from clearedByMatchType, which 'collect'
   // objectives read instead.
   score: number;
+  // Every position actually cleared (gapped and refilled) across every pass
+  // this resolution ran, in no particular order — the raw position list
+  // clearedByMatchType already aggregates into per-matchType counts, exposed
+  // here instead so applyMove can look up GameState.layerCells by exact
+  // position (clearedByMatchType's matchType key can't do that — a
+  // clearance-layers cell isn't matchType-addressable). Includes any blocker
+  // that reached zero and cleared alongside (newlyClearedBlockers), for the
+  // same "the piece sitting on that cell was cleared" reasoning, even though
+  // this session's layered cells never coincide with a blocker in practice
+  // (see engine/DECISIONS.md's clearance-layers entry).
+  clearedPositions: Position[];
 }
 
 // The special piece an anchor cell is converted into this pass. A striped
@@ -928,6 +1024,9 @@ function resolveCascades(
   // See CascadeResolution's doc comment — a max across passes, not a sum.
   let maxSpecialsFired = 0;
   let score = 0;
+  // Every position cleared across every pass — see CascadeResolution's
+  // clearedPositions doc comment.
+  const allClearedPositions: Position[] = [];
 
   while (true) {
     const matches = checkMatches(currentBoard);
@@ -958,6 +1057,7 @@ function resolveCascades(
     // now including a striped piece's line sweep. Any blocker that reaches
     // zero this pass clears alongside and joins the same cascade/refill.
     const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(currentBoard, clearedPositions);
+    allClearedPositions.push(...clearedPositions, ...newlyClearedBlockers);
 
     // Count every cell that actually clears, by its matchType. The anchor
     // cell of a 4-match is excluded (it becomes a striped piece, it isn't
@@ -1004,7 +1104,15 @@ function resolveCascades(
     steps.push(currentBoard);
   }
 
-  return { board: currentBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired, score };
+  return {
+    board: currentBoard,
+    cascadeCount,
+    clearedByMatchType,
+    steps,
+    maxSpecialsFired,
+    score,
+    clearedPositions: allClearedPositions,
+  };
 }
 
 // Activates a color bomb swap — a genuinely different mechanism from a normal
@@ -1185,6 +1293,7 @@ function resolveClearSet(
     // see CascadeResolution's doc comment on why this is a per-pass max.
     maxSpecialsFired: Math.max(specialsFired, chained.maxSpecialsFired),
     score: detonationScore + chained.score,
+    clearedPositions: [...expanded, ...newlyClearedBlockers, ...chained.clearedPositions],
   };
 }
 
@@ -1485,8 +1594,21 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     resolved = resolveCascades(swapped, state.spawnPiece);
   }
 
-  const { board: cascadedBoard, cascadeCount, clearedByMatchType, steps, maxSpecialsFired, score: scoreGained } =
-    resolved;
+  const {
+    board: cascadedBoard,
+    cascadeCount,
+    clearedByMatchType,
+    steps,
+    maxSpecialsFired,
+    score: scoreGained,
+    clearedPositions,
+  } = resolved;
+
+  // Clearance-layers: every position this move actually cleared (any
+  // mechanism — see decrementLayers' doc comment) loses one layer, if it has
+  // any left. layersCleared feeds a 'clearance' objective's currentCount
+  // below, the same way scoreGained feeds a 'score' objective's.
+  const { layerCells, layersCleared } = decrementLayers(state.layerCells, clearedPositions);
 
   // Dynamic denial-zone spread (gated levels only — state.denialSpread is
   // undefined everywhere else, so blockers stay static). Runs on the settled
@@ -1521,13 +1643,17 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   }
 
   // A 'score' objective's currentCount tracks cumulative move-score instead
-  // of any single matchType's clear count — see scoreGained above.
+  // of any single matchType's clear count — see scoreGained above. A
+  // 'clearance' objective's currentCount tracks cumulative layers cleared,
+  // the same shape — see layersCleared above.
   const objectives: Objective[] = state.objectives.map((objective) => ({
     ...objective,
     currentCount:
       objective.type === 'score'
         ? objective.currentCount + scoreGained
-        : objective.currentCount + (clearedByMatchType[objective.targetMatchType ?? ''] ?? 0),
+        : objective.type === 'clearance'
+          ? objective.currentCount + layersCleared
+          : objective.currentCount + (clearedByMatchType[objective.targetMatchType ?? ''] ?? 0),
   }));
 
   const movesRemaining = state.movesRemaining - 1;
@@ -1572,6 +1698,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     pauseReason,
     totalCleared,
     denialSpread,
+    layerCells,
   };
 
   // resolveCascades' last step is the pre-rescue cascadedBoard; the state

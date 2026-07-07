@@ -3,7 +3,13 @@ import { Image, StyleSheet, Text, View } from 'react-native';
 import { Objective } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
-import { resolveSpriteAsset, ResolvedSprite, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap } from './spriteAsset';
+import {
+  CLEARANCE_OBJECTIVE_SPRITE,
+  resolveSpriteAsset,
+  ResolvedSprite,
+  SCORE_OBJECTIVE_SPRITE,
+  SpriteAssetMap,
+} from './spriteAsset';
 
 export interface HudProps {
   objectives: Objective[];
@@ -43,10 +49,12 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
             const targetSprite =
               objective.type === 'score'
                 ? SCORE_OBJECTIVE_SPRITE
-                : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
+                : objective.type === 'clearance'
+                  ? CLEARANCE_OBJECTIVE_SPRITE
+                  : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
             return (
               <View
-                key={objective.type === 'score' ? 'score' : objective.targetMatchType}
+                key={objective.type === 'score' || objective.type === 'clearance' ? objective.type : objective.targetMatchType}
                 style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
               >
                 <Glyph sprite={targetSprite} color={config.palette.accent} />

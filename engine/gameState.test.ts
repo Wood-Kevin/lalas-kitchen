@@ -66,6 +66,7 @@ describe('applyMove — full playthrough', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
     };
 
@@ -117,6 +118,7 @@ describe('applyMove — moves exhausted', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['X1', 'X2', 'X3']),
     };
 
@@ -157,6 +159,7 @@ describe('applyMove — moves exhausted', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece([]),
     };
 
@@ -185,6 +188,7 @@ describe('applyMove — moves exhausted', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['X1', 'X2', 'X3']),
     };
 
@@ -213,6 +217,7 @@ describe('applyMove — combo streak', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece([
         'B', 'B', 'B', // fills column 1 after the initial A-run clears — instant second run
         'C', 'C', 'C', // third run
@@ -270,6 +275,7 @@ describe('applyMove — cascade steps', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Pass 1 clears the vertical A-run; column 1 refills B,B,B — an instant
       // second run. Pass 2 clears the B's; column 1 refills P,F,G, which
       // forms no new run (P lines up under column 2's P,P pair only as a
@@ -327,6 +333,7 @@ describe('applyMove — cascade steps', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Same two-pass chain as the test above: pass 1 clears the A-run, column 1
       // refills B,B,B (pass 2), then settles to P,F,G with no further match.
       spawnPiece: queueSpawnPiece(['B', 'B', 'B', 'P', 'F', 'G']),
@@ -368,6 +375,7 @@ describe('applyMove — cascade steps', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Same swap as above, but column 1 refills straight to P,F,G — no
       // intermediate B-run — so the move resolves in a single pass.
       spawnPiece: queueSpawnPiece(['P', 'F', 'G']),
@@ -400,6 +408,7 @@ describe('applyMove — cascade steps', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece([]),
     };
 
@@ -433,6 +442,7 @@ describe('applyMove — striped pieces', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
     };
 
@@ -475,6 +485,7 @@ describe('applyMove — striped pieces', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5']),
     };
 
@@ -512,6 +523,7 @@ describe('applyMove — striped pieces', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5']),
     };
 
@@ -543,6 +555,7 @@ describe('applyMove — striped pieces', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece([]),
     };
 
@@ -571,6 +584,7 @@ describe('applyMove — striped pieces', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
     };
 
@@ -613,6 +627,7 @@ describe('applyMove — color bombs', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
     };
 
@@ -655,6 +670,7 @@ describe('applyMove — color bombs', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Eight cells clear (seven A's + the bomb); a generous unique queue so no
       // incidental cascade forms and spawns never exhaust.
       spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10']),
@@ -692,6 +708,7 @@ describe('applyMove — color bombs', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4']),
     };
 
@@ -723,6 +740,7 @@ describe('applyMove — color bombs', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // All nine cells clear; unique spawns so the refilled board forms no
       // incidental match.
       spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12']),
@@ -761,6 +779,7 @@ describe('applyMove — color bombs', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10', 'Y11', 'Y12']),
     };
 
@@ -805,6 +824,7 @@ describe('applyMove — special piece combos', () => {
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: distinctSpawns(),
   });
 
@@ -937,6 +957,7 @@ describe('applyMove — special piece chaining', () => {
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: distinctSpawns(),
   });
 
@@ -1092,6 +1113,7 @@ describe('applyMove — multiSpecialFired (chain_reaction tutorial trigger)', ()
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: uniqueSpawns(),
   });
 
@@ -1239,6 +1261,7 @@ describe('applyMove — mid-play stuck board recovery', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Refills row 0, left to right, with the same diagonal-stripe values
       // that row already needs — so the fully-settled board is a complete,
       // legitimate zero-legal-move stripe, not just the cleared row.
@@ -1283,6 +1306,7 @@ describe('applyMove — blockers', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4']),
     };
 
@@ -1329,6 +1353,7 @@ describe('applyMove — blockers', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['S', 'S', 'T', 'Z1', 'Z2', 'Z3', 'Z4']),
     };
 
@@ -1368,6 +1393,7 @@ describe('applyMove — blockers', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece([]),
     };
 
@@ -1396,6 +1422,7 @@ describe('applyMove — multiple objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['X1', 'X2', 'X3']),
     };
 
@@ -1430,6 +1457,7 @@ describe('applyMove — multiple objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // 6 fresh, mutually-distinct fillers for the 6 cells row 0 and row 2
       // vacate (Y/Z/X — row 1's survivors — simply fall to row 2, needing no
       // spawn of their own) — distinct from Y/Z/X and each other so no
@@ -1471,6 +1499,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       // Distinct from B/C/X and each other so the refill forms no new match.
       spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
     };
@@ -1498,6 +1527,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3']),
     };
 
@@ -1524,6 +1554,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
     };
 
@@ -1551,6 +1582,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10']),
     };
 
@@ -1579,6 +1611,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['B', 'B', 'B', 'P', 'F', 'G']),
     };
 
@@ -1608,6 +1641,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
     };
 
@@ -1639,6 +1673,7 @@ describe('applyMove — scoring system and score objectives', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
     };
 
@@ -1650,6 +1685,197 @@ describe('applyMove — scoring system and score objectives', () => {
     // collect objective's own matchType bookkeeping — neither interferes with
     // the other, and neither alone reaches its (deliberately high) target.
     expect(result.state.objectives[1].currentCount).toBe(30);
+    expect(result.state.status).toBe('in_progress');
+  });
+});
+
+describe('applyMove — clearance layers', () => {
+  test('a plain ordinary match reduces a 1-layer cell to 0 and wins a clearance objective at target 1', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'clearance', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: { '0,0': 1 },
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.layerCells['0,0']).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.state.status).toBe('won');
+  });
+
+  test('a 2-layer cell needs two separate clears before it reaches 0', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'clearance', targetCount: 2, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: { '0,0': 2 },
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const firstHit = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // One layer down, one still remaining — not yet won.
+    expect(firstHit.state.layerCells['0,0']).toBe(1);
+    expect(firstHit.state.objectives[0].currentCount).toBe(1);
+    expect(firstHit.state.status).toBe('in_progress');
+
+    // A second, independent move whose match again lands on (0,0) — carrying
+    // forward firstHit's layerCells/objectives (the real per-move state a
+    // continuous playthrough would have), but with a fresh board rigged for
+    // its own 3-match, since the exact refill contents after move one aren't
+    // what this test is about.
+    const secondBoard = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const secondState: GameState = {
+      ...firstHit.state,
+      board: secondBoard,
+      spawnPiece: queueSpawnPiece(['Z2', 'Y2', 'W2']),
+    };
+    const secondHit = applyMove(secondState, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(secondHit.state.layerCells['0,0']).toBe(0);
+    expect(secondHit.state.objectives[0].currentCount).toBe(2);
+    expect(secondHit.state.status).toBe('won');
+  });
+
+  test('a layer under a cell reached only by a striped sweep (not the triggering 3-match) still decrements', () => {
+    // Same board/swap as the striped-pieces describe block's row-sweep test:
+    // matching the striped piece at (2,0) sweeps the whole of row 1, clearing
+    // W at (1,4) — a cell no 3-match here ever touches directly, so its
+    // layer can only have been reduced by the sweep itself.
+    const board = buildBoard([
+      ['P', 'Q', 'R', 'S', 'T'],
+      ['X', 'A', 'A', 'U', 'W'],
+      ['A', 'D', 'V', 'E', 'F'],
+    ]);
+    board[2][0] = { ...board[2][0], type: 'striped', direction: 'row' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'clearance', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: { '1,4': 1 },
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5']),
+    };
+
+    const result = applyMove(state, { row: 2, col: 0 }, { row: 1, col: 0 });
+
+    expect(result.state.layerCells['1,4']).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.state.status).toBe('won');
+  });
+
+  test('a layer under a cell caught in a solo color-bomb detonation decrements, at whatever tier it clears', () => {
+    // Same board/swap as the color-bombs describe block's whole-board-color
+    // detonation test: swapping the bomb at (1,1) with the A at (1,2)
+    // detonates every 'A' on the board. (0,3) is one of those A's and never
+    // sits in any 3-match on this board, so a layer there can only have been
+    // reduced by the bomb's own clear set.
+    const board = buildBoard([
+      ['A', 'B', 'C', 'A', 'D'],
+      ['E', 'Z', 'A', 'F', 'A'],
+      ['A', 'G', 'H', 'I', 'A'],
+      ['J', 'K', 'A', 'L', 'M'],
+    ]);
+    board[1][1] = { id: board[1][1].id, type: 'color_bomb' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'clearance', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: { '0,3': 1 },
+      spawnPiece: queueSpawnPiece(['Y1', 'Y2', 'Y3', 'Y4', 'Y5', 'Y6', 'Y7', 'Y8', 'Y9', 'Y10']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 1 }, { row: 1, col: 2 });
+
+    expect(result.state.layerCells['0,3']).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.state.status).toBe('won');
+  });
+
+  test('a clearance objective coexists with a collect objective on the same level, updating independently', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X'],
+      ['B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [
+        { type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 },
+        { type: 'clearance', targetCount: 5, currentCount: 0 },
+      ],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: { '0,0': 1 },
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // The collect objective counts all 3 cleared A's, unaffected by the
+    // layer bookkeeping...
+    expect(result.state.objectives[0].currentCount).toBe(3);
+    // ...and the clearance objective counts only the one layer actually
+    // cleared, unaffected by the collect objective's own count — neither
+    // interferes with the other, and the (deliberately high) clearance
+    // target isn't reached yet.
+    expect(result.state.objectives[1].currentCount).toBe(1);
+    expect(result.state.status).toBe('in_progress');
+  });
+
+  test('a move that clears no layered cell leaves layerCells and the clearance objective untouched', () => {
+    const board = buildBoard([
+      ['A', 'A', 'X', 'Q', 'R'],
+      ['B', 'C', 'A', 'S', 'T'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'clearance', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      // A layered cell far from this move's match — never touched by it.
+      layerCells: { '1,4': 1 },
+      totalCleared: {},
+      spawnPiece: queueSpawnPiece(['Z', 'Y', 'W']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    expect(result.state.layerCells).toEqual({ '1,4': 1 });
+    expect(result.state.objectives[0].currentCount).toBe(0);
     expect(result.state.status).toBe('in_progress');
   });
 });
@@ -1712,6 +1938,42 @@ describe('createGameState', () => {
     });
 
     expect(state.objectives).toEqual([{ type: 'score', targetCount: 900, currentCount: 0 }]);
+  });
+
+  test('wires layerCells into GameState, keyed by "row,col", and derives a clearance objective targetCount from their sum', () => {
+    const state = createGameState({
+      seed: 7,
+      rows: 6,
+      cols: 6,
+      pieceTypeIds: ['A', 'B', 'C', 'D'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ type: 'clearance' }],
+      layerCells: [
+        { position: { row: 0, col: 0 }, layers: 2 },
+        { position: { row: 3, col: 4 }, layers: 1 },
+      ],
+    });
+
+    expect(state.layerCells).toEqual({ '0,0': 2, '3,4': 1 });
+    // 2 + 1 = 3 — never hand-authored, always derived from layerCells itself
+    // (see LevelConfig.objectives' doc comment), so the two numbers can never
+    // drift out of sync.
+    expect(state.objectives).toEqual([{ type: 'clearance', targetCount: 3, currentCount: 0 }]);
+  });
+
+  test('omitting layerCells leaves GameState.layerCells an empty object — every level built before this mechanic', () => {
+    const state = createGameState({
+      seed: 7,
+      rows: 6,
+      cols: 6,
+      pieceTypeIds: ['A', 'B', 'C', 'D'],
+      movesLimit: 20,
+      lives: 5,
+      objectives: [{ targetMatchType: 'A', targetCount: 12 }],
+    });
+
+    expect(state.layerCells).toEqual({});
   });
 });
 
@@ -1844,6 +2106,7 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: distinctSpawns(),
   });
 
@@ -2187,6 +2450,7 @@ describe('applyMove — area bombs (L/T/plus crossing-run trigger)', () => {
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: distinctSpawns(),
   });
 
@@ -2405,6 +2669,7 @@ describe('applyMove — dynamic denial-zone spread', () => {
     status: 'in_progress',
     pauseReason: null,
     totalCleared: {},
+    layerCells: {},
     spawnPiece: queueSpawnPiece(['M', 'N', 'O', 'M', 'N', 'O']),
     denialSpread:
       spreadInterval === null
@@ -2543,6 +2808,7 @@ describe('applyMove — dynamic denial-zone spread', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['R', 'S', 'U', 'R', 'S', 'U']),
       // On the brink: one more unaddressed move would spread.
       denialSpread: { movesUnaddressed: 4, spreadInterval: 5, blockerHitsToClear: 2 },
@@ -2584,6 +2850,7 @@ describe('applyMove — non-rectangular (void) board', () => {
       status: 'in_progress',
       pauseReason: null,
       totalCleared: {},
+      layerCells: {},
       spawnPiece: queueSpawnPiece(['Z', 'Y', 'X']),
       ...overrides,
     };
@@ -2673,6 +2940,7 @@ describe('applyMove — non-rectangular (void) board', () => {
         status: 'in_progress',
         pauseReason: null,
         totalCleared: {},
+        layerCells: {},
         spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
       };
 
@@ -2704,6 +2972,7 @@ describe('applyMove — non-rectangular (void) board', () => {
         status: 'in_progress',
         pauseReason: null,
         totalCleared: {},
+        layerCells: {},
         spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
       };
 
@@ -2729,6 +2998,7 @@ describe('applyMove — non-rectangular (void) board', () => {
         status: 'in_progress',
         pauseReason: null,
         totalCleared: {},
+        layerCells: {},
         spawnPiece: queueSpawnPiece(['Z', 'Y', 'X', 'W', 'V', 'U', 'T', 'Q']),
       };
 

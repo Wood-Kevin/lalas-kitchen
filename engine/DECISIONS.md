@@ -3633,3 +3633,141 @@ still holding post-scale, `playableRatio` omitted/`1` being a true no-op,
 and an end-to-end regression guard that a real shaped level's total target
 and moves are strictly less than the unscaled levelNumber-only values). All
 484 tests pass.
+
+## Clearance layers — a fourth objective type, a new per-cell (not per-piece) mechanic
+
+A genuinely new mechanic, built from scratch this session: certain grid
+cells carry a hidden background layer that decrements whenever the piece
+sitting on that cell is cleared by ANY effect — an ordinary match, a
+special sweep, a chain, a combo, a bomb blast — with the win condition
+being every layered cell reaching zero layers remaining.
+
+**Investigated first, per the standing Playtest Feedback Protocol's "confirm
+before deciding on a genuine fork" step**, since this was described up front
+as needing its own investigation: is this the same shape as a blocker
+(which already takes damage from an adjacent clear), or genuinely new?
+Confirmed it's genuinely new, for a precise reason: a blocker's
+`hitsRemaining` (`matrix.ts`'s `Piece`) lives ON the piece itself, which is
+correct BECAUSE a blocker piece is immovable — it never falls or gets
+replaced until it clears. A layer can't use that shape: `calculateCascades`
+refills a cleared cell with a freshly spawned piece carrying a different
+`id`, so whatever piece currently occupies a layered cell changes constantly
+across ordinary play, while the layer count itself must stay pinned to the
+GRID POSITION. This ruled out a `Piece` field outright and settled the
+design before any code was written: `GameState.layerCells` is a new
+`Record<string, number>` keyed by `"row,col"`, sitting beside `Board`
+(itself unchanged — no new `PieceType`, no `matrix.ts` changes at all), the
+same "new per-cell state, separate from Board/Piece" shape
+`DenialSpreadState`'s `spreadWarning` flag or `voidCells`' fixed positions
+use, but mutable across the whole level rather than either fixed-forever
+(voids) or transient-one-move (spreadWarning).
+
+**The clear-pipeline reuse claim WAS confirmed to hold, though** — this is
+the second half of the investigation, and it held cleanly: every clearing
+mechanism in this codebase (the ordinary in-match clear via
+`resolveMatchEffects`, the in-match striped sweep, `expandChainClears`'
+chain expansion, both special-piece combos, the color-bomb/area-bomb
+detonations) already funnels through one of two places —
+`resolveCascades`' per-pass loop (via `resolveMatchEffects`'s
+`clearedPositions` + `applyAdjacentDamage`'s `newlyClearedBlockers`) or
+`resolveClearSet`'s shared tail (via `expandChainClears`'s `expanded` +
+`newlyClearedBlockers`) — and both already compute exactly the position set
+a layer decrement needs. Nothing there needed new detection logic; it only
+needed to be EXPOSED as raw positions rather than aggregated into
+`clearedByMatchType`'s per-matchType counts, since a layered cell isn't
+matchType-addressable. `CascadeResolution` gained a `clearedPositions:
+Position[]` field (every position cleared across every pass/detonation this
+move resolved, accumulated the same way `clearedByMatchType` already is),
+threaded through `resolveCascades` (a new `allClearedPositions` accumulator,
+named distinctly from the per-pass local `clearedPositions` already
+destructured from `resolveMatchEffects` to avoid shadowing) and
+`resolveClearSet` (`[...expanded, ...newlyClearedBlockers,
+...chained.clearedPositions]`). `applyMove` then does the actual decrement —
+`decrementLayers(state.layerCells, resolved.clearedPositions)` — entirely
+outside the pure Board-only helpers above, since `GameState` (which owns
+`layerCells`) only exists at the `applyMove` layer. This mirrors exactly how
+`scoreGained` is threaded and applied for the `'score'` objective — a
+second, parallel per-move accumulator riding the same resolution, not a
+rework of it.
+
+**Design, confirmed with the architect rather than guessed on both real
+forks**: (1) layer range is 1 or 2, the level author's own per-cell choice
+(`LevelConfig.layerCells: Array<{ position: Position; layers: number }>`),
+mirroring `blockerHitsToClear`'s existing convention exactly, rather than a
+single fixed number for every layered cell; (2) a layered cell is exclusively
+an ordinary/special matchable piece this session — it never also carries a
+blocker, and never sits on a void. Blocker+layer coexistence (a blocker's own
+final clear also decrementing the layer underneath) is a real, doubled
+interaction surface deliberately deferred, not silently assumed either way —
+see `DEFERRED_COMPLEXITY.md`.
+
+The `'clearance'` objective type (`ObjectiveType`/`Objective`) has no
+`targetMatchType`, like `'score'` — its `currentCount` tracks cumulative
+layers cleared instead of a matchType's clear count. Its `targetCount` is
+NEVER hand-authored: `LevelConfig.objectives`' `{ type: 'clearance' }` entry
+carries no `targetCount` field at all, and `createGameState` derives it by
+summing the level's own `layerCells` (`Object.values(layerCells).reduce(...)`)
+— a level author literally cannot let the two numbers drift out of sync,
+unlike a `'collect'`/`'score'` objective's hand-picked `targetCount`, since
+there's nothing to hand-pick. `decrementLayers` floors at 0 (never negative)
+and is a no-op for a position with no `layerCells` entry, or one already at
+0 — so a later effect that happens to re-touch an already-fully-cleared
+layered cell (or any ordinary cell) is harmless, and `layersCleared` (fed
+into the `'clearance'` objective's `currentCount`, the same shape
+`scoreGained` feeds `'score'`) only ever counts a position that genuinely
+still had a layer.
+
+Scoped to real hand-built level content only this session, the same
+sequencing every other new mechanic in this project has followed (blockers,
+board shapes, score objectives all landed hand-built-first) — generator
+integration (`buildGeneratedLevelConfig` producing `layerCells`/a
+`'clearance'` objective) is a separate, later step (see
+`DEFERRED_COMPLEXITY.md`). App.tsx's `LEVEL_QUEUE` gained a sixth entry,
+"Dusty Counter" (seed 501), with `DUSTY_COUNTER_LAYERS` — six cells, four at
+1 layer and two at 2 layers (8 total, becoming the objective's derived
+target) — scattered across the board so a player encounters both "one clear
+and it's gone" and "needs a second pass."
+
+The presentation layer needed genuinely new pieces, since nothing like this
+existed: `components/Tile.tsx`'s `LayerOverlay` (a new `layersRemaining?:
+number` `Tile` prop) renders a flat, calm, light dusting wash
+(`LAYER_OPACITY_STEP`, deliberately NOT `SpreadWarningOverlay`'s dark hazard
+wash — a layer is "something's underneath, reveal it," not a threat) whose
+opacity scales with how many layers remain, so a player sees the covering
+visibly lighten with each clear rather than needing to read a number.
+`components/Board.tsx` looks up `gameState.layerCells[`${r},${c}`]` per
+tile (position-keyed, unlike every other per-piece prop `Board.tsx` already
+reads straight off `piece`) and passes `undefined` rather than `0` once a
+cell fully clears, so `LayerOverlay` never needs to distinguish "never
+layered" from "fully cleared" — both render nothing. `Hud.tsx`/
+`WonOverlay.tsx`/`Home.tsx`/`levelProgress.ts` each gained a `'clearance'`
+branch alongside their existing `'score'` branch, falling back to a new
+`CLEARANCE_OBJECTIVE_SPRITE` (`spriteAsset.ts`, a ▤ glyph) instead of
+resolving a `'clearance'` objective's absent `targetMatchType` through
+`getSpriteForMatchType` — the same "no art yet" placeholder this codebase
+treats as a genuine-bug signal elsewhere, not a legitimate fallback for a
+deliberately matchType-less objective.
+
+Verified live against the real running app over CDP: a genuinely fresh save
+seeded with `completedLevels: [1,2,3,4,5]` (the real localStorage key
+empirically confirmed as `save:cooking-lalas-kitchen`, no app-slug prefix —
+an assumption borrowed from a different verification session's README that
+did NOT hold in this environment and was corrected by testing against a
+truly fresh Chrome profile before trusting it, rather than being carried
+over silently) reaching Level 6 "Dusty Counter" through Home's ordinary
+"Start cooking" flow; two real tap-dispatched moves, found by running the
+real engine over every adjacent swap of the real generated board, each
+landing an ordinary 3-match on a layered cell — one on a 2-layer cell
+(wash visibly lightens, objective ticks to 1/8, still shows a wash) and one
+on a 1-layer cell (wash disappears entirely, objective ticks to 2/8) — with
+a direct DOM check confirming exactly 5 of the original 6 `layer-overlay`
+nodes remained, matching what a correct implementation predicts, not just a
+plausible-looking screenshot. See `docs/verification/clearance-layers/`.
+New coverage: `engine/gameState.test.ts`'s "applyMove — clearance layers"
+describe block (ordinary-match decrement and win; a 2-layer cell needing
+two separate real `applyMove` calls before reaching 0; decrement via an
+in-match striped sweep and via a solo color-bomb detonation, proving the
+shared pipeline rather than a special case per mechanism; coexistence with
+a `'collect'` objective on the same level; a move touching no layered cell
+leaving everything untouched) plus `createGameState` cases for
+`layerCells` wiring and the derived `targetCount`. All 492 tests pass.

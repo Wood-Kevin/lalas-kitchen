@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SkinConfig } from './skinConfig';
-import { SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
+import { CLEARANCE_OBJECTIVE_SPRITE, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
 import { LevelSummary, buildRecipeBookSubtitle } from './levelProgress';
@@ -70,7 +70,9 @@ export function Home({
   const nextIconSprite =
     nextLevel.objectiveType === 'score'
       ? SCORE_OBJECTIVE_SPRITE
-      : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
+      : nextLevel.objectiveType === 'clearance'
+        ? CLEARANCE_OBJECTIVE_SPRITE
+        : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
 
   return (
     <View style={[styles.container, { backgroundColor: config.palette.background[0] }]}>

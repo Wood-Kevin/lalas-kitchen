@@ -35,3 +35,9 @@ export function resolveSpriteAsset(
 // placeholder reads elsewhere in this codebase as a genuine bug (an unknown
 // matchType), and a score objective isn't one.
 export const SCORE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '★' };
+
+// A 'clearance' objective has no matchType either — same reasoning as
+// SCORE_OBJECTIVE_SPRITE above, a deliberate fixed glyph rather than the
+// generic "no art yet" placeholder. A lid/cover glyph, since a clearance cell
+// is presented as something hidden underneath being uncovered.
+export const CLEARANCE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '▤' };

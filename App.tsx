@@ -70,6 +70,21 @@ const PLUS_SHOWCASE_VOIDS: Position[] = ([0, 1, 5, 6] as const).flatMap((row) =>
   ([0, 1, 5, 6] as const).map((col) => ({ row, col }))
 );
 
+// The showcase clearance-layers level's hidden layer placement — a scattered
+// handful of cells (see engine/DECISIONS.md's clearance-layers entry), mostly
+// 1 layer with two 2-layer cells so a player genuinely encounters both the
+// "one clear and it's gone" and "needs a second pass" cases. Total 8 layers,
+// which becomes the 'clearance' objective's targetCount automatically (see
+// createGameState) — never hand-authored as a separate number.
+const DUSTY_COUNTER_LAYERS: Array<{ position: Position; layers: number }> = [
+  { position: { row: 1, col: 1 }, layers: 2 },
+  { position: { row: 1, col: 3 }, layers: 1 },
+  { position: { row: 3, col: 0 }, layers: 1 },
+  { position: { row: 3, col: 4 }, layers: 1 },
+  { position: { row: 5, col: 2 }, layers: 2 },
+  { position: { row: 6, col: 1 }, layers: 1 },
+];
+
 const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
     seed: 1,
@@ -127,6 +142,22 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     movesLimit: 24,
     objectives: [{ type: 'score', targetCount: 1000 }],
     displayName: 'Score Rush',
+  },
+  {
+    // First 'clearance'-type objective level (see engine/gameState.ts's
+    // ObjectiveType and the clearance-layers entry in engine/DECISIONS.md):
+    // win by clearing every hidden per-cell layer, rather than collecting a
+    // piece-type count or reaching a score threshold. Hand-built content only
+    // this session — generator integration is a separate, later step (see
+    // DEFERRED_COMPLEXITY.md).
+    seed: 501,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 24,
+    objectives: [{ type: 'clearance' }],
+    layerCells: DUSTY_COUNTER_LAYERS,
+    displayName: 'Dusty Counter',
   },
 ];
 

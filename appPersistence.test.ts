@@ -502,12 +502,14 @@ describe('buildGeneratedLevelConfig', () => {
     // regardless of how the piece-type pool has shrunk by that point.
     for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-      // buildGeneratedLevelConfig never produces a 'score' objective today —
-      // see DEFERRED_COMPLEXITY.md — so every entry here is real collect-shaped
-      // data; this throw documents that invariant instead of silently
-      // asserting on a possibly-undefined targetMatchType.
+      // buildGeneratedLevelConfig never produces a 'score' or 'clearance'
+      // objective today — see DEFERRED_COMPLEXITY.md — so every entry here is
+      // real collect-shaped data; this throw documents that invariant instead
+      // of silently asserting on a possibly-undefined targetMatchType.
       const targetTypes = config.objectives.map((o) => {
-        if (o.type === 'score') throw new Error('generated objective should never be score-type');
+        if (o.type === 'score' || o.type === 'clearance') {
+          throw new Error(`generated objective should never be ${o.type}-type`);
+        }
         return o.targetMatchType;
       });
       expect(new Set(targetTypes).size).toBe(targetTypes.length);
@@ -538,7 +540,9 @@ describe('buildGeneratedLevelConfig', () => {
     expect(config.pieceTypeIds).toEqual(['tomato', 'lemon', 'herb', 'garlic', 'chili']);
     expect(config.pieceTypeIds.length).toBeGreaterThan(config.objectives.length);
     for (const objective of config.objectives) {
-      if (objective.type === 'score') throw new Error('generated objective should never be score-type');
+      if (objective.type === 'score' || objective.type === 'clearance') {
+        throw new Error(`generated objective should never be ${objective.type}-type`);
+      }
       expect(config.pieceTypeIds).toContain(objective.targetMatchType);
     }
   });
@@ -659,7 +663,14 @@ describe('buildGeneratedLevelConfig', () => {
     const unscaledMoves = generatedMovesLimit(8);
     const unscaledTarget = generatedTargetCount(8);
     expect(shaped.movesLimit).toBeLessThan(unscaledMoves);
-    const totalTarget = shaped.objectives.reduce((sum, o) => sum + o.targetCount, 0);
+    // buildGeneratedLevelConfig never produces a 'clearance' objective today
+    // (see DEFERRED_COMPLEXITY.md), which has no hand-authored targetCount —
+    // this guard documents that invariant rather than assuming targetCount
+    // exists on every union member.
+    const totalTarget = shaped.objectives.reduce(
+      (sum, o) => sum + (o.type === 'clearance' ? 0 : o.targetCount),
+      0
+    );
     expect(totalTarget).toBeLessThan(unscaledTarget);
 
     // And it matches the scaled functions directly — buildGeneratedLevelConfig
