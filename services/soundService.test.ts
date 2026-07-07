@@ -1,11 +1,19 @@
-import { selectSoundService } from './soundService';
+import { selectSoundService, SoundService } from './soundService';
 import { silentSoundService } from './silentSoundService';
 
+// Deliberately never imports expoAudioSoundService.ts here (it imports the
+// real expo-audio native module, which fails to parse under this repo's
+// plain ts-jest config) — selectSoundService takes its real service as a
+// plain param specifically so this factory logic is testable with a fake.
+// See soundService.ts and services/defaultSoundService.ts.
+function fakeService(): SoundService {
+  return { play: () => {} };
+}
+
 describe('selectSoundService', () => {
-  test('resolves to the silent stub on every platform today', () => {
-    expect(selectSoundService('ios')).toBe(silentSoundService);
-    expect(selectSoundService('android')).toBe(silentSoundService);
-    expect(selectSoundService('web')).toBe(silentSoundService);
+  test('always resolves to the injected real service', () => {
+    const realService = fakeService();
+    expect(selectSoundService(realService)).toBe(realService);
   });
 });
 

@@ -2577,6 +2577,93 @@ first pass" (`i === 0`) and "was this the final pass, and did it win"
 (`isFinalPass && finalState.status === 'won'`) from data `applyMove` already
 returns needed nothing new in `engine/gameState.ts` at all.
 
+## Real audio backend: expo-audio over expo-av, and procedurally synthesized sound files
+
+The stub layer above was deliberately silent — no real playback backend, no
+sound assets, `silentSoundService` as the one correct concrete `SoundService`.
+This session replaced that with real playback, closing `DEFERRED_COMPLEXITY.md`
+item (a).
+
+**`expo-audio`, not `expo-av`.** Investigated first, since both exist:
+`expo-av`'s audio/video APIs were deprecated in SDK 53 and are removed
+entirely in SDK 55 (confirmed via Expo's own changelog/docs) — this project
+is on SDK 54, the last version where `expo-av` even still works, so building
+the real backend on a dying API would mean redoing this within one SDK bump.
+`expo-audio`'s pinned version for SDK 54 is `~1.1.1`
+(`node_modules/expo/bundledNativeModules.json`), installed manually via
+`npm install expo-audio@~1.1.1` — this environment's npm config rejects
+`expo install`'s internal flag for project-scoped installs, the same
+constraint `DEFERRED_COMPLEXITY.md` item (c) already documents for
+`expo-haptics`. Its `createAudioPlayer()` imperative API is a clean fit for
+the existing fire-and-forget `SoundService` interface — no React hook, no
+component lifecycle needed, matching how `expoHapticsService.ts` already
+calls `Haptics.impactAsync` imperatively.
+
+**No audio generation tool or licensed sound-asset access exists in this
+build environment** — confirmed directly (no `ffmpeg`/`sox`, no `numpy`, no
+MCP audio tool, no configured API credentials for a service like Freesound,
+whose download API requires OAuth this environment doesn't have). Scraping
+arbitrary audio off the open web would carry real, unverifiable licensing
+risk. Presented as a genuine fork to the architect rather than assumed:
+synthesize procedurally (chosen), wire the backend now and defer real files,
+or wait for architect-supplied files. `scripts/generate-sound-assets.js` is a
+small, dependency-free Node script that writes real, valid 16-bit PCM WAV
+files directly (`match.wav`, `cascade.wav`, `win.wav`) — plain sine tones plus
+a quiet upper harmonic, a fast linear attack and exponential decay envelope,
+kept deliberately quiet (peak amplitude 0.2–0.3) so `match`/`cascade` recede
+during a fast chain rather than compounding into noise, matching CLAUDE.md's
+calm-not-frantic brief. This is real playable audio the project owns
+outright, not a placeholder — but it is a synthesized tone, not a
+sound-designer asset, and no human has listened to it yet (see
+`docs/verification/real-audio-backend/`'s disclosed gaps).
+
+**`services/expoAudioSoundService.ts` keeps one player per effect alive for
+the app's lifetime** rather than create-and-discard per `play()` call —
+`expo-audio`'s docs warn that a `createAudioPlayer()` result needs a manual
+`release()`/`remove()` to avoid leaking, but a fixed pool of at most three
+long-lived players (one per `SoundEffectId`) never needs that: nothing is
+ever discarded. Because `expo-audio` (unlike `expo-av`) leaves a finished
+player paused at its final position instead of resetting it, every `play()`
+call does `player.seekTo(0).then(() => player.play()).catch(() => {})` —
+chained off the promise rather than awaited, so the call site stays
+fire-and-forget, and a `.catch` (not a `.then` rejection handler) so it also
+covers `player.play()` itself throwing synchronously inside the `.then`.
+Like `expoHapticsService.ts`, this file is never imported by a test —
+`expo-audio`'s import fails to parse under this repo's plain ts-jest config
+the same way `expo-haptics`'s and `react-native`'s do.
+
+**`selectSoundService`'s platform branch is gone, not preserved as dead
+code.** The stub-layer entry above noted `soundService.ts` never needed
+haptics' native/web split because both platforms resolved to the same silent
+stub. Now that a real adapter exists, the same conclusion holds for a
+different reason: `expo-audio` genuinely plays correctly on every platform
+Expo targets (Android, iOS, tvOS, and web — confirmed, not assumed), so
+there's no platform-conditional behavior to encode. Keeping an unused
+`platformOS` parameter "for a future split that might never come" would be
+exactly the dead-parameter complexity CLAUDE.md's baseline instructions warn
+against; `selectSoundService(realService: SoundService)` now just returns
+what's injected, with the injection itself (not a platform read) still doing
+the real job of keeping `expo-audio`'s import out of anything a test reaches
+— `services/defaultSoundService.ts` is the one file that imports
+`expoAudioSoundService` and constructs the real singleton, mirroring
+`defaultHapticsService.ts` exactly except for the now-absent `Platform.OS`
+read.
+
+**Verification is honest about what a sandboxed environment can and can't
+confirm about audio.** Live-driven over CDP against the real running
+Expo-web app (per the standing WSL2 screenshot note): a real drag-swap match
+with Sound on produced a real `HTMLAudioElement` construct + `.play()` call
+against the real served `match.wav` asset (confirmed by monkey-patching the
+actual browser primitive `expo-audio`'s web backend uses, not an app-level
+log); the identical swap on the identical deterministic board with Sound off
+produced zero audio calls. What this does *not* confirm, disclosed rather
+than glossed over: `cascade`/`win` were not independently live-triggered
+(same code path, untested in the live pass); no native device/simulator was
+available to confirm the real native `AudioPlayer` backend or actual
+audible fidelity; and no human has listened to the tones to confirm they
+read as calm/pleasant rather than merely functioning. See
+`docs/verification/real-audio-backend/README.md`.
+
 **Cascade passes get sound but no haptic.** A haptic pulse on every fast
 pass of a long chain would read as a buzzy alarm — directly against
 CLAUDE.md's calm-not-frantic constraint. The haptic fires once, on the
