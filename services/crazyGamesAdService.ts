@@ -25,8 +25,10 @@ export function createCrazyGamesAdService(monetizationEnabled: boolean): AdServi
         // directly rather than gating it behind a call that can only fail.
         return true;
       }
-      // Real ad request path once Full Launch lands — still a stub, no SDK
-      // wired in yet (matches adMobAdService's own stub exactly).
+      // Real ad request path once Full Launch lands — still a stub; the
+      // real CrazyGames SDK isn't wired in yet (see item 8's own scope —
+      // distinct from the mobile side, which now IS real: see
+      // services/expoGoogleMobileAdsService.ts).
       return true;
     },
     async requestBannerAd(): Promise<boolean> {

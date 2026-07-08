@@ -1,13 +1,10 @@
-import { adMobAdService } from './adMobAdService';
-import { crazyGamesAdService } from './crazyGamesAdService';
-
 // The one interface the rest of the game calls, never knowing or caring
 // which real ad provider (or stub) answers it. Both methods resolve a plain
 // boolean — "did the player actually earn/see this" — so a caller's own
 // grant logic (engine/gameState.ts's grantBonusMoves, appPersistence.ts's
 // grantInstantLife) stays exactly as simple as it is today; this interface
-// doesn't presume anything about reward amount or ad-unit ids, since no real
-// SDK is wired in yet to say what shape that data should take.
+// doesn't presume anything about reward amount or ad-unit ids, keeping the
+// real per-provider ad-unit configuration inside each adapter, not here.
 export interface AdService {
   // true = the player watched to completion and earned the reward; false =
   // dismissed early / failed to load. Every current caller only ever grants
@@ -22,17 +19,21 @@ export interface AdService {
   // this phase (see crazyGamesAdService.ts's CrazyGames Basic Launch gap)?
   // A plain getter, not async, since callers need it to choose button copy
   // before the player taps anything — awaiting a promise just to render a
-  // label would mean a loading flicker for no reason. adMobAdService is
-  // always true (mobile ads work from day one); crazyGamesAdService reflects
-  // its own build-time monetization flag.
+  // label would mean a loading flicker for no reason. The real mobile
+  // adapter is always true (mobile ads work from day one); crazyGamesAdService
+  // reflects its own build-time monetization flag.
   isRewardedAdAvailable(): boolean;
 }
 
-// Picks the real implementation for a given platform. Takes the platform as
-// a plain string rather than reading react-native's Platform.OS itself, so
-// this whole file (and everything it imports) stays safely importable from
-// a test — see services/defaultAdService.ts for why the real Platform.OS
-// read is deliberately kept out of here.
-export function selectAdService(platformOS: string): AdService {
-  return platformOS === 'web' ? crazyGamesAdService : adMobAdService;
+// Picks between two already-constructed services for a given platform.
+// Takes them as plain params rather than importing the real adapters
+// directly (services/defaultAdService.ts's job) — the real mobile adapter
+// (services/expoGoogleMobileAdsService.ts) transitively imports
+// 'react-native' via react-native-google-mobile-ads, which fails to parse
+// under this repo's plain ts-jest config, the same limitation
+// services/hapticsService.ts's selectHapticsService already documents for
+// expo-haptics. Keeping the real import out of this file (and out of any
+// test) means this factory function stays safely testable with fakes.
+export function selectAdService(platformOS: string, mobileService: AdService, webService: AdService): AdService {
+  return platformOS === 'web' ? webService : mobileService;
 }
