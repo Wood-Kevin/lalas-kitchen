@@ -23,10 +23,12 @@ import {
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
+  generatedLayerCells,
   generatedPieceTypeCount,
   generatedScoreTarget,
   generatedShapeId,
   generatedTargetCount,
+  isClearanceObjectiveLevel,
   isScoreObjectiveLevel,
   grantInstantLife,
   livesAfterLoss,
@@ -543,6 +545,60 @@ describe('generatedScoreTarget', () => {
   });
 });
 
+describe('isClearanceObjectiveLevel', () => {
+  test('no clearance objective below the threshold', () => {
+    expect(isClearanceObjectiveLevel(1)).toBe(false);
+    expect(isClearanceObjectiveLevel(4)).toBe(false);
+  });
+
+  test('on-cadence levels starting at the threshold (5, then every 4th)', () => {
+    expect(isClearanceObjectiveLevel(5)).toBe(true);
+    expect(isClearanceObjectiveLevel(9)).toBe(true);
+    expect(isClearanceObjectiveLevel(13)).toBe(true);
+  });
+
+  test('off-cadence levels get no clearance objective', () => {
+    for (const levelNumber of [6, 7, 8, 10, 11, 12]) {
+      expect(isClearanceObjectiveLevel(levelNumber)).toBe(false);
+    }
+  });
+});
+
+describe('generatedLayerCells', () => {
+  test('picks a density matching the hand-built "Dusty Counter" ratio (6 of 40 cells, on the same 8x5 board size)', () => {
+    const cells = generatedLayerCells(5, 8, 5);
+    expect(cells).toHaveLength(6);
+  });
+
+  test('a third of the chosen cells get 2 layers, the rest get 1 — matching Dusty Counter\'s own split', () => {
+    const cells = generatedLayerCells(5, 8, 5);
+    expect(cells.filter((c) => c.layers === 2)).toHaveLength(2);
+    expect(cells.filter((c) => c.layers === 1)).toHaveLength(4);
+  });
+
+  test('never places a layer on a void cell', () => {
+    const voidCells = [
+      { row: 0, col: 0 },
+      { row: 0, col: 1 },
+      { row: 1, col: 0 },
+      { row: 1, col: 1 },
+    ];
+    const cells = generatedLayerCells(5, 8, 5, voidCells);
+    const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
+    for (const cell of cells) {
+      expect(voidKeys.has(`${cell.position.row},${cell.position.col}`)).toBe(false);
+    }
+  });
+
+  test('is deterministic — the same inputs always yield the same cells', () => {
+    expect(generatedLayerCells(7, 8, 5)).toEqual(generatedLayerCells(7, 8, 5));
+  });
+
+  test('different levelNumbers yield different cell selections (offset shifts, not identical every time)', () => {
+    expect(generatedLayerCells(5, 8, 5)).not.toEqual(generatedLayerCells(9, 8, 5));
+  });
+});
+
 describe('generatedShapeId', () => {
   // SHAPE_ROTATION_OFFSET (1) shifts the rotation's starting point by one
   // step, so the very first shaped level lands on BOARD_SHAPE_ROTATION[1]
@@ -641,17 +697,15 @@ describe('buildGeneratedLevelConfig', () => {
   test('never targets the same piece type twice on a level with two objectives', () => {
     // Scans well past the two-objective threshold — every level in range
     // must have distinct targetMatchTypes across its own objectives array,
-    // regardless of how the piece-type pool has shrunk by that point. A
-    // 'score' objective only ever appears alone (objectiveCount === 1 —
-    // see isScoreObjectiveLevel's own comment), so it can never be the
-    // duplicate-target case this test actually guards; skip it rather than
-    // asserting on its (deliberately absent) targetMatchType. 'clearance'
-    // is not produced by the generator at all yet (see
-    // DEFERRED_COMPLEXITY.md) and would still throw here if that ever
-    // changed silently.
+    // regardless of how the piece-type pool has shrunk by that point. Both
+    // 'score' and 'clearance' objectives only ever appear alone
+    // (objectiveCount === 1 — see isScoreObjectiveLevel/
+    // isClearanceObjectiveLevel's own comments), so neither can ever be the
+    // duplicate-target case this test actually guards; skip them rather
+    // than asserting on their (deliberately absent) targetMatchType.
     for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-      if (config.objectives.length === 1 && config.objectives[0].type === 'score') continue;
+      if (config.objectives.length === 1 && (config.objectives[0].type === 'score' || config.objectives[0].type === 'clearance')) continue;
       const targetTypes = config.objectives.map((o) => {
         // Only reachable for a level NOT skipped above — i.e. objectiveCount
         // 2 or a single 'collect' entry — so a 'score'/'clearance' entry
@@ -706,6 +760,50 @@ describe('buildGeneratedLevelConfig', () => {
     expect(scoreLevel.objectives[0].type).toBe('score');
     expect(scoreLevel.blockerCount).toBeGreaterThan(0);
     expect(scoreLevel.blockerMatchType).toBe('cling');
+  });
+
+  test('places a real clearance objective with real layerCells on an on-cadence, single-objective level', () => {
+    // levelIndex 8, handBuiltLevelCount 3 -> levelNumber 5: on-cadence for
+    // clearance (isClearanceObjectiveLevel(5) === true) but NOT for score
+    // ((5-3)%3 !== 0), and still single-objective.
+    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    expect(config.objectives).toEqual([{ type: 'clearance' }]);
+    expect(config.layerCells).toBeDefined();
+    expect(config.layerCells!.length).toBeGreaterThan(0);
+  });
+
+  test('a clearance-objective level gets NO blockers even when the blocker rotation would otherwise place them', () => {
+    // Same levelNumber 5 as above; generatedBlockerCount(5) would normally
+    // be 2 with a real eligible blocker in the pool — confirms the
+    // clearance-level override actually suppresses it, not just that a
+    // blocker-less pool was passed.
+    const blockers = [{ id: 'cling', hitsToClear: 1 }];
+    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
+    expect(config.objectives).toEqual([{ type: 'clearance' }]);
+    expect(config.blockerCount).toBeUndefined();
+    expect(config.blockerMatchType).toBeUndefined();
+  });
+
+  test('a clearance-objective level still gets its board shape, and layerCells avoid every void cell', () => {
+    // levelNumber 5 is also shaped (generatedShapeId(5) is on-cadence too) —
+    // confirms layerCells and voidCells never collide on the real generated
+    // voidCells, not just the synthetic ones generatedLayerCells' own unit
+    // tests use.
+    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    expect(config.voidCells).toBeDefined();
+    expect(config.voidCells!.length).toBeGreaterThan(0);
+    const voidKeys = new Set(config.voidCells!.map((p) => `${p.row},${p.col}`));
+    for (const cell of config.layerCells!) {
+      expect(voidKeys.has(`${cell.position.row},${cell.position.col}`)).toBe(false);
+    }
+  });
+
+  test('an off-cadence level stays plain collect, unaffected by the clearance gate', () => {
+    // levelNumber 6 (levelIndex 9) — one past clearance's threshold (5), off
+    // its cadence (4).
+    const config = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    expect(config.objectives[0].type).not.toBe('clearance');
+    expect(config.layerCells).toBeUndefined();
   });
 
   // Regression guard for a reported symptom (boards only ever spawning 3 of

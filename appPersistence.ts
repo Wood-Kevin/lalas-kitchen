@@ -1,6 +1,6 @@
 import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId, playableCellRatio } from './engine/boardShapes';
 import { Board, CrashRecord, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
-import { Piece } from './engine/matrix';
+import { Piece, Position } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
 
@@ -944,6 +944,80 @@ export function generatedShapeId(levelNumber: number): BoardShapeId | undefined 
   return BOARD_SHAPE_ROTATION[shapeIndex];
 }
 
+// Teaching the generator to occasionally place a 'clearance' objective
+// (hidden per-cell layers — see engine/DECISIONS.md's clearance-layers
+// entry), the other still-open "generator never produces this objective
+// type" gap logged in DEFERRED_COMPLEXITY.md alongside score objectives
+// above. Same gate+cadence shape as isScoreObjectiveLevel/generatedShapeId.
+// A later threshold (5) than score's (3) and a wider cadence (4, vs. score's
+// 3) — clearance is a structurally bigger ask than score (it changes what
+// the BOARD looks like, hidden layers under specific tiles, not just a HUD
+// number), so it stays rarer.
+const CLEARANCE_MIN_LEVEL_NUMBER = 5;
+const CLEARANCE_CADENCE = 4;
+
+// Only ever consulted by buildGeneratedLevelConfig when `!useScoreObjective
+// && objectiveCount === 1` — a 'clearance' objective never mixes with
+// 'score' or a second 'collect' target, the exact same "objective types
+// never combine" rule isScoreObjectiveLevel's own call site establishes.
+export function isClearanceObjectiveLevel(levelNumber: number): boolean {
+  if (levelNumber < CLEARANCE_MIN_LEVEL_NUMBER) return false;
+  return (levelNumber - CLEARANCE_MIN_LEVEL_NUMBER) % CLEARANCE_CADENCE === 0;
+}
+
+// Which cells get a hidden layer, on a clearance-gated generated level.
+// Calibrated against the one hand-built precedent, "Dusty Counter" (App.tsx's
+// LEVEL_QUEUE, level 6): 6 layered cells on a 40-cell (8x5) board (15%), a
+// third of them (2 of 6) at 2 layers, the rest at 1 — CLEARANCE_CELL_RATIO/
+// CLEARANCE_DOUBLE_LAYER_FRACTION reproduce that same density on whatever
+// board size/shape is actually passed in, rather than a hardcoded count.
+//
+// voidCells are excluded from candidacy (a layered cell never coexists with
+// a void — see the clearance-layers entry's own confirmed scope line) —
+// straightforward here since a shaped level's voidCells are already fully
+// known before this runs (engine/boardShapes.ts's templates are pure
+// functions of rows/cols, unlike blocker positions below). Blockers are a
+// harder case: generateLevel places them via its own seeded RNG, genuinely
+// unknown to this function ahead of time, so buildGeneratedLevelConfig
+// sidesteps the ordering problem entirely by forcing blockerCount to 0 on
+// any level this selects for — the same no-blockers shape "Dusty Counter"
+// itself already uses, not a new restriction invented for the generator.
+//
+// Position selection is a deterministic stride over the playable cells
+// (row-major order), offset by levelNumber so consecutive clearance levels
+// don't always light up the identical cells — still fully deterministic
+// per level (same levelNumber/rows/cols/voidCells always yields the same
+// result), matching every other generated-level lever's own guarantee.
+const CLEARANCE_CELL_RATIO = 6 / 40;
+const CLEARANCE_DOUBLE_LAYER_FRACTION = 2 / 6;
+export function generatedLayerCells(
+  levelNumber: number,
+  rows: number,
+  cols: number,
+  voidCells: Position[] = []
+): Array<{ position: Position; layers: number }> {
+  const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
+  const playable: Position[] = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      if (!voidKeys.has(`${row},${col}`)) playable.push({ row, col });
+    }
+  }
+  if (playable.length === 0) return [];
+
+  const targetCount = Math.max(1, Math.round(playable.length * CLEARANCE_CELL_RATIO));
+  const stride = Math.max(1, Math.floor(playable.length / targetCount));
+  const offset = levelNumber % stride;
+
+  const chosen: Position[] = [];
+  for (let i = offset; i < playable.length && chosen.length < targetCount; i += stride) {
+    chosen.push(playable[i]);
+  }
+
+  const doubleLayerCount = Math.round(chosen.length * CLEARANCE_DOUBLE_LAYER_FRACTION);
+  return chosen.map((position, i) => ({ position, layers: i < doubleLayerCount ? 2 : 1 }));
+}
+
 // Builds a full generator-driven LevelConfig (minus `lives`, same as
 // LEVEL_QUEUE's own entries — App.tsx's buildLevelConfig adds that back)
 // for any levelIndex past the hand-built queue. Board dimensions (rows/cols)
@@ -1028,19 +1102,35 @@ export function buildGeneratedLevelConfig(
   // solved multi-objective question this wasn't asked to touch. See
   // isScoreObjectiveLevel's own comment for why the gate is levelNumber-only.
   const useScoreObjective = objectiveCount === 1 && isScoreObjectiveLevel(levelNumber);
+  // A 'clearance' objective follows the exact same "only ever alone" rule as
+  // 'score' above — !useScoreObjective keeps the two from ever both firing
+  // on the same on-cadence level (their thresholds/cadences differ, 3/3 vs.
+  // 5/4, so they COULD otherwise coincide; 'score' wins deterministically
+  // when they do, simply by being checked first).
+  const useClearanceObjective =
+    !useScoreObjective && objectiveCount === 1 && isClearanceObjectiveLevel(levelNumber);
   const objectives = useScoreObjective
     ? [{ type: 'score' as const, targetCount: generatedScoreTarget(levelNumber, playableRatio, breather) }]
-    : Array.from({ length: objectiveCount }, (_, i) => ({
-        targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
-        targetCount: perObjectiveTarget,
-      }));
+    : useClearanceObjective
+      ? [{ type: 'clearance' as const }]
+      : Array.from({ length: objectiveCount }, (_, i) => ({
+          targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
+          targetCount: perObjectiveTarget,
+        }));
+  const layerCells = useClearanceObjective ? generatedLayerCells(levelNumber, rows, cols, voidCells) : undefined;
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
   const chosenBlocker =
     eligibleIds.length > 0
       ? blockers.find((b) => b.id === eligibleIds[(levelNumber - 1) % eligibleIds.length])
       : undefined;
-  const blockerCount = chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
+  // Forced to 0 on a clearance level, regardless of what the blocker rotation
+  // above would otherwise choose — see generatedLayerCells' own comment on
+  // why (blocker positions are chosen by generateLevel's own seeded RNG,
+  // genuinely unknown here, so a layered cell can't be guaranteed to avoid
+  // one; sidestepped by simply not placing blockers on these levels at all,
+  // the same no-blockers shape the hand-built "Dusty Counter" already uses).
+  const blockerCount = useClearanceObjective ? 0 : chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
 
   // The spread mechanic only means anything with blockers to spread FROM, so
   // it's enabled solely on a gated level that actually placed a zone — never on
@@ -1060,5 +1150,6 @@ export function buildGeneratedLevelConfig(
       : {}),
     ...(denialSpread ? { denialSpread: true } : {}),
     ...(voidCells ? { voidCells } : {}),
+    ...(layerCells && layerCells.length > 0 ? { layerCells } : {}),
   };
 }
