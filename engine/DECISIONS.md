@@ -3051,8 +3051,9 @@ showBlockerTutorial, specialTutorial]` (deliberately broader than the
 existing `onStateChange`/special-tutorial effects above, which only care
 about committed moves — this one needs the *full* `canAcceptMove` gate, or
 the hint would never re-arm after e.g. a tutorial dismisses with no move
-made yet), re-arms a fresh 8-second window once the board is genuinely idle
-and interactive again.
+made yet), re-arms a fresh 18-second window once the board is genuinely idle
+and interactive again (raised from an original 8-second window — see the
+retune note at the end of this entry).
 
 **`resetIdleHintTimer` (`components/stuckHintTiming.ts`) takes schedule/
 cancel as injected parameters**, the same pattern `gameState.ts`'s injected
@@ -3097,6 +3098,23 @@ running app: waited genuine idle wall-clock time past the 8-second
 threshold with zero input, confirmed the hint appears on a real legal pair
 with a slow, gentle breathing glow (no dim, no crack, no flash) — see
 `docs/verification/stuck-player-hint/`.
+
+**Retune: 8s raised to 18s.** The original 8-second threshold was flagged as
+fighting this entry's own calm-not-frantic reasoning: it was tuned for
+"long enough that it never fires on someone still reading the board,"
+but 8 seconds is well within normal deliberation time for a player who
+plays specifically to stay occupied rather than to solve quickly, so it
+could plausibly still interrupt genuine thinking. `HINT_IDLE_MS`
+(`components/Board.tsx`) is the single source of this value — confirmed by
+direct investigation that nothing else in the codebase (the glow's own
+`HINT_GLOW_PULSE_MS`, other Board timers, any test assertion) depends on
+the literal number — so raising it required a one-line change plus this
+documentation update, no other wiring. Chose 18000ms, the midpoint of a
+requested 15–20s range: high enough to clear genuine thinking time, not so
+high that a player who's actually stuck waits the better part of half a
+minute for a nudge. Verified live against the real running app that the
+hint now waits the new duration before appearing — see the retune capture
+in `docs/verification/stuck-player-hint/`.
 
 # Level map: a winding path replacing the All Levels list, plus persisted best-ever star ratings
 

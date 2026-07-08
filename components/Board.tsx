@@ -161,11 +161,15 @@ const BOARD_HORIZONTAL_PADDING = 12;
 const DRAG_SWAP_THRESHOLD_FRACTION = 0.4;
 
 // How long a player must be genuinely idle before the calm stuck-player hint
-// appears — "roughly eight seconds," long enough that it never fires on
-// someone still reading the board or mid-decision, only on someone who's
-// truly stopped interacting. See the hintPair/hintTimerRef declarations above
-// for the full feature rationale.
-const HINT_IDLE_MS = 8000;
+// appears — 18 seconds, long enough that it never fires on someone still
+// reading the board or mid-decision (this player plays to stay occupied, not
+// to solve quickly, so normal thinking time can easily run past what a
+// speed-focused player would need) yet short enough that someone genuinely
+// stuck isn't left scanning the board for the better part of half a minute.
+// Raised from an original 8000ms after real feedback that 8s read as fighting
+// the calm-not-frantic principle. See the hintPair/hintTimerRef declarations
+// above for the full feature rationale.
+const HINT_IDLE_MS = 18000;
 
 function isAdjacent(a: Position, b: Position): boolean {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;

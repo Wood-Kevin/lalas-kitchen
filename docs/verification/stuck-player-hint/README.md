@@ -1,11 +1,19 @@
 # Calm stuck-player hint — verification
 
 `before-idle.png` / `hint-appears.png` verify the calm "stuck player" hint (see
-CLAUDE.md's calm-not-frantic constraint): after `HINT_IDLE_MS` (8000ms,
-`components/Board.tsx`) of genuine player inactivity on an in-progress level,
-the app gently highlights one real legal move — two adjacent tiles that
-actually form a match if swapped — with a slow breathing glow, and nothing
-else. No dimming wash, no crack, no flashing arrow.
+CLAUDE.md's calm-not-frantic constraint): after `HINT_IDLE_MS` (originally
+8000ms, `components/Board.tsx`) of genuine player inactivity on an
+in-progress level, the app gently highlights one real legal move — two
+adjacent tiles that actually form a match if swapped — with a slow breathing
+glow, and nothing else. No dimming wash, no crack, no flashing arrow.
+
+**Retune notice:** `HINT_IDLE_MS` was later raised from 8000ms to 18000ms
+(see `engine/DECISIONS.md`'s stuck-player-hint entry, retune addendum) —
+8 seconds read as fighting the calm-not-frantic principle for a player whose
+normal thinking pace can easily exceed it. The capture below, including its
+specific timings (3507ms, 8458ms), reflects the **original 8000ms constant**
+and is kept as-is for historical record. See `retune-8s-to-18s.md` in this
+same folder for the fresh capture against the current 18000ms value.
 
 ## How this was captured
 
