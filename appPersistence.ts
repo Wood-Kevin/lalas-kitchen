@@ -673,17 +673,25 @@ export function eligibleBlockerIds(levelNumber: number, blockerIds: string[]): s
 
 // Generator-driven board shapes: same gate shape as BLOCKER_MIN_LEVEL_NUMBER/
 // DENIAL_SPREAD_MIN_LEVEL_NUMBER above, a levelNumber threshold plus a
-// cadence, rather than a new gating mechanism. A shaped board reads as pure
-// visual variety rather than a punishing mechanic, but reduced playable area
-// still means fewer places for a match to land, so it stays out until a
-// player has met the full blocker roster (pot_lid, level 7) on ordinary
-// rectangles first. Once eligible, a shape appears only 1 in
-// SHAPE_CADENCE generated levels — "occasional", not the new normal — so it
-// keeps reading as a surprise rather than every board suddenly losing
-// corners. Below the threshold, or on an off-cadence level, a generated
-// level is a plain rectangle exactly as before this feature existed.
-const SHAPE_MIN_LEVEL_NUMBER = 8;
-const SHAPE_CADENCE = 4;
+// cadence, rather than a new gating mechanism.
+//
+// This was originally gated behind the full blocker roster (pot_lid, level
+// 7) on the reasoning that reduced playable area meant fewer places for a
+// match to land — a real difficulty concern at the time. That concern is now
+// resolved: generatedMovesLimit/generatedTargetCount both scale against the
+// shape's own playableCellRatio (see boardShapes.ts), so a shaped board is no
+// longer harder than a rectangle at the same levelNumber, just smaller. With
+// the difficulty reason gone, the real goal driving this gate is now purely
+// "the game should read as visually distinctive within the first few minutes
+// of play," not "protect an advanced player from an edge case" — so this is
+// deliberately as aggressive as that goal calls for: eligible from the very
+// first generated level (SHAPE_MIN_LEVEL_NUMBER = 1), and appearing on fully
+// half of all generated levels (SHAPE_CADENCE = 2) rather than the original
+// 1-in-4 "rare surprise" rate. Below the threshold (now never, since generated
+// levels start at 1), or on an off-cadence level, a generated level is still
+// a plain rectangle exactly as before this feature existed.
+const SHAPE_MIN_LEVEL_NUMBER = 1;
+const SHAPE_CADENCE = 2;
 
 // Which curated template (see engine/boardShapes.ts), if any, a generated
 // level at this levelNumber should use. undefined means "plain rectangle".

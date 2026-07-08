@@ -11,4 +11,10 @@ export const silentSoundService: SoundService = {
   play(): void {
     // Intentional no-op.
   },
+  playMusic(): void {
+    // Intentional no-op.
+  },
+  stopMusic(): void {
+    // Intentional no-op.
+  },
 };

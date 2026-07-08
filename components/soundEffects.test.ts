@@ -13,7 +13,7 @@ function fakeOptions(overrides: Partial<SoundEffectsOptions> = {}): {
     options: {
       soundEnabled: true,
       hapticsEnabled: true,
-      soundService: { play: (effect) => played.push(effect) },
+      soundService: { play: (effect) => played.push(effect), playMusic: () => {}, stopMusic: () => {} },
       hapticsService: { fire: (effect) => fired.push(effect) },
       ...overrides,
     },

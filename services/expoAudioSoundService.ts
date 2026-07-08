@@ -1,6 +1,6 @@
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
-import type { SoundService, SoundEffectId } from './soundService';
-import { soundRegistry } from '../skins/lalas-kitchen/soundRegistry';
+import type { SoundService, SoundEffectId, MusicId } from './soundService';
+import { soundRegistry, musicRegistry } from '../skins/lalas-kitchen/soundRegistry';
 
 // The real device-audio adapter. Never imported by a test — expo-audio's
 // raw import fails to parse under this repo's plain ts-jest config the same
@@ -33,6 +33,30 @@ function playerFor(effect: SoundEffectId): AudioPlayer | undefined {
   }
 }
 
+// A second, separate pool for looping music, mirroring `players` above —
+// kept apart rather than sharing one map since a SoundEffectId and a
+// MusicId are different closed unions with different players.length (one
+// vs. three) and different playback shape (fire-once vs. looped).
+const musicPlayers: Partial<Record<MusicId, AudioPlayer>> = {};
+
+function musicPlayerFor(id: MusicId): AudioPlayer | undefined {
+  const existing = musicPlayers[id];
+  if (existing) return existing;
+
+  const source = musicRegistry[id];
+  if (!source) return undefined;
+
+  try {
+    const player = createAudioPlayer(source);
+    player.loop = true;
+    musicPlayers[id] = player;
+    return player;
+  } catch {
+    // Matches playerFor's own never-throws contract.
+    return undefined;
+  }
+}
+
 export const expoAudioSoundService: SoundService = {
   play(effect: SoundEffectId): void {
     const player = playerFor(effect);
@@ -53,5 +77,25 @@ export const expoAudioSoundService: SoundService = {
         // .catch (not a .then rejection handler) so this also covers
         // player.play() itself throwing synchronously inside the .then.
       });
+  },
+
+  playMusic(id: MusicId): void {
+    const player = musicPlayerFor(id);
+    // No seekTo(0) here — stopMusic already rewinds on its way out, so a
+    // fresh player (position 0) or a just-stopped one (rewound) is always
+    // ready to play from the top without an extra async hop.
+    player?.play();
+  },
+
+  stopMusic(id: MusicId): void {
+    const player = musicPlayers[id];
+    if (!player) return;
+
+    player.pause();
+    player.seekTo(0).catch(() => {
+      // Swallow — a failed rewind must never interrupt gameplay, matching
+      // play()'s own never-throws contract. Worst case, the next
+      // playMusic() resumes mid-loop instead of from the top.
+    });
   },
 };

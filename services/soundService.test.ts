@@ -7,7 +7,7 @@ import { silentSoundService } from './silentSoundService';
 // plain param specifically so this factory logic is testable with a fake.
 // See soundService.ts and services/defaultSoundService.ts.
 function fakeService(): SoundService {
-  return { play: () => {} };
+  return { play: () => {}, playMusic: () => {}, stopMusic: () => {} };
 }
 
 describe('selectSoundService', () => {
@@ -22,5 +22,10 @@ describe('silentSoundService', () => {
     expect(() => silentSoundService.play('match')).not.toThrow();
     expect(() => silentSoundService.play('cascade')).not.toThrow();
     expect(() => silentSoundService.play('win')).not.toThrow();
+  });
+
+  test('playMusic()/stopMusic() never throw', () => {
+    expect(() => silentSoundService.playMusic('background')).not.toThrow();
+    expect(() => silentSoundService.stopMusic('background')).not.toThrow();
   });
 });

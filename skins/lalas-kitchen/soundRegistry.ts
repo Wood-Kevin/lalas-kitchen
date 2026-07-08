@@ -1,5 +1,5 @@
 import type { AudioSource } from 'expo-audio';
-import type { SoundEffectId } from '../../services/soundService';
+import type { SoundEffectId, MusicId } from '../../services/soundService';
 
 // Static require() registry for this skin's sound effects, mirroring
 // spriteRegistry.ts's shape: Metro can only resolve a require() whose
@@ -14,4 +14,11 @@ export const soundRegistry: Partial<Record<SoundEffectId, AudioSource>> = {
   match: require('./sounds/match.wav'),
   cascade: require('./sounds/cascade.wav'),
   win: require('./sounds/win.wav'),
+};
+
+// Same shape, for the one looping ambient track (see
+// components/backgroundMusic.ts). A separate map from soundRegistry above
+// since MusicId and SoundEffectId are different closed unions.
+export const musicRegistry: Partial<Record<MusicId, AudioSource>> = {
+  background: require('./sounds/background.wav'),
 };

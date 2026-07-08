@@ -1,0 +1,22 @@
+[
+  {
+    "event": "construct",
+    "src": "background.wav"
+  },
+  {
+    "event": "play",
+    "src": "background.wav",
+    "loop": true,
+    "currentTime": 0
+  },
+  {
+    "event": "construct",
+    "src": "match.wav"
+  },
+  {
+    "event": "play",
+    "src": "match.wav",
+    "loop": false,
+    "currentTime": 0
+  }
+]

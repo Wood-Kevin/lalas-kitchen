@@ -5,36 +5,73 @@
 // scraping arbitrary audio off the open web would carry real, unverifiable
 // licensing risk, so these are synthesized directly as plain sine-wave
 // tones with a soft attack/decay envelope. That's a deliberate, zero-license-
-// risk choice, not a placeholder: the output is real, playable PCM audio,
-// mixed and kept deliberately quiet/soft per CLAUDE.md's calm-not-frantic
-// brief. Re-run with `node scripts/generate-sound-assets.js` to regenerate.
+// risk choice, not a placeholder: the output is real, playable PCM audio.
+//
+// REDESIGNED after a real on-device listen reported the first version read
+// as a bright, exciting slot machine — the opposite of CLAUDE.md's calm-not-
+// frantic brief. See engine/DECISIONS.md's sound-redesign entry for that
+// writeup (fundamentals dropped a fourth-to-an-octave, attack lengthened,
+// the bright overtone replaced with a warm sub-octave, win's ascending
+// arpeggio replaced with a slow two-note interval).
+//
+// REDESIGNED AGAIN (third pass) because the second pass, despite fixing
+// register/attack/overtone/shape, still used a SINGLE-rate exponential decay
+// and a hard linear attack ramp — technically correct but not the actual
+// envelope shape a real acoustic bell/chime/kalimba has. This pass changes
+// two things: (1) the decay is now a two-stage exponential (a fast initial
+// component blended with a slow tail component, not one constant rate), and
+// (2) the attack is now a raised-cosine ease rather than a straight linear
+// ramp. A quiet decaying echo tail is also added for a sense of space/warmth.
+// See engine/DECISIONS.md's third sound-redesign entry for the full writeup.
+// Re-run with `node scripts/generate-sound-assets.js` to regenerate.
 const fs = require('fs');
 const path = require('path');
 
 const SAMPLE_RATE = 44100;
 const OUTPUT_DIR = path.join(__dirname, '..', 'skins', 'lalas-kitchen', 'sounds');
 
-// A short exponential-decay envelope with a fast linear attack, applied on
-// top of a fundamental plus a quiet upper harmonic — reads as a soft bell/
-// marimba tone rather than a flat, sharp beep.
-function synthNote({ freq, duration, peak, attack = 0.006, harmonicAmp = 0.18 }) {
+// A soft, gradual RAISED-COSINE attack (eases in with zero slope at both
+// ends, unlike a linear ramp's constant-slope "wedge") into a TWO-STAGE
+// exponential decay: a fast component (short time constant) blended with a
+// slow component (long time constant), rather than one single decay rate.
+// This is the actual curve shape real struck/plucked acoustic instruments
+// (bells, chimes, kalimba) have — a quick initial falloff of the attack
+// transient, trailing into a much slower-decaying gentle tail — which a
+// single-rate exponential, despite also curving, doesn't reproduce: a
+// single rate decays the same *proportion* every instant, so it never has a
+// distinct "fast part" and "slow part" the way a real resonant body does.
+// Still layered on a fundamental plus a quiet SUB-octave (half frequency)
+// for warmth, with deliberately no overtone above the fundamental.
+function synthNote({
+  freq,
+  duration,
+  peak,
+  attack = 0.05,
+  subOctaveAmp = 0.14,
+  fastTauRatio = 0.12,
+  slowTauRatio = 0.55,
+  fastWeight = 0.55,
+}) {
   const numSamples = Math.round(duration * SAMPLE_RATE);
   const samples = new Float32Array(numSamples);
-  const decayRate = -Math.log(0.04) / duration;
+  const fastTau = duration * fastTauRatio;
+  const slowTau = duration * slowTauRatio;
+  const slowWeight = 1 - fastWeight;
   for (let i = 0; i < numSamples; i++) {
     const t = i / SAMPLE_RATE;
-    const attackEnv = t < attack ? t / attack : 1;
-    const decayEnv = Math.exp(-decayRate * t);
+    const attackEnv = t < attack ? 0.5 * (1 - Math.cos((Math.PI * t) / attack)) : 1;
+    const decayEnv = fastWeight * Math.exp(-t / fastTau) + slowWeight * Math.exp(-t / slowTau);
     const envelope = attackEnv * decayEnv;
     const fundamental = Math.sin(2 * Math.PI * freq * t);
-    const harmonic = harmonicAmp * Math.sin(2 * Math.PI * freq * 2 * t);
-    samples[i] = peak * envelope * (fundamental + harmonic);
+    const subOctave = subOctaveAmp * Math.sin(2 * Math.PI * (freq / 2) * t);
+    samples[i] = peak * envelope * (fundamental + subOctave);
   }
   return samples;
 }
 
 // Mixes several notes into one buffer, each starting at its own offset —
-// used for the win arpeggio's staggered ascending notes.
+// used for win's two-note interval, entered slowly one after the other
+// rather than a fast staggered run.
 function mixNotes(notes) {
   const totalLength = Math.max(...notes.map((n) => n.offsetSamples + n.samples.length));
   const mix = new Float32Array(totalLength);
@@ -50,6 +87,31 @@ function mixNotes(notes) {
     mix[i] = Math.max(-1, Math.min(1, mix[i]));
   }
   return mix;
+}
+
+// A simple algorithmic echo tail: several quiet, exponentially-decaying
+// delayed copies of the dry signal, summed in behind it. This is what
+// separates a flat synthesized tone from something that reads as recorded
+// in a real space — a bare decaying sine, however well-shaped its envelope,
+// still has zero sense of "room" around it. Deliberately a plain discrete
+// tap-delay (not a dense diffuse reverb algorithm) and kept quiet (12% mix,
+// each tap 35% quieter than the last) so it reads as ambience, not as a
+// distinct, audible repeat.
+function addEcho(dry, { delaySeconds = 0.06, decay = 0.35, taps = 3, mix = 0.12 } = {}) {
+  const delaySamples = Math.round(delaySeconds * SAMPLE_RATE);
+  const wet = new Float32Array(dry.length + delaySamples * taps);
+  wet.set(dry);
+  for (let k = 1; k <= taps; k++) {
+    const gain = mix * Math.pow(decay, k);
+    const offset = delaySamples * k;
+    for (let i = 0; i < dry.length; i++) {
+      wet[offset + i] += dry[i] * gain;
+    }
+  }
+  for (let i = 0; i < wet.length; i++) {
+    wet[i] = Math.max(-1, Math.min(1, wet[i]));
+  }
+  return wet;
 }
 
 function writeWav(filePath, floatSamples) {
@@ -83,31 +145,54 @@ function writeWav(filePath, floatSamples) {
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-// match: a single soft "ding" — the everyday cue, so kept gentle and short.
+// match: a single soft, warm tone — the everyday cue, so kept gentle and
+// unobtrusive. F4 (349.23Hz), a fourth lower than the old 880Hz A5, with a
+// gradual eased attack. A short, quiet echo tail (2 taps) adds a touch of
+// space without smearing into the next match.
 writeWav(
   path.join(OUTPUT_DIR, 'match.wav'),
-  synthNote({ freq: 880, duration: 0.35, peak: 0.3 })
+  addEcho(synthNote({ freq: 349.23, duration: 0.42, peak: 0.24, attack: 0.05 }), {
+    delaySeconds: 0.05,
+    decay: 0.32,
+    taps: 2,
+    mix: 0.1,
+  })
 );
 
 // cascade: quieter and shorter than match — this can fire several times in
-// a fast chain, so it must recede rather than compound into noise.
+// a fast chain, so it must recede rather than compound into noise. Lower
+// still (C4, 261.63Hz) and even quieter than before. Its echo tail is the
+// smallest of the three (1 tap, low mix) — a chain firing several of these
+// in quick succession must not accumulate into a smeared wash.
 writeWav(
   path.join(OUTPUT_DIR, 'cascade.wav'),
-  synthNote({ freq: 660, duration: 0.18, peak: 0.2 })
+  addEcho(synthNote({ freq: 261.63, duration: 0.22, peak: 0.15, attack: 0.03 }), {
+    delaySeconds: 0.045,
+    decay: 0.3,
+    taps: 1,
+    mix: 0.08,
+  })
 );
 
-// win: a calm ascending four-note arpeggio (C5-E5-G5-C6), staggered so each
-// note overlaps the tail of the last rather than interrupting it.
-const winNoteDuration = 0.3;
-const winStagger = 0.11;
-const winFreqs = [523.25, 659.25, 783.99, 1046.5];
+// win: the old version was a fast four-note ascending arpeggio (C5-E5-G5-C6)
+// staggered every 110ms — a rapid rising run, which real-device feedback
+// named as the single biggest slot-machine signature in the whole set. This
+// replaces it with a slow, gentle two-note interval: a sustained low root
+// (A3, 220Hz) that a warm fifth above (E4, 329.63Hz) enters into slowly and
+// long after, both with a soft attack and space to breathe and decay — a
+// resolved, contented chord, not a triumphant climb. It gets the most
+// generous echo tail of the three (3 taps, longest spacing) since it's a
+// one-off moment allowed to linger, unlike match/cascade which repeat often.
+const winRoot = synthNote({ freq: 220.0, duration: 1.1, peak: 0.24, attack: 0.07 });
+const winFifth = synthNote({ freq: 329.63, duration: 1.0, peak: 0.2, attack: 0.09 });
 writeWav(
   path.join(OUTPUT_DIR, 'win.wav'),
-  mixNotes(
-    winFreqs.map((freq, i) => ({
-      samples: synthNote({ freq, duration: winNoteDuration, peak: 0.26 }),
-      offsetSamples: Math.round(i * winStagger * SAMPLE_RATE),
-    }))
+  addEcho(
+    mixNotes([
+      { samples: winRoot, offsetSamples: 0 },
+      { samples: winFifth, offsetSamples: Math.round(0.45 * SAMPLE_RATE) },
+    ]),
+    { delaySeconds: 0.09, decay: 0.4, taps: 3, mix: 0.14 }
   )
 );
 

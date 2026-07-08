@@ -10,6 +10,7 @@ import { Home } from './components/Home';
 import { LevelMap, LevelMapRow } from './components/LevelMap';
 import { OutOfLives } from './components/OutOfLives';
 import { RecipeCard, SkinConfig } from './components/skinConfig';
+import { cutCornersVoids } from './engine/boardShapes';
 import { RecipeBook } from './components/RecipeBook';
 import {
   GameState,
@@ -86,6 +87,18 @@ const DUSTY_COUNTER_LAYERS: Array<{ position: Position; layers: number }> = [
   { position: { row: 6, col: 1 }, layers: 1 },
 ];
 
+// A second hand-built shaped level, on top of "Cutting Board" above — a
+// guaranteed, curated second shape exposure that doesn't depend on the
+// generator's own cadence, however aggressive (see appPersistence.ts's
+// SHAPE_MIN_LEVEL_NUMBER/SHAPE_CADENCE). Uses the generalized cutCornersVoids
+// template (engine/boardShapes.ts) directly at the standard 8x5 board size
+// every other hand-built level (besides Cutting Board's own 7x7 showcase)
+// already uses, rather than hand-authoring a duplicate void list — 70%
+// playable (28/40, see boardShapes.test.ts), comparable to Cutting Board's
+// own ratio, so it needs no special piece-type-count reduction the way
+// Cutting Board's narrower plus-arms did.
+const CORNER_SHOWCASE_VOIDS: Position[] = cutCornersVoids(8, 5);
+
 const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
     seed: 1,
@@ -159,6 +172,21 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     objectives: [{ type: 'clearance' }],
     layerCells: DUSTY_COUNTER_LAYERS,
     displayName: 'Dusty Counter',
+  },
+  {
+    // Second hand-built shaped level (see CORNER_SHOWCASE_VOIDS above) — the
+    // last hand-built level, immediately before the generator takes over, so
+    // every new player has now seen two distinct shape templates (plus, then
+    // this cut-corners) from purely curated content alone, before shapes
+    // become a much more frequent generator-driven occurrence.
+    seed: 601,
+    rows: 8,
+    cols: 5,
+    voidCells: CORNER_SHOWCASE_VOIDS,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 26,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[4].id, targetCount: 18 }],
+    displayName: 'Pantry Corners',
   },
 ];
 

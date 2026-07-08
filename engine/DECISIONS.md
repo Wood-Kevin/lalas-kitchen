@@ -4143,3 +4143,225 @@ tests (a `denialSpread: true` config clusters; the identical config without
 it doesn't). See `docs/verification/clustered-denial-zone-placement/` for a
 real generated level-10 board rendered with the skin's real sprites, showing
 an actual contiguous region rather than scattered cells.
+
+## Fixed: the real-audio-backend tones read as a slot machine on a real listen
+
+Real playtest feedback, from actually listening to the built sounds on a real
+device: match/cascade/win read as bright and exciting, the opposite of the
+calm-not-frantic brief this whole game is built around. Per the Playtest
+Feedback Protocol, this got a genuine redesign of `scripts/generate-sound-
+assets.js`'s synthesis parameters, not a small tweak — the previous pass
+(the real-audio-backend entry above) had already disclosed "no human has
+listened to the tones yet" as an open gap, and this is that gap resolving
+negatively, confirming the disclosure was the right call rather than
+overcaution.
+
+**What was actually wrong, per specific follow-up feedback (not just "make it
+calmer" a second time).** Four concrete problems, all in the original
+`synthNote`/win-arpeggio design: fundamentals sat in a bright register (A5
+880Hz for match, E5 660Hz for cascade, climbing to C6 1046.5Hz in the win
+arpeggio); every note carried a doubled-frequency overtone at 18% amplitude,
+which is exactly the kind of bright upper-harmonic content that reads as
+sparkly/arcade-like; the attack was a 6ms linear ramp — fast enough to read
+as a punchy onset rather than a gradual one; and win used a fast four-note
+ascending arpeggio (C5-E5-G5-C6, staggered every 110ms) — a rapid rising run
+is one of the most recognizable casino/slot-machine sonic signatures that
+exists, and was almost certainly the single biggest contributor to the
+"exciting" reaction on its own.
+
+**The fix, one change per problem.** Fundamentals dropped a fourth-to-an-
+octave: match to F4 (349.23Hz), cascade to C4 (261.63Hz), win's root to A3
+(220Hz). The bright doubled-frequency overtone is gone entirely — `synthNote`
+now optionally adds a quiet SUB-octave (half frequency, `subOctaveAmp: 0.14`)
+below the fundamental instead, which adds warmth/fullness without adding
+brightness, since it introduces no content above the root. Attack lengthened
+to 40-90ms depending on note length (50ms match, 30ms cascade — its window is
+shorter so a full 50ms would eat too much of it, 70-90ms for win's two long
+notes) — clearly gradual rather than a snap. Win's four-note ascending run is
+replaced with a slow two-note interval: a sustained A3 root, with a warm
+perfect-fifth E4 (329.63Hz) entering 450ms later and lingering long after —
+overlapping generously rather than climbing, so it reads as one resolved
+chord settling rather than a triumphant rising run. This is the second of the
+two alternatives the architect specifically named (a single sustained tone,
+or at most a slow two-note interval) — a two-note interval was chosen over a
+single tone because a level win already gets a distinct visual/haptic beat
+elsewhere in the app, and a two-note resolution gives just enough shape to
+read as "you won" without needing to lean on urgency or brightness to do it.
+
+**Verified by computation, not by ear — and that gap is disclosed, not
+hidden.** Nobody on this build has ears, so the actual perceptual "does this
+sound calm" question cannot be verified here the way a UI change gets a
+screenshot. What *can* be verified directly against the generated PCM: a
+Goertzel-algorithm frequency check (see `docs/verification/sound-redesign/`)
+confirms zero energy at any of the old bright frequencies (880Hz, 660Hz, and
+all four old arpeggio notes 523.25/659.25/783.99/1046.5Hz) in the regenerated
+files, confirms the new lower fundamentals are the dominant energy present,
+and confirms win's fifth (329.63Hz) is essentially silent (0.00012 magnitude,
+~500x weaker than once it enters) during the first 400ms — i.e. the two
+notes genuinely stagger in in a slow interval rather than firing together or
+in a fast run. That is real evidence the *parameters* changed as described in
+the actual output file, not just in the source. It is not evidence the
+result now sounds calm on a real device — that still requires the same real
+on-device listen that caught the original problem, and this redesign is not
+considered done until that listen happens.
+
+## Sound redesign, third pass: envelope shape (two-stage decay, eased attack) and an echo tail
+
+The second pass (entry above) fixed register, attack length, overtone
+content, and win's melodic shape, but was disclosed as unverified by ear.
+Before assuming synthesis itself was exhausted as an option, a third pass was
+worth trying: the second pass's envelope, despite already using
+`Math.exp(...)` for decay, was still a *single-rate* exponential with a
+*linear* attack ramp — technically curved, but not the actual shape a real
+struck/plucked acoustic instrument (bell, chime, kalimba) has. A single-rate
+exponential decays the same proportion of its remaining amplitude every
+instant; a real resonant body has a fast-decaying attack transient that
+gives way to a much slower-decaying sustained ring — two distinct rates, not
+one.
+
+**What changed, technically.** `synthNote`'s decay envelope is now a blend
+of two exponentials with different time constants: `fastWeight *
+exp(-t/fastTau) + slowWeight * exp(-t/slowTau)`, `fastTau` = 12% of the
+note's duration, `slowTau` = 55%, weighted 55/45 fast/slow. Early in the
+note the fast term dominates (a quick initial falloff); once it's decayed
+away the slow term is what's left (a gentle trailing tail) — confirmed
+directly against the regenerated PCM by measuring 20ms-window RMS decay
+ratios: match's envelope falls ~18%/window immediately after its peak,
+easing to ~7%/window by its tail, i.e. a measurably changing decay rate, not
+the constant ratio a single exponential would produce. The attack also
+changed, from a linear ramp (`t / attack`) to a raised-cosine ease-in (`0.5 *
+(1 - cos(pi * t / attack))`) — zero slope at both the start and the join
+into the decay, instead of a ramp's constant-slope wedge that has a sudden
+change of slope right where it hands off to decay.
+
+**The echo/reverb tail.** A new `addEcho` adds a small number (1-3,
+role-dependent) of quiet, exponentially-decaying delayed copies of the dry
+signal behind it — a plain discrete tap-delay, not a dense diffuse-reverb
+algorithm, since the brief only calls for "a sense of space," not a
+cathedral. Tuned per role: cascade gets the smallest tail (1 tap, 8% mix)
+since it can fire several times in a fast chain and a bigger tail would
+smear into a wash; match gets a short one (2 taps, 10% mix); win, a one-off
+moment allowed to linger, gets the most generous (3 taps, 14% mix, widest
+spacing).
+
+**Verified by computation again, not by ear — the same disclosed gap.** No
+new frequency content was introduced (still just fundamental + quiet sub-
+octave, no bright overtone), confirmed no clipping (`maxAbs` well under 1.0
+on all three regenerated files), and confirmed the envelope's decay ratio
+genuinely changes shape over time rather than staying constant — see the
+worked RMS numbers above. This is evidence the *envelope and echo* parameters
+took effect as described, not evidence the result now sounds calm, warm, or
+"produced" on a real device. **This redesign is not done until a real
+on-device listen confirms it**, the same standard both prior passes were
+held to.
+
+## Board shapes: gating loosened from "rare advanced-player surprise" to "early, frequent, visually distinctive"
+
+Real priority request, treated as urgent: the original board-shape gate
+(`appPersistence.ts`'s `SHAPE_MIN_LEVEL_NUMBER = 8`, `SHAPE_CADENCE = 4` — see
+the "Generator-driven board shapes" entry above) was reasoned entirely around
+a difficulty concern — a shaped board has fewer playable cells, so it stayed
+out until a player had met the full blocker roster on ordinary rectangles
+first. That reasoning is confirmed resolved, not just asserted: the
+"difficulty ramp was blind to shape" fix (see the entry above) already made
+`generatedMovesLimit`/`generatedTargetCount` scale against the shape's own
+`playableCellRatio`, so a shaped board at a given levelNumber is no longer
+harder than a plain rectangle at that same levelNumber — only smaller. With
+the original reason gone, the actual goal driving this gate going forward is
+"the game should read as visually distinctive within the first few minutes
+of play," which calls for the opposite of the old caution.
+
+**The change.** `SHAPE_MIN_LEVEL_NUMBER` dropped from 8 to 1 — shapes are now
+eligible from the very first generated level, not four levels after the full
+blocker roster. `SHAPE_CADENCE` dropped from 4 to 2 — half of all generated
+levels are now shaped, not one in four. Both are still the exact same
+gate-shape (`generatedShapeId`'s threshold-plus-cadence, unchanged
+mechanism), just retuned constants — no new gating logic was needed, since
+the underlying playableRatio-aware scaling this depends on was already built.
+
+**A second, independent change: a guaranteed second hand-built shaped
+level.** Relying solely on the generator's cadence — however aggressive —
+still means a brand-new player's *guaranteed*, curated content only ever
+showed one shape (the existing "Cutting Board" plus-shaped level, level 4 of
+the hand-built queue). `App.tsx`'s `LEVEL_QUEUE` gained a seventh entry,
+"Pantry Corners" (seed 601, displayName chosen to fit the existing
+cooking-themed naming, `skinConfig.pieceTypes[4]`/"chili" as its collect
+target — the one piece type no earlier hand-built level had used as a sole
+target yet), using `engine/boardShapes.ts`'s `cutCornersVoids(8, 5)` directly
+rather than a hand-authored duplicate void list, since that generalized
+template already exists and is already tested (70% playable, 28/40 cells —
+`boardShapes.test.ts` locks in the exact ratio). It's the last hand-built
+level, immediately before the generator takes over, so every new player now
+sees two distinct curated shapes (plus, then cut-corners) from hand-built
+content alone, before shapes become the frequent generator-driven occurrence
+above. `handBuiltLevelCount` is read dynamically from `LEVEL_QUEUE.length`
+everywhere it's used (`generatedLevelNumber`, `resolveLevelMapIndices`, the
+recipe-card milestone lookup), so appending a 7th entry needed no changes to
+any of those call sites — the generator's own "generated level 1" simply
+shifts to raw level 8 automatically.
+
+**A disclosed, accepted cosmetic overlap, not a bug.** Because
+`SHAPE_MIN_LEVEL_NUMBER` is now 1, the generator's very first shaped level
+(raw level 8, generatedLevelNumber 1, `BOARD_SHAPE_ROTATION[0]` =
+`cut_corners`) lands immediately after the new hand-built "Pantry Corners"
+level (level 7) — which itself uses `cut_corners`, deliberately: it's the
+gentlest, most board-proportion-appropriate template for a still fairly
+early, generous curated level (`ring`'s 55% playable reads as meaningfully
+more severe, and was judged less appropriate for a guaranteed early level).
+The net effect is the same template silhouette appearing on two consecutive
+levels at that exact boundary — different seed, piece layout, and objective
+each time, but the same cut-corner shape twice in a row. This is a real,
+minor, accepted cosmetic overlap, logged here per the standing "log it,
+don't silently drop it" habit, not escalated to `DEFERRED_COMPLEXITY.md`
+since it's a one-time, low-stakes seam at a single fixed boundary rather than
+an unresolved feature gap.
+
+**Tests updated, not just the constants.** `appPersistence.test.ts`'s
+`generatedShapeId` describe block and every `buildGeneratedLevelConfig` test
+that asserted a specific levelIndex's config now reflects that levels which
+used to be plain rectangles (generated levels 1 and 7 in the existing test
+fixtures) are now genuinely shaped — two pre-existing tests
+("builds a full LevelConfig for the first level past the hand-built queue"
+and "grows the piece-type pool and shares the target total across two
+objectives") had their expected `movesLimit`/`targetCount`/`voidCells`
+rewritten to compute the expected values via the real
+`generatedMovesLimit`/`generatedTargetCount`/`playableCellRatio` helpers
+rather than stale hand-typed numbers, so they can't silently drift from the
+actual scaling formula the way a hardcoded expectation would. Full suite
+re-run clean. See `docs/verification/` for prior shape-related verification;
+no new live capture was done for this gating change specifically, since it's
+a pure constant/config retune of already-verified mechanics (generated
+board-shape rendering, playableRatio scaling, and the hand-built showcase
+path were each already verified live).
+
+## Background-music loop optimization: search, a crossfade bug caught mid-session, and the mono/stereo call
+
+A newly sourced background-music master (`skins/lalas-kitchen/sounds/background.wav`, 34MB, stereo, 16-bit, 48kHz, ~177s) needed to become an actual loopable game asset — this session was scoped purely to that optimization, not to wiring the result into `soundRegistry.ts`/playback (still unwired; logged in `DEFERRED_COMPLEXITY.md`). No ffmpeg, sox, or numpy exists in this environment (confirmed: none installed, no `apt`/`pip` network access) — the same constraint the synthesized sound effects were built under — so `scripts/optimize-background-music.js` hand-rolls every step in plain Node: a generic RIFF chunk walker (the source has a `LIST` chunk before `data`, which a fixed-offset reader would misparse), loop-point search, a crossfade, a windowed-sinc FIR lowpass + linear-interpolation resample, and an optional mono downmix.
+
+**Loop-point search, two passes.** A coarse pass computes a 20ms-hop RMS envelope across the full track and scores every (start, duration) candidate in the 20-40s range by cosine-similarity between the 1s of envelope context leading into the candidate's end and the 1s leading out of its start (the two spans that become temporally adjacent once the loop wraps) — cheap enough to brute-force (~30,000 combos) since it never touches sample-rate data. The top ~25 candidates (de-duplicated by start-time proximity) then get a sample-domain refine: a joint shift of both endpoints, then an endpoint-only fine shift, each maximizing cross-correlation of a 20ms window at the seam — this is what actually determines click risk, not the coarse pass. Final candidate ranking is a weighted blend (`finalScore`) of sample-domain phase correlation (35%), an 8-band Goertzel spectral-similarity check between the start and end windows (35%, reusing the exact technique `docs/verification/sound-redesign/` already established as trusted in this project), start/end RMS amplitude match (20%), and the coarse envelope score (10%) — weighted toward phase/spectral match specifically because a real playtest-style check of the first attempt (see below) showed the coarse envelope score alone was a poor proxy: one high-envelope-score candidate had a 34.9% RMS mismatch, another had 46.2%, both of which would read as an audible volume jump on every loop regardless of how well their envelopes matched. The chosen candidate (start 136.00s, duration 26.97s) won on balance — no single metric perfect, but no single metric bad — over candidates that were excellent on one axis and poor on another. The full top-5 table is printed by the script, not just the winner, specifically so the choice is auditable rather than a black box.
+
+**A crossfade bug, caught by the script's own verification, not assumed correct.** The first crossfade implementation blended the loop's tail with its head using position-aligned indices (tail sample `i` blended with head sample `i`, both counted from the start of the fade window). Its own printed post-crossfade discontinuity metric immediately exposed the mistake: 8.23% of peak, *worse* than the pre-crossfade hard-cut's 0.02%. Root cause, worked out before touching the code again: as the fade approaches the very last output sample, position-aligned blending approaches `head[F-1]` (the *end* of the fade-in window) — but the very next sample played, on loop wrap, is `head[0]` (the unmodified start of the file). Those are two arbitrary points F samples apart in the original recording, with no reason to be continuous; the "fix" was reintroducing a seam rather than removing one. The correct construction (now in `buildCrossfadedSegment`) instead blends the tail with audio *immediately preceding* the loop's own start point S, still available in the untrimmed source (`pre[j] = original[S - F + j]`) — as the fade reaches the last output sample it approaches `original[S - 1]`, which in the real continuous recording flows naturally into `original[S]` (= the loop's own unmodified first sample), because they're genuinely adjacent points in one continuous recording, not two points forced together. Re-measured after the fix: 0.78% of peak, down from the hard cut's un-faded 0.01% baseline plus real headroom against the phase-correlation/spectral mismatch the raw cut alone doesn't fully resolve. This is exactly the kind of "verify against real behavior, not just a plausible-looking implementation" catch the Playtest Feedback Protocol calls for, just applied to a computational check instead of a live device — logged here in full rather than silently fixed, since the wrong version would have shipped a *worse* loop than doing nothing.
+
+**Resample.** 48kHz → 44.1kHz via a 129-tap Hamming-windowed-sinc lowpass (cutoff set ~1.5kHz under the new Nyquist, both for a genuine ratio and matching the "44.1kHz or lower" guidance) applied before linear-interpolation resampling — the filter exists specifically to avoid folding 22.05-24kHz content into the audible band on the downsample, not skipped as unnecessary for "just background ambience."
+
+**Mono was proposed but not forced.** `stereoWidthMetrics` computes L/R correlation and a mid/side RMS ratio on the chosen loop segment: 0.853 correlation, 0.283 side/mid ratio — below the script's own bar for a confident mono call (correlation > 0.9 and side/mid < 0.15), meaning this track carries real, measurable stereo content (width/reverb, not just a mono source doubled to two channels). Per the explicit instruction not to collapse it without confirming that still sounds acceptable, the exported asset stays stereo; a `--mono` flag exists on the script to force the alternative if a real listen prefers it (roughly halves the file again).
+
+**Result:** 34MB / 176.95s / 48kHz stereo → 4.76MB / 26.971s / 44.1kHz stereo (an ~86% size reduction). No clipping in the resampled output (max sample 96.2% of full scale). MP3 was not used, per the standing instruction that encoder padding causes an audible click on loop repeat — the output is WAV, uncompressed.
+
+**Verified by computation only — the same disclosed gap held for every other sound in this game.** Every metric above (phase correlation, spectral similarity, RMS match, post-crossfade discontinuity) is a proxy for "will this click when it loops," not proof that it doesn't. No human on this build has ears. A real on-device listen — confirming the loop is genuinely seamless AND that the stereo image (kept, not collapsed to mono) actually sounds appropriate sitting quietly under gameplay — is still required before this is considered done, matching the standard already held for match/cascade/win.
+
+## Background-music loop: wiring the optimized asset into real playback, gameplay-scoped
+
+The prior session's entry above optimized `background.wav` but deliberately stopped short of wiring it in — confirmed still true at the start of this session (`grep`-checked `soundRegistry.ts`, `expoAudioSoundService.ts`; the gap logged in `DEFERRED_COMPLEXITY.md` still held, byte for byte). This session closed it, alongside the three existing one-shot cues, not replacing them.
+
+**Scope was a real fork, confirmed rather than assumed:** should the loop play only while a level is on screen, or continuously across the whole app (Home, Level Map, RecipeBook)? Continuous menu music is a bigger UX commitment than "alongside gameplay" implies, and would have required lifting a persistent player instance above App.tsx's screen `switch` — architect confirmed **gameplay-only**, matching how the match/cascade/win cues are already `Board.tsx`-scoped and keeping Home/Level Map calm and silent per the calm-not-frantic constraint.
+
+**`SoundService` gained a second, deliberately separate pair of methods** (`playMusic(id: MusicId)` / `stopMusic(id: MusicId)`), not an overload of `play()`. A music id is a track started once and looped across a whole mount lifecycle; a `SoundEffectId` is fired once per cascade pass. Folding both into one method would have made the "is this fire-and-forget or does it need a matching stop" contract implicit per call site instead of enforced by the type. `MusicId = 'background'` is its own closed union (currently one entry) for the same reason `SoundEffectId` is a closed union — an unregistered/misspelled id is a compile error, not a silent runtime no-op.
+
+**`expoAudioSoundService.ts` gained a second player pool** (`musicPlayers`, mirroring the existing `players` pool exactly), rather than reusing one map keyed by a widened id type — a `SoundEffectId` player is fire-once-from-zero (`play()` re-seeks to 0 every call); a `MusicId` player is created once with `player.loop = true` and only ever `play()`/`pause()`d after that, a genuinely different lifecycle that a shared map would have obscured. `stopMusic` pauses immediately (silence takes effect synchronously) then asynchronously seeks back to 0, so the *next* `playMusic` always restarts from the top of the 26.97s loop rather than resuming mid-track — deliberate, since each level entering fresh should get the same beginning, not wherever the last level happened to leave off.
+
+**The start/stop decision was extracted as a pure function** (`components/backgroundMusic.ts`'s `syncBackgroundMusic`), the same pattern `stuckHintTiming.ts`'s `resetIdleHintTimer` already established for Board-adjacent logic — this repo has no React component-rendering test harness (see CLAUDE.md's Testing Philosophy), so the one thing genuinely worth pinning down in a test file is the *decision* ("sound on → start, sound off → stop"), not the `useEffect` wiring around it. `Board.tsx`'s new effect is `useEffect(() => { syncBackgroundMusic(soundEnabled, soundService); return () => soundService.stopMusic('background'); }, [soundEnabled])`, placed beside the existing stepTimersRef cleanup effect — it re-syncs on every `soundEnabled` toggle (so muting mid-level stops the loop immediately, unmuting restarts it) and its cleanup unconditionally stops the track on unmount, regardless of the toggle's value at that instant, so a level left via exit/win/loss can never leave the loop playing behind it.
+
+**Verified live over CDP against the real running app** (the same headless-Windows-Chrome-from-WSL2 technique `docs/verification/real-audio-backend/` used, patching `window.Audio`/`HTMLAudioElement.play`/`pause` to log real invocations): entering a level produced a real `Audio` construct for `background.wav` with `.loop === true` and a real `.play()`; a real drag-swap match fired `match.wav`'s own `play()` while the background element's `currentTime` kept advancing uninterrupted (2.83s→8.63s) — confirming the loop and the one-shot cue genuinely overlap rather than one displacing the other; exiting the level produced a real `.pause()` followed by a rewind to `currentTime: 0`; re-entering with Sound toggled off produced no new construct/play at all. See `docs/verification/background-music-loop/`. All 505 tests pass, including this session's new `components/backgroundMusic.test.ts` and the two existing fake-`SoundService` test fixtures (`services/soundService.test.ts`, `components/soundEffects.test.ts`) updated to satisfy the widened interface.
+
+**Still genuinely deferred, not silently resolved:** no human has listened to the loop actually playing (this verification proves real playback was invoked and looped correctly, not that it sounds calm as intended — the same disclosed gap `real-audio-backend`/`sound-redesign` carry for match/cascade/win), and no native (iOS/Android) device test exists in this environment — see `DEFERRED_COMPLEXITY.md`.

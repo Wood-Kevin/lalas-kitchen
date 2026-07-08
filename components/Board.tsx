@@ -58,6 +58,7 @@ import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
 import { triggerPassEffects } from './soundEffects';
+import { syncBackgroundMusic } from './backgroundMusic';
 
 export interface BoardProps {
   levelConfig: LevelConfig;
@@ -395,6 +396,20 @@ export function Board({
       stepTimersRef.current = [];
     };
   }, []);
+
+  // Loops the ambient background track for as long as this level is on
+  // screen — starts on mount (or the instant soundEnabled flips on), and
+  // the cleanup unconditionally stops it on unmount or before the effect
+  // re-runs, so a level left via exit/win/loss can never leave the loop
+  // playing behind it. Scoped to Board only (not Home/Level Map) per
+  // architect decision — see CLAUDE.md's calm-not-frantic constraint and
+  // how the one-shot match/cascade/win cues are already Board-scoped the
+  // same way. Gated by the same soundEnabled toggle as those cues, so one
+  // switch continues to mean "sound, on or off" entirely.
+  useEffect(() => {
+    syncBackgroundMusic(soundEnabled, soundService);
+    return () => soundService.stopMusic('background');
+  }, [soundEnabled]);
 
   // True only when a fresh move may be started: the level is live, nothing is
   // mid-animation, and no overlay is up. Both input methods (tap and drag)
