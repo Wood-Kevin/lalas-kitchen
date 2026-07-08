@@ -45,6 +45,9 @@ import {
   BREATHER_LOSS_THRESHOLD,
   consecutiveLossesAfterLoss,
   shouldApplyBreather,
+  TUTORIAL_MIN_GAP_MS,
+  canShowTutorialNow,
+  shouldActivateTutorial,
 } from './appPersistence';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -1273,6 +1276,88 @@ describe('shouldShowChainReactionTutorial', () => {
   test('dismissing the other three tutorials does not suppress this one — distinct id', () => {
     const seen = [STRIPED_TUTORIAL_ID, COLOR_BOMB_TUTORIAL_ID, AREA_BOMB_TUTORIAL_ID];
     expect(shouldShowChainReactionTutorial(true, seen)).toBe(true);
+  });
+});
+
+describe('canShowTutorialNow', () => {
+  test('no tutorial has ever been shown yet — the very first one is never throttled', () => {
+    expect(canShowTutorialNow(null, 1_000_000)).toBe(true);
+  });
+
+  test('less than the minimum gap has elapsed since the last tutorial — blocked', () => {
+    const lastShownAt = 1_000_000;
+    expect(canShowTutorialNow(lastShownAt, lastShownAt + TUTORIAL_MIN_GAP_MS - 1)).toBe(false);
+  });
+
+  test('exactly the minimum gap has elapsed — allowed (inclusive boundary)', () => {
+    const lastShownAt = 1_000_000;
+    expect(canShowTutorialNow(lastShownAt, lastShownAt + TUTORIAL_MIN_GAP_MS)).toBe(true);
+  });
+
+  test('well past the minimum gap — allowed', () => {
+    const lastShownAt = 1_000_000;
+    expect(canShowTutorialNow(lastShownAt, lastShownAt + TUTORIAL_MIN_GAP_MS + 5_000)).toBe(true);
+  });
+
+  test('a custom minGapMs is honored instead of the default', () => {
+    const lastShownAt = 1_000_000;
+    expect(canShowTutorialNow(lastShownAt, lastShownAt + 5_000, 10_000)).toBe(false);
+    expect(canShowTutorialNow(lastShownAt, lastShownAt + 10_000, 10_000)).toBe(true);
+  });
+});
+
+describe('shouldActivateTutorial', () => {
+  // The scenario the whole throttle exists for: two genuinely different
+  // tutorials both become eligible close together (e.g. a shaped, blockered
+  // level's board_shape and blocker mount-time conditions, or forming a
+  // striped piece then a color bomb on consecutive moves). This block
+  // verifies the two real guarantees the session brief asked for — spacing
+  // apart instead of stacking, and a deferred tutorial genuinely showing
+  // later rather than vanishing — using the exact function Board.tsx's
+  // activation effect calls.
+  test('nothing is eligible — never activates', () => {
+    expect(shouldActivateTutorial(null, null, null, 1_000_000)).toBe(false);
+  });
+
+  test('something is already active — a second one never stacks on top, regardless of cooldown', () => {
+    expect(shouldActivateTutorial(BOARD_SHAPE_TUTORIAL_ID, BLOCKER_TUTORIAL_ID, null, 1_000_000)).toBe(false);
+  });
+
+  test('first tutorial ever (lastTutorialShownAt null) — activates immediately, no wait', () => {
+    expect(shouldActivateTutorial(HOW_TO_PLAY_TUTORIAL_ID, null, null, 1_000_000)).toBe(true);
+  });
+
+  test('two genuine triggers close together: the second is deferred, not stacked', () => {
+    const boardShapeShownAt = 1_000_000;
+    // Immediately after board_shape activates, blocker is also eligible
+    // (e.g. both true from the same level's mount) — but it must wait.
+    const justAfter = boardShapeShownAt + 1_000;
+    expect(shouldActivateTutorial(BLOCKER_TUTORIAL_ID, null, boardShapeShownAt, justAfter)).toBe(false);
+  });
+
+  test('a deferred tutorial genuinely shows later, once the gap has elapsed — never lost', () => {
+    const boardShapeShownAt = 1_000_000;
+    const stillTooSoon = boardShapeShownAt + TUTORIAL_MIN_GAP_MS - 1;
+    const gapCleared = boardShapeShownAt + TUTORIAL_MIN_GAP_MS;
+    // Same still-eligible candidate (blocker), re-offered on a later move —
+    // this mirrors Board.tsx re-checking on every gameState change rather
+    // than the candidate being dropped after one failed attempt.
+    expect(shouldActivateTutorial(BLOCKER_TUTORIAL_ID, null, boardShapeShownAt, stillTooSoon)).toBe(false);
+    expect(shouldActivateTutorial(BLOCKER_TUTORIAL_ID, null, boardShapeShownAt, gapCleared)).toBe(true);
+  });
+
+  test('the once-ever guarantee holds regardless of deferral: once dismissed (seen), it never becomes eligible again', () => {
+    // Simulates the real end-to-end shape: board_shape shows first, blocker
+    // is deferred by the cooldown, then genuinely activates later once the
+    // gap clears (as the two tests above establish) and is dismissed —
+    // Board.tsx's dismiss handler calls onTutorialSeen, landing the id in
+    // seenTutorials exactly as it would have with no throttle involved at
+    // all. The throttle only ever delays WHEN shouldActivateTutorial says yes
+    // — it has no say over shouldShowBlockerTutorial's own seen-list gate,
+    // so a deferral can never cause a tutorial to be shown twice.
+    const seenAfterDismissal = [BOARD_SHAPE_TUTORIAL_ID, BLOCKER_TUTORIAL_ID];
+    const boardWithBlocker = boardOf([[blockerPiece('a', 'cling')]]);
+    expect(shouldShowBlockerTutorial(boardWithBlocker, seenAfterDismissal)).toBe(false);
   });
 });
 

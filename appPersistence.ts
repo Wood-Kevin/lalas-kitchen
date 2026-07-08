@@ -445,6 +445,76 @@ export function shouldShowChainReactionTutorial(multiSpecialFired: boolean, seen
   return multiSpecialFired && !seenTutorials.includes(CHAIN_REACTION_TUTORIAL_ID);
 }
 
+// The tutorial cadence throttle: a real playtest concern, not a hypothetical
+// one — all seven trigger functions above are each individually correct (once
+// ever, first genuine encounter), and Board.tsx already guarantees only one
+// overlay is ever ON SCREEN at a time, but nothing previously stopped a second
+// genuine first (a different id) from appearing the INSTANT the first one was
+// dismissed, with zero real playtime between them — e.g. a level whose initial
+// board is both shaped (board_shape) and blockered (blocker) is eligible for
+// both the moment it mounts, and forming a striped piece then a color bomb on
+// consecutive moves fires both within seconds. That reads as several pieces of
+// homework stacking up, not the calm, spaced-out introductions this game is
+// built around (see CLAUDE.md's Design Constraints).
+//
+// Enforced as a minimum real-time gap since any tutorial last actually
+// appeared, not a move count or a level count: a move count has no stable
+// "long enough" value across levels with very different move budgets, and a
+// level count can't fix the same-level cases above (board_shape and blocker
+// are both eligible on the SAME level, zero levels apart no matter what the
+// threshold is) or the mid-level striped-then-bomb case (same level, same
+// count). Real elapsed time is the one axis that actually separates "just
+// shown" from "genuinely new moment", regardless of which level or how many
+// moves occurred in between.
+//
+// 60 seconds: long enough that two tutorials essentially never land in the
+// same short burst of attention (a few real moves at this player's own
+// unhurried pace, per the hint-timing research that already settled on an 18s
+// idle threshold for a single thinking pause — a tutorial-to-tutorial gap
+// should read as noticeably longer than one pause, not a fixed multiple of
+// it), short enough that it's a small fraction of a typical level's playtime
+// and so rarely reads as withholding a genuinely new explanation.
+export const TUTORIAL_MIN_GAP_MS = 60_000;
+
+// Pure elapsed-time check backing the throttle: true once `minGapMs` has
+// passed since `lastTutorialShownAt`, or immediately (true) if no tutorial has
+// ever been shown yet (`null`) — the very first tutorial a player ever sees
+// should never wait on a cooldown that hasn't started ticking. `now` is
+// injected (not read internally) for the same testability reasons every other
+// time-based function in this file takes it as a parameter (see
+// applyLivesRegen).
+export function canShowTutorialNow(
+  lastTutorialShownAt: number | null,
+  now: number,
+  minGapMs: number = TUTORIAL_MIN_GAP_MS
+): boolean {
+  return lastTutorialShownAt === null || now - lastTutorialShownAt >= minGapMs;
+}
+
+// The one decision Board.tsx's activation effect needs: given the
+// highest-priority tutorial id that's currently eligible-and-undismissed
+// (`nextEligibleTutorialId`, or null if none), whether one is already on
+// screen (`activeTutorialId`), and the cooldown state, should the next one
+// actually start showing right now? False means "not yet" — the caller
+// changes nothing, so the same eligible id is re-offered the next time this
+// is checked (Board.tsx re-checks on every committed move, the natural
+// "next reasonable opportunity" in a game with no ticking clock elsewhere —
+// see CLAUDE.md's Design Constraints and Home's own "No timers. No rush."
+// footer copy — rather than a background timer counting down to reveal it).
+// This is why a blocked tutorial defers gracefully instead of vanishing: its
+// own eligibility flag is untouched by a false answer here, so it simply
+// asks again later, until this finally returns true.
+export function shouldActivateTutorial(
+  nextEligibleTutorialId: string | null,
+  activeTutorialId: string | null,
+  lastTutorialShownAt: number | null,
+  now: number,
+  minGapMs: number = TUTORIAL_MIN_GAP_MS
+): boolean {
+  if (activeTutorialId || !nextEligibleTutorialId) return false;
+  return canShowTutorialNow(lastTutorialShownAt, now, minGapMs);
+}
+
 // The recipe card (if any) a given level number unlocks — a fixed lookup
 // against skinConfig.recipeCards's own milestoneLevel field, not a formula.
 // Levels generate indefinitely (buildGeneratedLevelConfig below), but a

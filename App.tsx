@@ -323,6 +323,16 @@ function AppRoot() {
   // against rather than whatever consecutiveLossesRef happens to hold by the
   // time the level ends (which may already be reset to 0 by then).
   const isBreatherAttemptRef = useRef(false);
+  // The tutorial-cadence throttle's cross-level anchor (see appPersistence.ts's
+  // shouldActivateTutorial/canShowTutorialNow and Board.tsx's own local copy of
+  // this same value) — when any of the seven one-time tutorials last actually
+  // appeared, or null if none has this session. Ref-only and deliberately NOT
+  // persisted into SaveData, same reasoning as consecutiveLossesRef being
+  // persisted but this one isn't: this paces a single active play session (so
+  // two genuine firsts don't land seconds apart), not something that should
+  // still be counting down after the player closes and reopens the app —
+  // a fresh app launch is itself already a natural break.
+  const lastTutorialShownAtRef = useRef<number | null>(null);
 
   // Initialize all session state from a loaded save (or `null` for a fresh
   // install). Factored out of the mount effect so the dev reset can reuse the
@@ -758,6 +768,16 @@ function AppRoot() {
     );
   }, []);
 
+  // Board's tutorial-activation callback (see appPersistence.ts's
+  // shouldActivateTutorial) — fires the instant any tutorial actually starts
+  // showing, not on dismiss. Ref-only, no re-render, no persistence: unlike
+  // handleTutorialSeen above, this anchor only needs to survive the next
+  // Board mount within this same running session (see
+  // lastTutorialShownAtRef's own comment for why it isn't in SaveData).
+  const handleTutorialShown = useCallback((shownAt: number) => {
+    lastTutorialShownAtRef.current = shownAt;
+  }, []);
+
   // Home's Sound/Haptics toggle rows — persists immediately, the same
   // shape as handleTutorialSeen above: a toggle flip must survive an app
   // close on its own, not wait for a level to end (persistLatestState's
@@ -941,6 +961,8 @@ function AppRoot() {
             completedLevels={completedLevels}
             seenTutorials={seenTutorials}
             onTutorialSeen={handleTutorialSeen}
+            lastTutorialShownAt={lastTutorialShownAtRef.current}
+            onTutorialShown={handleTutorialShown}
             unlockedRecipeCard={revealedRecipeCard}
             soundEnabled={soundEnabled}
             hapticsEnabled={hapticsEnabled}

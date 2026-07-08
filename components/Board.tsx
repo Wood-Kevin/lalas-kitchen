@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   Board as BoardMatrix,
@@ -23,6 +23,7 @@ import {
   CHAIN_REACTION_TUTORIAL_ID,
   shouldShowOnboardingTutorial,
   HOW_TO_PLAY_TUTORIAL_ID,
+  shouldActivateTutorial,
 } from '../appPersistence';
 import { findAnyLegalMove } from '../engine/matrix';
 import { RecipeCard, SkinConfig } from './skinConfig';
@@ -139,6 +140,23 @@ export interface BoardProps {
   // handleTutorialSeen), the same "must survive an app close" reasoning as
   // handleGrantLife's explicit save.
   onTutorialSeen: (id: string) => void;
+  // The wall-clock moment any tutorial overlay (any of the seven) last
+  // actually appeared on screen, or null if none ever has this session — the
+  // anchor behind the tutorial-cadence throttle (see appPersistence.ts's
+  // shouldActivateTutorial/canShowTutorialNow). Lifted to App.tsx rather than
+  // tracked only inside Board because Board fully remounts every level (see
+  // App.tsx's key={levelIndex}), but two tutorials landing close together
+  // across a level boundary — a mount-time tutorial on level N+1 arriving
+  // moments after one shown at the end of level N — is exactly the case this
+  // throttle exists to catch. Deliberately NOT persisted into SaveData:
+  // this paces a single active play session, not something that should still
+  // be counting down after the player has closed and reopened the app.
+  lastTutorialShownAt: number | null;
+  // Fired the moment a tutorial actually starts showing (not on dismiss) —
+  // App.tsx stores the timestamp in lastTutorialShownAtRef so the next
+  // Board mount (a new level) inherits the real anchor instead of starting
+  // fresh at null every time.
+  onTutorialShown: (shownAt: number) => void;
   // The recipe card this exact win unlocked for the first time, or null —
   // computed by App.tsx at the same win transition completedLevels updates
   // from (see App.tsx's handleBoardStateChange), threaded straight through
@@ -187,6 +205,8 @@ export function Board({
   completedLevels,
   seenTutorials,
   onTutorialSeen,
+  lastTutorialShownAt,
+  onTutorialShown,
   unlockedRecipeCard,
   soundEnabled,
   hapticsEnabled,
@@ -232,6 +252,72 @@ export function Board({
   // guarantees a just-dismissed special can't flash back in the render gap
   // before that round-trips down as a fresh prop.
   const dismissedSpecialTutorialsRef = useRef<Set<string>>(new Set());
+  // The tutorial-cadence throttle's own anchor: this Board's local copy of
+  // "when did any tutorial last actually appear", seeded from the persisted
+  // App.tsx prop and updated locally the instant one activates (see the
+  // effect below) — same "own ref, bubble up via a callback" shape as
+  // dismissedSpecialTutorialsRef above, so this Board's own activation
+  // decisions never wait on a round-trip through App.tsx's re-render.
+  const lastTutorialShownAtRef = useRef<number | null>(lastTutorialShownAt);
+  // Which tutorial (if any) is actually ON SCREEN right now, by id — the
+  // single gate every render condition and input check below uses, replacing
+  // the raw showOnboardingTutorial/showBoardShapeTutorial/showBlockerTutorial/
+  // specialTutorial booleans for that purpose. Those four still track their
+  // own "eligible and not yet dismissed" condition exactly as before (see
+  // nextEligibleTutorialId below); this is the layer that decides whether the
+  // highest-priority eligible one is allowed to actually start showing yet.
+  const [activeTutorialId, setActiveTutorialId] = useState<string | null>(null);
+  // The highest-priority tutorial that WANTS to show right now, ignoring the
+  // cooldown entirely — the same priority order the render JSX has always
+  // used (onboarding > board shape > blocker > special-piece/spread/chain-
+  // reaction). Recomputed every render, since it's a cheap read of state
+  // that's already up to date.
+  const nextEligibleTutorialId = showOnboardingTutorial
+    ? HOW_TO_PLAY_TUTORIAL_ID
+    : showBoardShapeTutorial
+    ? BOARD_SHAPE_TUTORIAL_ID
+    : showBlockerTutorial
+    ? BLOCKER_TUTORIAL_ID
+    : specialTutorial
+    ? specialTutorial.id
+    : null;
+  // The actual activation: lets nextEligibleTutorialId become the active,
+  // rendered tutorial only once shouldActivateTutorial says the cooldown has
+  // cleared (see appPersistence.ts). If it hasn't, this simply does nothing —
+  // nextEligibleTutorialId is untouched, so the same candidate is re-offered
+  // the next time this effect re-runs. Keyed on `gameState` (alongside the
+  // two inputs that can change what's eligible) so a real move commit is what
+  // re-checks a deferred tutorial, matching this game's "no ticking timers"
+  // design constraint rather than polling on an interval. useLayoutEffect, not
+  // useEffect, so an already-clear cooldown activates before the next paint —
+  // otherwise a fresh mount would flash one frame of bare board before the
+  // onboarding overlay appeared.
+  //
+  // Guarded on gameState.status === 'in_progress', same as the special-piece
+  // scan effect below — a real edge case a fast win/loss surfaced live during
+  // this feature's own verification: without deferral, a mount-time tutorial
+  // (board_shape/blocker) always rendered on the very first frame, before any
+  // move could possibly end the level, so this race never existed. Deferral
+  // makes it newly possible for a level to end while a tutorial is still
+  // sitting on cooldown; without this guard, the cooldown clearing on the
+  // very move that wins or loses the level would pop a tutorial card over the
+  // Won/Paused overlay — exactly the "glitchy, not calm" outcome this game's
+  // whole tutorial system exists to avoid. A still-eligible mount tutorial
+  // that never got its chance on this level isn't lost: shouldShowBoardShape/
+  // BlockerTutorial re-derive fresh from scratch on the next level's own
+  // mount, so it's naturally re-offered the next time that same trigger
+  // condition genuinely recurs.
+  useLayoutEffect(() => {
+    if (gameState.status !== 'in_progress') return;
+    const now = Date.now();
+    if (!shouldActivateTutorial(nextEligibleTutorialId, activeTutorialId, lastTutorialShownAtRef.current, now)) {
+      return;
+    }
+    lastTutorialShownAtRef.current = now;
+    setActiveTutorialId(nextEligibleTutorialId);
+    onTutorialShown(now);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextEligibleTutorialId, activeTutorialId, gameState]);
   const [selected, setSelected] = useState<Position | null>(null);
   // The neighbour a live drag is currently pointing at, or null. Drives the
   // destination highlight on the targeted tile (see Tile's dragTargeted). Pure
@@ -422,10 +508,7 @@ export function Board({
     return (
       gameState.status === 'in_progress' &&
       !snapBack &&
-      !showOnboardingTutorial &&
-      !showBoardShapeTutorial &&
-      !showBlockerTutorial &&
-      !specialTutorial &&
+      !activeTutorialId &&
       !animatingRef.current
     );
   }
@@ -443,7 +526,7 @@ export function Board({
   useEffect(() => {
     setHintPair(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, snapBack, showOnboardingTutorial, showBoardShapeTutorial, showBlockerTutorial, specialTutorial]);
+  }, [gameState, snapBack, activeTutorialId]);
 
   // The single move-commit path shared by tap-to-select and drag-to-swap: run
   // applyMove for an adjacent pair and either snap back (rejected) or animate
@@ -764,16 +847,19 @@ export function Board({
 
   function handleDismissOnboardingTutorial() {
     setShowOnboardingTutorial(false);
+    setActiveTutorialId(null);
     onTutorialSeen(HOW_TO_PLAY_TUTORIAL_ID);
   }
 
   function handleDismissBoardShapeTutorial() {
     setShowBoardShapeTutorial(false);
+    setActiveTutorialId(null);
     onTutorialSeen(BOARD_SHAPE_TUTORIAL_ID);
   }
 
   function handleDismissBlockerTutorial() {
     setShowBlockerTutorial(false);
+    setActiveTutorialId(null);
     onTutorialSeen(BLOCKER_TUTORIAL_ID);
   }
 
@@ -785,6 +871,7 @@ export function Board({
       onTutorialSeen(specialTutorial.id);
     }
     setSpecialTutorial(null);
+    setActiveTutorialId(null);
   }
 
   function removeExiting(key: string) {
@@ -983,10 +1070,7 @@ export function Board({
                     // fold its own offset. A plain tap is unaffected either way.
                     dragEnabled={
                       gameState.status === 'in_progress' &&
-                      !showOnboardingTutorial &&
-                      !showBoardShapeTutorial &&
-                      !showBlockerTutorial &&
-                      !specialTutorial &&
+                      !activeTutorialId &&
                       !snapBack &&
                       !displayBoard
                     }
@@ -1038,7 +1122,14 @@ export function Board({
           </View>
         )}
       </View>
-      {showOnboardingTutorial && (
+      {/* Each of the four branches below renders only when it's the one
+          active, throttle-cleared tutorial (see activeTutorialId above) —
+          priority among simultaneously-eligible ones (onboarding > board
+          shape > blocker > special-piece/spread/chain-reaction) is already
+          baked into nextEligibleTutorialId's own priority chain, so at most
+          one of these conditions is ever true at once with no extra nesting
+          needed here. */}
+      {activeTutorialId === HOW_TO_PLAY_TUTORIAL_ID && (
         <SpecialTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
@@ -1047,14 +1138,7 @@ export function Board({
           onDismiss={handleDismissOnboardingTutorial}
         />
       )}
-      {/* Board shape comes right after onboarding and before the blocker
-          card: a shaped board is the most immediately visible thing about
-          this level (gaps in the grid itself), so it's explained before any
-          content sitting within that shape. Both are mount-time overlays
-          layered the same way (see their useState initializers above) — once
-          onboarding dismisses, this reveals underneath if the level actually
-          has void cells; if not, this block is simply always false. */}
-      {!showOnboardingTutorial && showBoardShapeTutorial && (
+      {activeTutorialId === BOARD_SHAPE_TUTORIAL_ID && (
         <SpecialTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
@@ -1063,7 +1147,7 @@ export function Board({
           onDismiss={handleDismissBoardShapeTutorial}
         />
       )}
-      {!showOnboardingTutorial && !showBoardShapeTutorial && showBlockerTutorial && (
+      {activeTutorialId === BLOCKER_TUTORIAL_ID && (
         <BlockerTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
@@ -1071,7 +1155,7 @@ export function Board({
           onDismiss={handleDismissBlockerTutorial}
         />
       )}
-      {!showOnboardingTutorial && !showBoardShapeTutorial && specialTutorial && (
+      {specialTutorial && activeTutorialId === specialTutorial.id && (
         <SpecialTutorialOverlay
           config={skinConfig}
           spriteAssets={spriteAssets}
