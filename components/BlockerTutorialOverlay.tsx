@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';

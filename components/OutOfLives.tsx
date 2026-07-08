@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { msUntilNextLifeRegen } from '../appPersistence';
 import { SkinConfig } from './skinConfig';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';

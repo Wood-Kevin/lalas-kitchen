@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import Animated, {
   Easing,
   runOnJS,
@@ -330,8 +331,12 @@ function DirectionBadge({
         },
       ]}
     >
+      {/* A directional icon glyph sized to fill its own fixed circular badge,
+          not prose content — opts out of system text scaling for the same
+          reason Board.tsx's exit button and LevelMap's medallions do. */}
       <Text
         style={[styles.directionGlyph, { color: accentColor, fontSize: Math.round(badgeSize * 0.7) }]}
+        allowFontScaling={false}
       >
         {glyph}
       </Text>
@@ -842,7 +847,15 @@ function SpriteContent({ sprite, accentColor }: { sprite: ResolvedSprite; accent
   if (sprite.kind === 'image') {
     return <Image source={sprite.source} style={styles.image} resizeMode="contain" />;
   }
-  return <Text style={[styles.label, { color: accentColor }]}>{sprite.label}</Text>;
+  // A compact fallback code (e.g. "TO"), not prose — it has to fit inside a
+  // fixed-size board tile no matter what, and tile size is this game's most
+  // layout-critical dimension (it drives tap accuracy), so it opts out of
+  // system text scaling rather than risk overflowing real gameplay tiles.
+  return (
+    <Text style={[styles.label, { color: accentColor }]} allowFontScaling={false}>
+      {sprite.label}
+    </Text>
+  );
 }
 
 const styles = StyleSheet.create({

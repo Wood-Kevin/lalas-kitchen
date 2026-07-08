@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { Objective } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';

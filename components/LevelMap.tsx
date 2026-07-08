@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
 import { LivesBadge } from './LivesBadge';
@@ -118,7 +119,9 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           onPress={onBack}
           accessibilityLabel="Back to home"
         >
-          <Text style={[styles.backArrow, { color: text }]}>‹</Text>
+          <Text style={[styles.backArrow, { color: text }]} allowFontScaling={false}>
+            ‹
+          </Text>
         </Pressable>
         <View style={styles.headerTextBlock}>
           <Text style={[styles.title, { color: accent }]}>Level Map</Text>
@@ -255,17 +258,29 @@ function LevelNode({
             },
           ]}
         >
-          <Text style={[styles.levelNumber, { color: isLocked ? mutedText : text, fontSize: isCurrent ? 30 : 22 }]}>
+          {/* The medallion is a fixed-diameter circle placed by
+              levelMapLayout.ts's path math — it can't grow to accommodate
+              larger text without breaking that layout, so its number and
+              badge glyphs opt out of system text scaling the same way
+              Board.tsx's exit button does. */}
+          <Text
+            style={[styles.levelNumber, { color: isLocked ? mutedText : text, fontSize: isCurrent ? 30 : 22 }]}
+            allowFontScaling={false}
+          >
             {level.levelIndex}
           </Text>
           {isCompleted && (
             <View style={[styles.checkBadge, { backgroundColor: secondaryAccent }]}>
-              <Text style={styles.checkGlyph}>{'✓'}</Text>
+              <Text style={styles.checkGlyph} allowFontScaling={false}>
+                {'✓'}
+              </Text>
             </View>
           )}
           {isLocked && (
             <View style={[styles.lockBadge, { backgroundColor: panel, borderColor: border }]}>
-              <Text style={styles.lockGlyph}>{'🔒'}</Text>
+              <Text style={styles.lockGlyph} allowFontScaling={false}>
+                {'🔒'}
+              </Text>
             </View>
           )}
         </View>

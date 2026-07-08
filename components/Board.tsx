@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import {
   Board as BoardMatrix,
   GameState,
@@ -965,7 +966,11 @@ export function Board({
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={[styles.exitButton, { borderColor: skinConfig.palette.accent, backgroundColor: skinConfig.palette.panel }]}
           >
-            <Text style={[styles.exitLabel, { color: skinConfig.palette.accent }]}>✕</Text>
+            {/* A symbolic icon glyph, not prose content — scaling it with system
+                text size would just distort the circular button, so it opts out. */}
+            <Text style={[styles.exitLabel, { color: skinConfig.palette.accent }]} allowFontScaling={false}>
+              ✕
+            </Text>
           </Pressable>
         </View>
       )}
@@ -1240,7 +1245,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   hintButton: {
-    height: 28,
+    minHeight: 28,
+    paddingVertical: 4,
     borderRadius: 14,
     borderWidth: 1.5,
     paddingHorizontal: 12,

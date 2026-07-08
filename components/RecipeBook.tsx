@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from './AppText';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { GinghamTrim } from './GinghamTrim';
@@ -66,7 +67,9 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
           onPress={onBack}
           accessibilityLabel="Back to home"
         >
-          <Text style={[styles.backArrow, { color: text }]}>‹</Text>
+          <Text style={[styles.backArrow, { color: text }]} allowFontScaling={false}>
+            ‹
+          </Text>
         </Pressable>
         <View>
           <Text style={[styles.title, { color: accent }]}>My Recipe Book</Text>

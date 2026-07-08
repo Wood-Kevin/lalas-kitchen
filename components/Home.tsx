@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Text } from './AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SkinConfig } from './skinConfig';
 import { CLEARANCE_OBJECTIVE_SPRITE, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
