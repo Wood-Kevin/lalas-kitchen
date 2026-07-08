@@ -13,6 +13,7 @@ import { OutOfLives } from './components/OutOfLives';
 import { RecipeCard, SkinConfig } from './components/skinConfig';
 import { cutCornersVoids } from './engine/boardShapes';
 import { RecipeBook } from './components/RecipeBook';
+import { Settings } from './components/Settings';
 import {
   GameState,
   GameStatus,
@@ -223,7 +224,7 @@ function buildLevelConfig(levelIndex: number, lives: number, breather: boolean =
 const SOUND_ENABLED_DEFAULT = false;
 const HAPTICS_ENABLED_DEFAULT = false;
 
-type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook';
+type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook' | 'settings';
 
 // The real default export, wrapping AppRoot in the app-level ErrorBoundary —
 // see components/ErrorBoundary.tsx and engine/DECISIONS.md's
@@ -650,6 +651,13 @@ function AppRoot() {
     setScreen('recipeBook');
   }, []);
 
+  // Home's "Settings" card — opens the dedicated Settings screen (see
+  // components/Settings.tsx). No gating, same as the recipe book: nothing
+  // here costs a life or depends on level progress.
+  const handleOpenSettings = useCallback(() => {
+    setScreen('settings');
+  }, []);
+
   const handleGoHome = useCallback(() => {
     setScreen('home');
   }, []);
@@ -892,10 +900,7 @@ function AppRoot() {
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
             onOpenRecipeBook={handleOpenRecipeBook}
-            soundEnabled={soundEnabled}
-            hapticsEnabled={hapticsEnabled}
-            onToggleSound={handleToggleSound}
-            onToggleHaptics={handleToggleHaptics}
+            onOpenSettings={handleOpenSettings}
             // Dev-only: passed only in development so Home's hidden long-press
             // reset affordance exists solely for testing, never in a release
             // build a real player runs. See handleDevReset.
@@ -906,6 +911,15 @@ function AppRoot() {
             config={skinConfig}
             spriteAssets={spriteRegistry}
             unlockedCardIds={unlockedRecipeCards}
+            onBack={handleGoHome}
+          />
+        ) : screen === 'settings' ? (
+          <Settings
+            config={skinConfig}
+            soundEnabled={soundEnabled}
+            hapticsEnabled={hapticsEnabled}
+            onToggleSound={handleToggleSound}
+            onToggleHaptics={handleToggleHaptics}
             onBack={handleGoHome}
           />
         ) : screen === 'levels' ? (

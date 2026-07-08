@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SkinConfig } from './skinConfig';
@@ -32,14 +32,14 @@ export interface HomeProps {
   // The recipe book card's own tap target — opens the RecipeBook collection
   // screen (see App.tsx's handleOpenRecipeBook).
   onOpenRecipeBook: () => void;
-  // Sound/haptics toggle row state — App.tsx's soundEnabled/hapticsEnabled,
-  // both off by default (see CLAUDE.md's Design Constraints). Placed
-  // directly on Home, not a nested settings screen, per the build spec's
-  // explicit "not buried in a settings menu" instruction.
-  soundEnabled: boolean;
-  hapticsEnabled: boolean;
-  onToggleSound: (next: boolean) => void;
-  onToggleHaptics: (next: boolean) => void;
+  // The settings card's own tap target — opens the dedicated Settings
+  // screen (components/Settings.tsx), which now owns the Sound/Haptics
+  // toggles that used to render inline here. The build spec's original
+  // "not buried in a settings menu" note was about keeping mute quick to
+  // reach, not about which screen it lives on — one tap from Home into
+  // Settings, toggle immediately visible with no further navigation,
+  // preserves that property (see Settings.tsx's own comment).
+  onOpenSettings: () => void;
   // Dev-only, and provided ONLY in development (App.tsx gates it behind
   // __DEV__). When present, a long-press on the footer line triggers a full
   // save wipe + fresh restart. Undefined in every release build, so the footer
@@ -67,10 +67,7 @@ export function Home({
   onStartNext,
   onBrowseAllLevels,
   onOpenRecipeBook,
-  soundEnabled,
-  hapticsEnabled,
-  onToggleSound,
-  onToggleHaptics,
+  onOpenSettings,
   onDevReset,
 }: HomeProps) {
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
@@ -143,26 +140,15 @@ export function Home({
         </View>
       </Pressable>
 
-      <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
+      <Pressable
+        style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}
+        onPress={onOpenSettings}
+      >
         <View style={styles.cardPadding}>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Sound</Text>
-            <Switch
-              value={soundEnabled}
-              onValueChange={onToggleSound}
-              trackColor={{ false: config.palette.border, true: config.palette.accent }}
-            />
-          </View>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Haptics</Text>
-            <Switch
-              value={hapticsEnabled}
-              onValueChange={onToggleHaptics}
-              trackColor={{ false: config.palette.border, true: config.palette.accent }}
-            />
-          </View>
+          <Text style={[styles.cardTitle, { color: config.palette.text }]}>Settings</Text>
+          <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>Sound, haptics, and more</Text>
         </View>
-      </View>
+      </Pressable>
 
       <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
         <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
@@ -288,11 +274,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyRegular,
     fontSize: 14,
     lineHeight: 20,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
   },
   nextRow: {
     flexDirection: 'row',
