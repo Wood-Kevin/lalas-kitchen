@@ -477,10 +477,254 @@ function fisherYates<T>(items: T[], rng: () => number): T[] {
   return shuffled;
 }
 
+function isLegalShuffleResult(candidate: Board): boolean {
+  return checkMatches(candidate).length === 0 && checkSquares(candidate).length === 0 && hasLegalMoves(candidate);
+}
+
+function cloneBoard(board: Board): Board {
+  return board.map((row) => row.slice());
+}
+
+// Deterministically breaks every remaining match/square via POSITION swaps
+// only, never by recoloring a piece's matchType — unlike generator.ts's
+// repairAccidentalMatches (which recolors because it's still choosing a
+// fresh level's content), a reshuffle must preserve the exact multiset of
+// pieces the board started with, or a player would see their board's own
+// piece counts silently change. Mirrors repairAccidentalMatches' own bounded
+// convergence loop (see its comment), just via swaps instead of recolors.
+// Returns null if it can't converge within budget — the caller decides what
+// "genuinely can't" means, this never hands back an unverified board itself.
+function repairShuffleViaSwaps(candidate: Board, movablePositions: Position[]): Board | null {
+  const repaired = cloneBoard(candidate);
+  const maxPasses = movablePositions.length * 4 + 50;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const matches = checkMatches(repaired);
+    const squares = checkSquares(repaired);
+    if (matches.length === 0 && squares.length === 0) {
+      if (hasLegalMoves(repaired)) return repaired;
+      // Clean, but genuinely dead (no adjacent swap anywhere creates a
+      // match) — a rarer, second-order case beyond "still has a violation."
+      // See engine/DECISIONS.md's shuffle-hardening entry.
+      return forceLegalMove(repaired, movablePositions);
+    }
+
+    const offending = matches[0] ?? squares[0];
+    const offendingType = offending.matchType;
+    const offendingPos = offending.positions[Math.floor(offending.positions.length / 2)];
+
+    // Swap the offending cell with the first other movable position (row-
+    // major order) whose matchType genuinely differs — breaks this specific
+    // violation while preserving the multiset. Any violation that swap
+    // introduces elsewhere is caught by the next pass's fresh scan, same as
+    // repairAccidentalMatches' own recolor loop.
+    const swapTarget = movablePositions.find(
+      (pos) =>
+        (pos.row !== offendingPos.row || pos.col !== offendingPos.col) &&
+        repaired[pos.row][pos.col].matchType !== offendingType
+    );
+    if (!swapTarget) return null; // every movable piece shares one type — unrepairable by swapping
+
+    const a = repaired[offendingPos.row][offendingPos.col];
+    const b = repaired[swapTarget.row][swapTarget.col];
+    repaired[offendingPos.row][offendingPos.col] = b;
+    repaired[swapTarget.row][swapTarget.col] = a;
+  }
+
+  return null;
+}
+
+// Rearranges (via position swaps only) so every position in mustBeTarget
+// holds targetType, and mustAvoidTarget holds anything else — one swap away
+// from completing a run wherever the caller's specific template says that
+// swap would land. Returns the best it could do even when it can't fully
+// satisfy the template (not enough spare targetType pieces elsewhere);
+// callers never trust this directly, they re-verify from scratch (see
+// forceLegalMove's own comment) — so a mistake here, or an unsatisfiable
+// template, can only ever cause the search to keep looking or come up
+// empty, never hand back a bad board.
+function attemptForcedTemplate(
+  board: Board,
+  movablePositions: Position[],
+  targetType: string,
+  mustBeTarget: Position[],
+  mustAvoidTarget: Position
+): Board {
+  const candidate = cloneBoard(board);
+  const key = (p: Position) => `${p.row},${p.col}`;
+  const templateKeys = new Set([...mustBeTarget, mustAvoidTarget].map(key));
+
+  const donors = movablePositions.filter(
+    (pos) => !templateKeys.has(key(pos)) && candidate[pos.row][pos.col].matchType === targetType
+  );
+
+  for (const slot of mustBeTarget) {
+    if (candidate[slot.row][slot.col].matchType === targetType) continue;
+    const donor = donors.pop();
+    if (!donor) return candidate; // not enough targetType pieces elsewhere — caller's re-verify will reject this
+    const a = candidate[slot.row][slot.col];
+    const b = candidate[donor.row][donor.col];
+    candidate[slot.row][slot.col] = b;
+    candidate[donor.row][donor.col] = a;
+  }
+
+  // The middle cell must NOT hold targetType, or the line would already be a
+  // match rather than one swap away from it.
+  if (candidate[mustAvoidTarget.row][mustAvoidTarget.col].matchType === targetType) {
+    const nonTargetDonor = movablePositions.find(
+      (pos) => !templateKeys.has(key(pos)) && candidate[pos.row][pos.col].matchType !== targetType
+    );
+    if (nonTargetDonor) {
+      const a = candidate[mustAvoidTarget.row][mustAvoidTarget.col];
+      const b = candidate[nonTargetDonor.row][nonTargetDonor.col];
+      candidate[mustAvoidTarget.row][mustAvoidTarget.col] = b;
+      candidate[nonTargetDonor.row][nonTargetDonor.col] = a;
+    }
+  }
+
+  return candidate;
+}
+
+// Manufactures one legal move on a board that's already match/square-free
+// but has zero legal moves — an even rarer, second-order case beyond
+// repairShuffleViaSwaps' ordinary "still has a violation" repair (see
+// engine/DECISIONS.md's shuffle-hardening entry). Tries two template
+// families, for every matchType with at least 3 movable occurrences
+// (most-common type first), built entirely via attemptForcedTemplate's
+// position swaps so the multiset a reshuffle must preserve is never
+// altered:
+//
+//   1. An in-line window: four consecutive same-line cells [c0,c1,c2,c3]
+//      with c0/c1/c3 holding targetType and c2 holding anything else —
+//      swapping c2<->c3 completes a run at c0/c1/c2. Needs only a single
+//      straight run of 4 movable ordinary cells, no perpendicular neighbour
+//      at all — the ONLY template that can succeed on a corridor-like shape
+//      (e.g. the generator's 1-cell-wide `ring` template), where a cell may
+//      never have an off-board-shape neighbour to draw from at all. This
+//      gap was found by this exact function failing on a real ring-shaped
+//      adversarial test — see engine/DECISIONS.md's shuffle-hardening entry.
+//   2. A straight-3-plus-one-off-axis-neighbour window: three same-type
+//      cells two apart in a line, plus a fourth same-type cell adjacent to
+//      the middle cell — for shapes whose runway is only length 3 but does
+//      have a perpendicular neighbour (e.g. a plus/cross intersection).
+//
+// Deliberately never trusts its own geometry: every candidate this produces
+// is re-verified from scratch against checkMatches/checkSquares/
+// hasLegalMoves before being accepted (the exact same ground truth every
+// other legality check in this file uses), so a mistake in either
+// template's reasoning can only ever cause this to keep searching or come
+// up empty — never hand back a board that isn't genuinely legal. Returns
+// null if no type reaches the needed count of 3, or no template on this
+// board's shape can be verified — the caller (shuffle) treats that as
+// genuinely impossible, not something to guess past.
+function forceLegalMove(board: Board, movablePositions: Position[]): Board | null {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const isOrdinary = (pos: Position) => board[pos.row][pos.col].type === 'normal';
+
+  const countByType = new Map<string, number>();
+  for (const pos of movablePositions) {
+    const piece = board[pos.row][pos.col];
+    if (piece.type !== 'normal' || !piece.matchType) continue;
+    countByType.set(piece.matchType, (countByType.get(piece.matchType) ?? 0) + 1);
+  }
+  const candidateTypes = [...countByType.entries()]
+    .filter(([, count]) => count >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type]) => type);
+
+  const tryVerified = (candidate: Board): Board | null => (isLegalShuffleResult(candidate) ? candidate : null);
+
+  for (const targetType of candidateTypes) {
+    // In-line window: four consecutive cells in a row, [c0,c1,c2,c3].
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c + 3 < cols; c++) {
+        const line = [
+          { row: r, col: c },
+          { row: r, col: c + 1 },
+          { row: r, col: c + 2 },
+          { row: r, col: c + 3 },
+        ];
+        if (!line.every(isOrdinary)) continue;
+        const result = tryVerified(
+          attemptForcedTemplate(board, movablePositions, targetType, [line[0], line[1], line[3]], line[2])
+        );
+        if (result) return result;
+      }
+    }
+    // In-line window, transposed: four consecutive cells in a column.
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r + 3 < rows; r++) {
+        const line = [
+          { row: r, col: c },
+          { row: r + 1, col: c },
+          { row: r + 2, col: c },
+          { row: r + 3, col: c },
+        ];
+        if (!line.every(isOrdinary)) continue;
+        const result = tryVerified(
+          attemptForcedTemplate(board, movablePositions, targetType, [line[0], line[1], line[3]], line[2])
+        );
+        if (result) return result;
+      }
+    }
+    // Horizontal run (three cells in a row) with a vertical off-axis notch.
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c + 2 < cols; c++) {
+        const rowCells = [{ row: r, col: c }, { row: r, col: c + 1 }, { row: r, col: c + 2 }];
+        if (!rowCells.every(isOrdinary)) continue;
+        for (const notchRow of [r - 1, r + 1]) {
+          if (notchRow < 0 || notchRow >= rows) continue;
+          const notch = { row: notchRow, col: c + 1 };
+          if (!isOrdinary(notch)) continue;
+          const result = tryVerified(
+            attemptForcedTemplate(board, movablePositions, targetType, [rowCells[0], rowCells[2], notch], rowCells[1])
+          );
+          if (result) return result;
+        }
+      }
+    }
+    // Vertical run (three cells in a column) with a horizontal off-axis
+    // notch — the transposed template, for a board shape whose only
+    // straight runway of length 3 happens to be a column, not a row.
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r + 2 < rows; r++) {
+        const colCells = [{ row: r, col: c }, { row: r + 1, col: c }, { row: r + 2, col: c }];
+        if (!colCells.every(isOrdinary)) continue;
+        for (const notchCol of [c - 1, c + 1]) {
+          if (notchCol < 0 || notchCol >= cols) continue;
+          const notch = { row: r + 1, col: notchCol };
+          if (!isOrdinary(notch)) continue;
+          const result = tryVerified(
+            attemptForcedTemplate(board, movablePositions, targetType, [colCells[0], colCells[2], notch], colCells[1])
+          );
+          if (result) return result;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 // rng is injected (defaulting to Math.random) so tests can pass a fixed
 // sequence and get a deterministic result. Bounded retry avoids handing back
 // a board that's already matched or that still has zero legal moves — the
 // whole point of shuffling — while guaranteeing termination.
+//
+// Used to silently return the LAST random candidate once maxAttempts ran out,
+// even if that candidate still had a match, a square, or zero legal moves —
+// a rare but real gap (see engine/DECISIONS.md's shuffle-hardening entry):
+// this is the one rescue mechanism a stuck board has, so a silent illegal
+// hand-off here left the player with no further recourse at all. Now, after
+// random search is exhausted, a deterministic repair tier
+// (repairShuffleViaSwaps → forceLegalMove) takes over — provably bounded,
+// multiset-preserving, and self-verifying — before this ever gives up. Only
+// if that ALSO can't produce a verified-legal board (a genuinely degenerate
+// board configuration — see the functions above) does this throw a
+// descriptive error rather than return one it can't vouch for; combined with
+// the app-level ErrorBoundary (components/ErrorBoundary.tsx), that's now a
+// loud, caught, recoverable failure instead of a silent illegal board.
 export function shuffle(board: Board, rng: () => number = Math.random): Board {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
@@ -503,7 +747,7 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
   let candidate: Board = board;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const shuffledPieces = fisherYates(movablePieces, rng);
-    candidate = board.map((row) => row.slice());
+    candidate = cloneBoard(board);
     movablePositions.forEach((pos, i) => {
       candidate[pos.row][pos.col] = shuffledPieces[i];
     });
@@ -514,15 +758,19 @@ export function shuffle(board: Board, rng: () => number = Math.random): Board {
     // needed: a latent crossing point's two arms are themselves already
     // ordinary runs, so checkMatches(candidate) is already non-empty whenever
     // a cross exists — see engine/DECISIONS.md's crossing-run entry.
-    if (
-      checkMatches(candidate).length === 0 &&
-      checkSquares(candidate).length === 0 &&
-      hasLegalMoves(candidate)
-    ) {
+    if (isLegalShuffleResult(candidate)) {
       return candidate;
     }
   }
-  return candidate;
+
+  const repaired = repairShuffleViaSwaps(candidate, movablePositions);
+  if (repaired && isLegalShuffleResult(repaired)) return repaired;
+
+  throw new Error(
+    'shuffle: could not produce a legal board after 100 random attempts and a deterministic repair pass — ' +
+      "this board's movable cells may be too constrained (too few distinct piece types for their count) " +
+      'to ever admit a match-free, playable arrangement.'
+  );
 }
 
 // Blockers are excluded as candidates on both sides of a swap, not just

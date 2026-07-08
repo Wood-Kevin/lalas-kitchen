@@ -6,6 +6,7 @@ import { Alert, AppState, AppStateStatus, Platform, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Board } from './components/Board';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Home } from './components/Home';
 import { LevelMap, LevelMapRow } from './components/LevelMap';
 import { OutOfLives } from './components/OutOfLives';
@@ -216,7 +217,22 @@ const HAPTICS_ENABLED_DEFAULT = false;
 
 type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBook';
 
+// The real default export, wrapping AppRoot in the app-level ErrorBoundary —
+// see components/ErrorBoundary.tsx and engine/DECISIONS.md's
+// error-boundary entry. Kept as a separate outer component (rather than
+// having AppRoot itself catch its own errors) so the boundary sits above
+// EVERYTHING, including GestureHandlerRootView/SafeAreaProvider setup and
+// the fonts/save-load effects below — nothing in this tree can crash
+// without it being caught.
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppRoot />
+    </ErrorBoundary>
+  );
+}
+
+function AppRoot() {
   const [fontsLoaded] = useAppFonts();
   const [screen, setScreen] = useState<Screen>('loading');
   // 1-based index into LEVEL_QUEUE for whichever level is currently active

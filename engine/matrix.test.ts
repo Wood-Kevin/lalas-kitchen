@@ -11,7 +11,9 @@ import {
   findSpreadTarget,
   Board,
   Piece,
+  Position,
 } from './matrix';
+import { ringVoids } from './boardShapes';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
@@ -589,6 +591,111 @@ describe('checkSquares — 2x2 block detection', () => {
   });
 });
 
+// shuffle used to try 100 random reshuffles, then silently return the LAST
+// one even if it still had a match, a square, or zero legal moves — the one
+// rescue mechanism a stuck board has, handing back a board it never
+// verified. These confirm the hardened version (a deterministic,
+// multiset-preserving repair tier, then a self-verifying forced-legal-move
+// construction, only THEN a loud descriptive throw for a genuinely
+// impossible board) actually holds — see engine/DECISIONS.md's
+// shuffle-hardening entry.
+describe('shuffle — hardened rescue fallback', () => {
+  test('a rigged rng that repeats the exact same illegal arrangement on every attempt is still rescued into a legal board', () => {
+    // rng ≡ 0 makes fisherYates produce the SAME result every single call —
+    // hand-traced against the actual algorithm below, it's a left-rotation
+    // by exactly one position of the row-major-collected movable pieces
+    // [B,A,A,A,C,D,E,F,G] -> [A,A,A,C,D,E,F,G,B] -- so every one of the 100
+    // "random" attempts is byte-identical, and this board is laid out so
+    // THAT SPECIFIC rotation lands three A's in row 0. This guarantees all
+    // 100 attempts fail identically, so the final legal result can only have
+    // come from the new deterministic repair tier, never from luck.
+    const board = buildBoard([
+      ['B', 'A', 'A'],
+      ['A', 'C', 'D'],
+      ['E', 'F', 'G'],
+    ]);
+
+    const shuffled = shuffle(board, () => 0);
+
+    expect(checkMatches(shuffled)).toHaveLength(0);
+    expect(checkSquares(shuffled)).toHaveLength(0);
+    expect(hasLegalMoves(shuffled)).toBe(true);
+    // Same multiset, not just "some legal board" — a reshuffle must never
+    // change what pieces exist, only where they sit.
+    const originalTypes = board.flat().map((p) => p.matchType).sort();
+    const shuffledTypes = shuffled.flat().map((p) => p.matchType).sort();
+    expect(shuffledTypes).toEqual(originalTypes);
+  });
+
+  test('adversarial worst case: a heavily voided (ring) board with dense blockers and a high piece-type count is always rescued into a genuinely legal board', () => {
+    const rows = 8;
+    const cols = 5;
+    // The real generated-level `ring` template at its real board size (see
+    // engine/boardShapes.ts and CLAUDE.md's board-shape entry) — the most
+    // restrictive shape this game actually ships, 22 of 40 cells playable.
+    const voidKeys = new Set(ringVoids(rows, cols).map((p) => `${p.row},${p.col}`));
+    const perimeter: Position[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!voidKeys.has(`${r},${c}`)) perimeter.push({ row: r, col: c });
+      }
+    }
+    expect(perimeter).toHaveLength(22); // confirms this really is the 55%-playable ring
+
+    // Every 4th perimeter cell (row-major) is a blocker — dense, but leaves
+    // enough ordinary cells that a legal arrangement remains possible.
+    const blockerKeys = new Set(
+      perimeter.filter((_, i) => i % 4 === 0).map((p) => `${p.row},${p.col}`)
+    );
+    // The real 6-type pool this skin ships (skins/lalas-kitchen/config.json)
+    // — "high piece-type count" at its actual real-content maximum, not an
+    // arbitrary bigger number.
+    const pieceTypes = ['tomato', 'lemon', 'herb', 'garlic', 'chili', 'spoon'];
+
+    const board: Board = Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => ({ id: `${r}-${c}`, type: 'void' as const }))
+    );
+    perimeter.forEach((pos, i) => {
+      const id = `${pos.row}-${pos.col}`;
+      const matchType = pieceTypes[i % pieceTypes.length];
+      board[pos.row][pos.col] = blockerKeys.has(`${pos.row},${pos.col}`)
+        ? { id, type: 'blocker', matchType, hitsRemaining: 1 }
+        : { id, type: 'normal', matchType };
+    });
+    const blockerCountBefore = board.flat().filter((p) => p.type === 'blocker').length;
+
+    // Several genuinely different rngs, including maximally-degenerate
+    // constants that each force fisherYates to repeat one fixed permutation
+    // on every single attempt (see the test above) — tier-1's random search
+    // cannot rely on trying different arrangements at all under these.
+    for (const rng of [seededRng(99), () => 0, () => 0.999999]) {
+      const shuffled = shuffle(board, rng);
+
+      expect(checkMatches(shuffled)).toHaveLength(0);
+      expect(checkSquares(shuffled)).toHaveLength(0);
+      expect(hasLegalMoves(shuffled)).toBe(true);
+
+      // The board's shape and blocker count are never touched by a
+      // reshuffle — only ordinary movable pieces are ever redistributed.
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (board[r][c].type === 'void') expect(shuffled[r][c].type).toBe('void');
+        }
+      }
+      expect(shuffled.flat().filter((p) => p.type === 'blocker')).toHaveLength(blockerCountBefore);
+    }
+  });
+
+  test('a genuinely impossible board (no matchType ever reaches count 3) throws a descriptive error instead of returning an illegal board', () => {
+    // Every movable cell is a distinct type — no arrangement can ever
+    // contain a 3-run, so no legal move can ever exist, no matter how the
+    // pieces are placed. shuffle must refuse to hand back ANY candidate
+    // here, loudly, rather than silently returning the least-bad attempt.
+    const board = buildBoard([['A', 'B', 'C']]);
+    expect(() => shuffle(board, seededRng(1))).toThrow(/could not produce a legal board/);
+  });
+});
+
 describe('checkCrossShapes — L/T/plus crossing-run detection', () => {
   test('finds a plus shape (crossing cell is the middle of both arms) and returns it anchor-first', () => {
     // Row 2, cols 1-3 and col 2, rows 1-3 are each an exactly-3 run sharing
@@ -974,10 +1081,17 @@ describe('void cells — hasLegalMoves', () => {
 
 describe('void cells — shuffle keeps the board shape fixed', () => {
   test('voids stay at their exact positions after a reshuffle', () => {
+    // Unlike the original diagonal-void layout this replaced, every row and
+    // column here has at least 3 contiguous movable cells — a board where NO
+    // line ever reaches length 3 can structurally never have a legal move
+    // (checkMatches/hasLegalMoves both require a 3-run), regardless of piece
+    // types, which is a fixture bug shuffle's own hardening now correctly
+    // rejects rather than silently tolerates — see
+    // engine/DECISIONS.md's shuffle-hardening entry.
     const board = buildShapedBoard([
-      ['A', 'B', '.'],
-      ['C', '.', 'D'],
-      ['.', 'E', 'F'],
+      ['A', 'A', 'B'],
+      ['B', '.', 'C'],
+      ['C', 'A', 'B'],
     ]);
     const shuffled = shuffle(board, seededRng(3));
 

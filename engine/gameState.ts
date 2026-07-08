@@ -1752,7 +1752,32 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // points it can be violated. No event fires for this — a shuffle should
   // read as silent and immediate to the player, not an announced
   // interruption, per CLAUDE.md's calm-pacing constraint.
-  const resolvedBoard = hasLegalMoves(settledBoard) ? settledBoard : shuffle(settledBoard);
+  //
+  // shuffle() itself now throws rather than silently handing back an
+  // illegal board when it genuinely can't find or construct a legal
+  // rearrangement (see engine/matrix.ts's shuffle-hardening entry) — the
+  // right contract for a reusable pure function, and exactly what
+  // generateLevel's own call site above wants (a level that can never be
+  // made legal is a real content bug worth failing loudly on). But THIS
+  // call site is mid-play, not level creation, and the comment above is
+  // explicit that a rescue should read as silent and immediate — turning a
+  // failed safety net into a crash would be the exact "announced
+  // interruption" this was written to avoid. `settledBoard` itself is never
+  // in question here (it's a real move's real cascaded result, always
+  // match/square-free); a failed shuffle only means this specific stuck
+  // state didn't get rescued, not that anything is actually broken. So this
+  // degrades gracefully — logged (not silent), never thrown further.
+  let resolvedBoard = settledBoard;
+  if (!hasLegalMoves(settledBoard)) {
+    try {
+      resolvedBoard = shuffle(settledBoard);
+    } catch (err) {
+      console.error(
+        '[gameState] applyMove: the shuffle rescue could not find a legal rearrangement — leaving the board as-is.',
+        err
+      );
+    }
+  }
 
   const totalCleared = { ...state.totalCleared };
   for (const [matchType, count] of Object.entries(clearedByMatchType)) {
@@ -1918,6 +1943,59 @@ export interface SaveData {
   hapticsEnabled?: boolean;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isNumberArray(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'number');
+}
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return isPlainObject(value) && Object.values(value).every((entry) => typeof entry === 'number');
+}
+
+function isValidLevelStars(value: unknown): value is Record<number, 1 | 2 | 3> {
+  return isPlainObject(value) && Object.values(value).every((entry) => entry === 1 || entry === 2 || entry === 3);
+}
+
+// The one place that decides a loaded save is trustworthy enough to build a
+// session from — see loadSave below and engine/DECISIONS.md's
+// defensive-save-loading entry. Checks the required backbone fields
+// strictly (a save missing or misshaping any of these can't have come from
+// this game) and every field added since (completedLevels, seenTutorials,
+// etc.) only IF PRESENT — those are genuinely optional so a save written
+// before a field existed still parses (see each field's own comment above),
+// but if present they must still be the right shape, or a save could pass
+// this check while carrying, say, a string where seenTutorials expects an
+// array — which would parse "successfully" here only to throw the first
+// time something calls .includes()/.some() on it downstream. Deliberately
+// NOT exported: nothing outside loadSave needs to ask "is this valid,"
+// they only ever get a real SaveData or null back.
+function isValidSaveData(value: unknown): value is SaveData {
+  if (!isPlainObject(value)) return false;
+
+  if (typeof value.skinId !== 'string') return false;
+  if (typeof value.currentLevel !== 'number') return false;
+  if (typeof value.lives !== 'number') return false;
+  if (typeof value.livesLastRegenAt !== 'number') return false;
+  if (!isNumberRecord(value.itemsCollected)) return false;
+  if (!isNumberRecord(value.powerUpCounts)) return false;
+
+  if (value.completedLevels !== undefined && !isNumberArray(value.completedLevels)) return false;
+  if (value.seenTutorials !== undefined && !isStringArray(value.seenTutorials)) return false;
+  if (value.unlockedRecipeCards !== undefined && !isStringArray(value.unlockedRecipeCards)) return false;
+  if (value.levelStars !== undefined && !isValidLevelStars(value.levelStars)) return false;
+  if (value.soundEnabled !== undefined && typeof value.soundEnabled !== 'boolean') return false;
+  if (value.hapticsEnabled !== undefined && typeof value.hapticsEnabled !== 'boolean') return false;
+
+  return true;
+}
+
 // Small interface matching @react-native-async-storage/async-storage's
 // actual getItem/setItem shape (both real signatures also accept an
 // optional trailing callback, which is structurally compatible with this
@@ -1974,12 +2052,44 @@ export function saveKey(skinId: string): string {
   return `${SAVE_KEY_NAMESPACE}:${skinId}`;
 }
 
+// A corrupted or malformed save (truncated by an interrupted write, storage
+// corruption, or a future save-format change an old blob doesn't match) used
+// to throw straight out of JSON.parse with no try/catch anywhere above it —
+// and since no ErrorBoundary existed either, that crash would repeat on
+// every subsequent launch, permanently, with the only "fix" being an app
+// data wipe the player has no way to know to perform. Falling back to null
+// (this function's own, already-real "no save yet" contract — see
+// App.tsx's applyLoadedSave(null), also what the dev-only reset already
+// uses) costs at most that one corrupted save's progress, a real but
+// completely different category of problem than the app refusing to open
+// at all. See engine/DECISIONS.md's defensive-save-loading entry.
 export async function loadSave(
   skinId: string,
   storage: AsyncStorageLike = defaultStorage
 ): Promise<SaveData | null> {
   const raw = await storage.getItem(saveKey(skinId));
-  return raw === null ? null : (JSON.parse(raw) as SaveData);
+  if (raw === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    console.error(
+      `[gameState] loadSave: save for skin "${skinId}" is not valid JSON — treating as a fresh save.`,
+      err
+    );
+    return null;
+  }
+
+  if (!isValidSaveData(parsed)) {
+    console.error(
+      `[gameState] loadSave: save for skin "${skinId}" failed schema validation — treating as a fresh save.`,
+      parsed
+    );
+    return null;
+  }
+
+  return parsed;
 }
 
 export async function saveProgress(

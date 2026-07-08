@@ -2173,6 +2173,151 @@ describe('save/load round trip', () => {
   });
 });
 
+// loadSave used to throw straight out of JSON.parse (or hand back a
+// malformed object) for any corrupted/malformed save, with no ErrorBoundary
+// anywhere above it to catch that — a crash that would then repeat on every
+// subsequent app launch. These confirm the fallback treats corruption as a
+// genuinely fresh save (loadSave's own already-real "no save yet" contract,
+// null) instead — see engine/DECISIONS.md's defensive-save-loading entry.
+describe('loadSave — corrupted or malformed saves fall back to fresh', () => {
+  let consoleErrorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    // A corrupted save is expected to log (this is the "not silent" half of
+    // the fix — see CLAUDE.md's no-silent-failures rule), so these tests
+    // deliberately trigger it. Silenced here only so the test run's own
+    // output stays clean; still asserted on below.
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  test('truncated/invalid JSON falls back to null, not a thrown error', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(saveKey('lalas-kitchen'), '{"skinId": "lalas-kitchen", "lives": 3,');
+
+    const loaded = await loadSave('lalas-kitchen', storage);
+
+    expect(loaded).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a save that is valid JSON but not an object falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(saveKey('lalas-kitchen'), '"just a string, not a save"');
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a save missing a required backbone field falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    // No `lives` at all — a required field, not one of the optional
+    // add-later fields like completedLevels/seenTutorials.
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 3,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a required field with the wrong type falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 3,
+        lives: 'three', // should be a number
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  // Optional fields (added after the save format's original shape) must
+  // still be the right shape IF PRESENT — a save shouldn't pass validation
+  // carrying a seenTutorials that isn't actually a string array, only to
+  // throw the first time something calls .includes() on it downstream.
+  test('an optional field present with the wrong shape falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 3,
+        lives: 3,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+        seenTutorials: 'blocker', // should be a string array, not a bare string
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  // A save genuinely missing every optional field (predating all of them)
+  // must still load successfully — this fix must not become stricter than
+  // the pre-existing "optional fields fall back at the read site" contract.
+  test('a genuinely old save missing every optional field still loads successfully', async () => {
+    const storage = createInMemoryStorage();
+    const minimalOldSave = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 2,
+      lives: 5,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: { tomato: 4 },
+      powerUpCounts: {},
+    };
+    await storage.setItem(saveKey('lalas-kitchen'), JSON.stringify(minimalOldSave));
+
+    const loaded = await loadSave('lalas-kitchen', storage);
+
+    expect(loaded).toEqual(minimalOldSave);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  // A valid, fully-populated save (every optional field present) must load
+  // exactly as before — this fix must not reject legitimate real saves.
+  test('a fully valid save with every optional field present still round-trips', async () => {
+    const storage = createInMemoryStorage();
+    const fullSave: SaveData = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 12,
+      lives: 4,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: { tomato: 10 },
+      powerUpCounts: {},
+      completedLevels: [1, 2, 3],
+      seenTutorials: ['blocker', 'striped'],
+      unlockedRecipeCards: ['tomato_stew'],
+      levelStars: { 1: 3, 2: 2 },
+      soundEnabled: true,
+      hapticsEnabled: false,
+    };
+    await saveProgress('lalas-kitchen', fullSave, storage);
+
+    expect(await loadSave('lalas-kitchen', storage)).toEqual(fullSave);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('applyMove — area bombs (2x2 square trigger)', () => {
   // A wholly-distinct grid so nothing matches or squares by accident — every
   // area-bomb scenario is set up explicitly on top of it. Same pattern as the
