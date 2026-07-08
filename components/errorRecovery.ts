@@ -48,3 +48,24 @@ export function nextResetState(current: ErrorRecoveryState): ErrorRecoveryState 
 export function describeCaughtError(error: Error, componentStack: string | null | undefined): unknown[] {
   return ['[ErrorBoundary] Unexpected crash, recovering to a fresh app state:', error, componentStack];
 }
+
+// The in-app crash record's actual shape (see engine/gameState.ts's
+// CrashRecord/recordCrash and SaveData.lastCrash) — a pure function so the
+// exact fields are testable without needing a real Error thrown through a
+// react-native-importing component. componentStack is folded into `stack`
+// (not dropped) since it's often the more useful half for a UI crash
+// specifically — which component was rendering, not just which line threw.
+export function describeCrashRecord(
+  error: Error,
+  componentStack: string | null | undefined,
+  timestamp: number
+): { message: string; stack?: string; timestamp: number } {
+  const stackParts = [error.stack, componentStack].filter(
+    (part): part is string => typeof part === 'string' && part.length > 0
+  );
+  return {
+    message: error.message || 'Unknown error',
+    stack: stackParts.length > 0 ? stackParts.join('\n\n') : undefined,
+    timestamp,
+  };
+}

@@ -1,5 +1,6 @@
 import {
   describeCaughtError,
+  describeCrashRecord,
   erroredRecoveryState,
   INITIAL_ERROR_RECOVERY_STATE,
   nextResetState,
@@ -51,5 +52,33 @@ describe('errorRecovery — the logic backing ErrorBoundary.tsx', () => {
     const error = new Error('boom');
     expect(() => describeCaughtError(error, undefined)).not.toThrow();
     expect(() => describeCaughtError(error, null)).not.toThrow();
+  });
+
+  test('describeCrashRecord captures the real message, folds in the component stack, and stamps the given timestamp', () => {
+    const error = new Error('Cannot read properties of undefined');
+    error.stack = 'Error: Cannot read properties of undefined\n    at foo (bar.ts:1:1)';
+    const componentStack = '\n    in Board\n    in AppRoot';
+
+    const record = describeCrashRecord(error, componentStack, 1700000000000);
+
+    expect(record.message).toBe('Cannot read properties of undefined');
+    expect(record.timestamp).toBe(1700000000000);
+    expect(record.stack).toContain('at foo (bar.ts:1:1)');
+    expect(record.stack).toContain('in Board');
+  });
+
+  test('describeCrashRecord tolerates a missing component stack and a missing error.stack', () => {
+    const error = new Error('boom');
+    delete (error as { stack?: string }).stack;
+
+    const record = describeCrashRecord(error, undefined, 5);
+
+    expect(record).toEqual({ message: 'boom', stack: undefined, timestamp: 5 });
+  });
+
+  test('describeCrashRecord falls back to a generic message rather than an empty string', () => {
+    const error = new Error('');
+    const record = describeCrashRecord(error, null, 1);
+    expect(record.message).toBe('Unknown error');
   });
 });

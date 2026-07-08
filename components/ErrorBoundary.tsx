@@ -1,8 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
+import { recordCrash } from '../engine/gameState';
 import {
   describeCaughtError,
+  describeCrashRecord,
   ErrorRecoveryState,
   erroredRecoveryState,
   INITIAL_ERROR_RECOVERY_STATE,
@@ -11,6 +13,11 @@ import {
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
+  // A plain string, not an import of SkinConfig itself (see this file's own
+  // comment below on why) — just enough to know which save's lastCrash
+  // field to patch. App.tsx passes skinConfig.skinId, already resolved at
+  // module scope before this component ever mounts.
+  skinId: string;
 }
 
 // The one place in the whole app that turns an otherwise-uncaught render
@@ -41,6 +48,11 @@ interface ErrorBoundaryProps {
 // set of colors matching lalas-kitchen's own today (see config.json) rather
 // than a prop or an import — a deliberate, narrow exception to this
 // project's usual "components read from skin config" rule, not an oversight.
+//
+// engine/gameState.ts IS imported, though (for recordCrash) — that's a
+// different category from skins/: it's foundational persistence
+// infrastructure every screen already depends on, not player-authored skin
+// content, so it isn't the kind of thing a bad config.json could break.
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorRecoveryState> {
   state: ErrorRecoveryState = INITIAL_ERROR_RECOVERY_STATE;
 
@@ -50,6 +62,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorReco
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error(...describeCaughtError(error, info.componentStack));
+    // Fire-and-forget: the fallback "Start Fresh" screen below gives the
+    // player plenty of time to read it before they'd ever tap it, so there's
+    // no real race with the write completing. Never lets a failure here
+    // block or worsen the crash recovery itself — see recordCrash's own
+    // comment for why this always has a real base to patch, even with no
+    // save yet.
+    recordCrash(this.props.skinId, describeCrashRecord(error, info.componentStack, Date.now())).catch((err) => {
+      console.error('[ErrorBoundary] Failed to record the crash for later review:', err);
+    });
   }
 
   handleReset = (): void => {

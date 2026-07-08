@@ -11,6 +11,7 @@ import {
   saveKey,
   createInMemoryStorage,
   countFiredSpecials,
+  recordCrash,
 } from './gameState';
 import {
   Board,
@@ -2295,6 +2296,52 @@ describe('save/load round trip', () => {
   });
 });
 
+describe('recordCrash', () => {
+  test('patches lastCrash onto an existing save, leaving every other field untouched', async () => {
+    const storage = createInMemoryStorage();
+    const data: SaveData = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 6,
+      lives: 3,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: { tomato: 4 },
+      powerUpCounts: {},
+      completedLevels: [1, 2, 3, 4, 5],
+    };
+    await saveProgress('lalas-kitchen', data, storage);
+
+    const crash = { message: 'Cannot read properties of undefined', stack: 'at foo (bar.ts:1:1)', timestamp: 1700000005000 };
+    await recordCrash('lalas-kitchen', crash, storage);
+
+    const loaded = await loadSave('lalas-kitchen', storage);
+    expect(loaded).toEqual({ ...data, lastCrash: crash });
+  });
+
+  test('a crash before any save exists yet still produces a real, loadable record', async () => {
+    const storage = createInMemoryStorage();
+    const crash = { message: 'Unexpected token', timestamp: 1700000009000 };
+
+    await recordCrash('brand-new-skin', crash, storage);
+
+    const loaded = await loadSave('brand-new-skin', storage);
+    expect(loaded?.lastCrash).toEqual(crash);
+    expect(loaded?.skinId).toBe('brand-new-skin');
+    expect(loaded?.currentLevel).toBe(1);
+  });
+
+  test('a second crash overwrites the first — only the most recent is kept', async () => {
+    const storage = createInMemoryStorage();
+    const first = { message: 'first crash', timestamp: 1 };
+    const second = { message: 'second crash', timestamp: 2 };
+
+    await recordCrash('lalas-kitchen', first, storage);
+    await recordCrash('lalas-kitchen', second, storage);
+
+    const loaded = await loadSave('lalas-kitchen', storage);
+    expect(loaded?.lastCrash).toEqual(second);
+  });
+});
+
 // loadSave used to throw straight out of JSON.parse (or hand back a
 // malformed object) for any corrupted/malformed save, with no ErrorBoundary
 // anywhere above it to catch that — a crash that would then repeat on every
@@ -2387,6 +2434,25 @@ describe('loadSave — corrupted or malformed saves fall back to fresh', () => {
         itemsCollected: {},
         powerUpCounts: {},
         seenTutorials: 'blocker', // should be a string array, not a bare string
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a malformed lastCrash (wrong field types) falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 1,
+        lives: 5,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+        lastCrash: { message: 123, timestamp: 'not-a-number' },
       })
     );
 

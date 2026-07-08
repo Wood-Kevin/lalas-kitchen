@@ -15,6 +15,7 @@ import { cutCornersVoids } from './engine/boardShapes';
 import { RecipeBook } from './components/RecipeBook';
 import { Settings } from './components/Settings';
 import {
+  CrashRecord,
   GameState,
   GameStatus,
   LevelConfig,
@@ -235,7 +236,7 @@ type Screen = 'loading' | 'home' | 'game' | 'levels' | 'outOfLives' | 'recipeBoo
 // without it being caught.
 export default function App() {
   return (
-    <ErrorBoundary>
+    <ErrorBoundary skinId={skinConfig.skinId}>
       <AppRoot />
     </ErrorBoundary>
   );
@@ -316,6 +317,15 @@ function AppRoot() {
   // reasoning as livesLastRegenAtRef above, since nothing in the UI ever
   // displays this directly.
   const consecutiveLossesRef = useRef(0);
+  // The most recent uncaught crash ErrorBoundary recorded (see
+  // components/ErrorBoundary.tsx/errorRecovery.ts and engine/gameState.ts's
+  // recordCrash), read back at boot the same way every other optional
+  // SaveData field above is. Ref-only, same reasoning as
+  // consecutiveLossesRef: buildSaveData's stable callbacks need a
+  // non-stale read, and this only ever actually changes across a full
+  // AppRoot remount (a crash always forces one via ErrorBoundary's
+  // resetKey), so there's no live-update case a plain ref would miss.
+  const lastCrashRef = useRef<CrashRecord | undefined>(undefined);
   // Whether the level currently loaded into `levelConfig` was actually
   // granted a breather at the moment it started — decided once in
   // handleNextLevel/handlePlayLevel and read (never re-derived) by
@@ -382,6 +392,7 @@ function AppRoot() {
     soundEnabledRef.current = initialSoundEnabled;
     hapticsEnabledRef.current = initialHapticsEnabled;
     consecutiveLossesRef.current = save?.consecutiveLosses ?? 0;
+    lastCrashRef.current = save?.lastCrash;
     isBreatherAttemptRef.current = false;
     livesRef.current = regenerated.lives;
     livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
@@ -471,7 +482,8 @@ function AppRoot() {
         { lives: livesRef.current },
         livesLastRegenAtRef.current,
         undefined,
-        consecutiveLossesRef.current
+        consecutiveLossesRef.current,
+        lastCrashRef.current
       )
     );
   }, []);
@@ -741,7 +753,8 @@ function AppRoot() {
         { lives: newLives },
         livesLastRegenAtRef.current,
         undefined,
-        consecutiveLossesRef.current
+        consecutiveLossesRef.current,
+        lastCrashRef.current
       )
     );
   }, []);
@@ -771,7 +784,8 @@ function AppRoot() {
         { lives: livesRef.current },
         livesLastRegenAtRef.current,
         undefined,
-        consecutiveLossesRef.current
+        consecutiveLossesRef.current,
+        lastCrashRef.current
       )
     );
   }, []);
@@ -807,7 +821,8 @@ function AppRoot() {
         { lives: livesRef.current },
         livesLastRegenAtRef.current,
         undefined,
-        consecutiveLossesRef.current
+        consecutiveLossesRef.current,
+        lastCrashRef.current
       )
     );
   }, []);
@@ -829,7 +844,8 @@ function AppRoot() {
         { lives: livesRef.current },
         livesLastRegenAtRef.current,
         undefined,
-        consecutiveLossesRef.current
+        consecutiveLossesRef.current,
+        lastCrashRef.current
       )
     );
   }, []);
@@ -920,6 +936,7 @@ function AppRoot() {
             hapticsEnabled={hapticsEnabled}
             onToggleSound={handleToggleSound}
             onToggleHaptics={handleToggleHaptics}
+            lastCrash={lastCrashRef.current}
             onBack={handleGoHome}
           />
         ) : screen === 'levels' ? (

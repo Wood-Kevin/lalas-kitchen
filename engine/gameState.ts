@@ -1970,6 +1970,26 @@ export interface SaveData {
   // resolves the real default (0 — a save with no history of this yet has
   // no streak) at read time via `??`, never here.
   consecutiveLosses?: number;
+  // The most recent uncaught crash ErrorBoundary caught, if any — see
+  // recordCrash below and components/ErrorBoundary.tsx/errorRecovery.ts.
+  // This is the one real signal that a crash happened on a real device with
+  // nobody watching a console, per CLAUDE.md's no-silent-failures rule:
+  // no remote telemetry service exists in this project (see
+  // DEFERRED_COMPLEXITY.md), so this in-app record — checkable later on the
+  // device itself, e.g. via components/Settings.tsx — is the lightest real
+  // alternative rather than building one. "Most recent", not a growing
+  // list: a single field is enough to notice something went wrong at all,
+  // and an unbounded crash log on a device nobody actively monitors would
+  // just grow forever with no reader to prune it.
+  lastCrash?: CrashRecord;
+}
+
+export interface CrashRecord {
+  message: string;
+  stack?: string;
+  // Date.now() at the moment of the crash — a real timestamp, not a
+  // relative "just now," since this is only ever read back much later.
+  timestamp: number;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -2021,7 +2041,16 @@ function isValidSaveData(value: unknown): value is SaveData {
   if (value.levelStars !== undefined && !isValidLevelStars(value.levelStars)) return false;
   if (value.soundEnabled !== undefined && typeof value.soundEnabled !== 'boolean') return false;
   if (value.hapticsEnabled !== undefined && typeof value.hapticsEnabled !== 'boolean') return false;
+  if (value.lastCrash !== undefined && !isValidCrashRecord(value.lastCrash)) return false;
 
+  return true;
+}
+
+function isValidCrashRecord(value: unknown): value is CrashRecord {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.message !== 'string') return false;
+  if (value.stack !== undefined && typeof value.stack !== 'string') return false;
+  if (typeof value.timestamp !== 'number') return false;
   return true;
 }
 
@@ -2127,6 +2156,36 @@ export async function saveProgress(
   storage: AsyncStorageLike = defaultStorage
 ): Promise<void> {
   await storage.setItem(saveKey(skinId), JSON.stringify(data));
+}
+
+// Called from components/ErrorBoundary.tsx's componentDidCatch — the one
+// in-app crash record this project has (see SaveData.lastCrash's own
+// comment for why this exists instead of a remote telemetry service).
+// Reads whatever the CURRENT save actually is (loadSave already falls back
+// to null on a corrupted blob — see the defensive-save-loading entry above)
+// and patches in just `lastCrash`, rather than rebuilding a full SaveData
+// via appPersistence.ts's buildSaveData: a crash can happen with no valid
+// in-memory app state to rebuild one from, but "whatever's already on disk,
+// plus this one field" only ever needs what's already there. A genuinely
+// fresh install (no save yet) still gets a real record — currentLevel: 1 and
+// every other field at its documented default, mirroring App.tsx's own
+// applyLoadedSave(null) fresh-save shape, so a crash before the player has
+// ever completed anything is still recorded rather than silently dropped.
+export async function recordCrash(
+  skinId: string,
+  crash: CrashRecord,
+  storage: AsyncStorageLike = defaultStorage
+): Promise<void> {
+  const existing = await loadSave(skinId, storage);
+  const base: SaveData = existing ?? {
+    skinId,
+    currentLevel: 1,
+    lives: 0,
+    livesLastRegenAt: Date.now(),
+    itemsCollected: {},
+    powerUpCounts: {},
+  };
+  await saveProgress(skinId, { ...base, lastCrash: crash }, storage);
 }
 
 // Deletes this skin's entire save so the next loadSave returns null — the exact

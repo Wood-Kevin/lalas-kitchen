@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Switch, View } from 'react-native';
 import { Text } from './AppText';
+import { CrashRecord } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
 
@@ -10,6 +11,13 @@ export interface SettingsProps {
   hapticsEnabled: boolean;
   onToggleSound: (next: boolean) => void;
   onToggleHaptics: (next: boolean) => void;
+  // The last uncaught crash ErrorBoundary recorded, if any (see
+  // engine/gameState.ts's recordCrash) — undefined for the common case
+  // where nothing has ever crashed. This is the lightest real telemetry
+  // signal this project has: no remote crash-reporting service exists (see
+  // DEFERRED_COMPLEXITY.md), so this is only ever seen by someone who
+  // physically opens this screen on the actual device.
+  lastCrash?: CrashRecord;
   onBack: () => void;
 }
 
@@ -30,9 +38,10 @@ export function Settings({
   hapticsEnabled,
   onToggleSound,
   onToggleHaptics,
+  lastCrash,
   onBack,
 }: SettingsProps) {
-  const { accent, panel, border, text, background } = config.palette;
+  const { accent, panel, border, text, mutedText, background } = config.palette;
 
   return (
     <View style={[styles.container, { backgroundColor: background[0] }]}>
@@ -71,6 +80,26 @@ export function Settings({
           </View>
         </View>
       </View>
+
+      {/* Only ever rendered if a crash actually happened — the common case
+          is this section simply doesn't exist. Worded calmly (per CLAUDE.md's
+          Design Constraints) rather than as an alarming error dialog, since
+          the one real player this screen is for isn't a developer; the raw
+          message/timestamp is still shown, in muted small text, so whoever
+          built this game can actually use it as a real signal if they check. */}
+      {lastCrash && (
+        <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
+          <View style={styles.cardPadding}>
+            <Text style={[styles.rowTitle, { color: text }]}>A technical hiccup</Text>
+            <Text style={[styles.crashNote, { color: mutedText }]}>
+              Safe to ignore — this just helps with fixing things later.
+            </Text>
+            <Text style={[styles.crashDetail, { color: mutedText }]}>
+              {new Date(lastCrash.timestamp).toLocaleString()} — {lastCrash.message}
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -124,5 +153,13 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 19,
     fontWeight: '700',
+  },
+  crashNote: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  crashDetail: {
+    fontSize: 11,
+    marginTop: 8,
   },
 });

@@ -997,6 +997,23 @@ describe('buildSaveData — consecutiveLosses (difficulty breather)', () => {
   });
 });
 
+describe('buildSaveData — lastCrash passthrough', () => {
+  // The whole point: an ordinary gameplay save (soundEnabled toggle,
+  // tutorial dismiss, etc.) must not silently drop a crash record recordCrash
+  // wrote via a completely different code path — see engine/gameState.ts's
+  // recordCrash and App.tsx's lastCrashRef.
+  test('writes the explicitly-passed lastCrash through unchanged', () => {
+    const crash = { message: 'boom', timestamp: 123 };
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 }, undefined, Date.now, 0, crash);
+    expect(data.lastCrash).toEqual(crash);
+  });
+
+  test('defaults to undefined when omitted, same as every other pre-existing call site', () => {
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 });
+    expect(data.lastCrash).toBeUndefined();
+  });
+});
+
 describe('SaveData — sound/haptics backward compatibility', () => {
   test('an old save with no sound/haptics fields still loads, defaults resolved by the caller (not buildSaveData)', async () => {
     const storage = createInMemoryStorage();

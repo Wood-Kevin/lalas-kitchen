@@ -1,5 +1,5 @@
 import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId, playableCellRatio } from './engine/boardShapes';
-import { Board, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
+import { Board, CrashRecord, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
 import { Piece } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -71,7 +71,13 @@ export function buildSaveData(
   state: Pick<GameState, 'lives'>,
   livesLastRegenAt?: number,
   now: () => number = Date.now,
-  consecutiveLosses: number = 0
+  consecutiveLosses: number = 0,
+  // Threaded through from App.tsx's lastCrashRef (loaded from the previous
+  // save at boot — see engine/gameState.ts's recordCrash) so an ordinary
+  // gameplay save doesn't silently drop a crash record that was written by
+  // a completely different code path. Every call site passes its current
+  // ref value, same shape as consecutiveLosses above.
+  lastCrash?: CrashRecord
 ): SaveData {
   return {
     skinId,
@@ -87,6 +93,7 @@ export function buildSaveData(
     soundEnabled,
     hapticsEnabled,
     consecutiveLosses,
+    lastCrash,
   };
 }
 
