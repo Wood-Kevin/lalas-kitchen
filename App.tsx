@@ -29,6 +29,7 @@ import {
   buildGeneratedLevelConfig,
   buildSaveData,
   canStartLevel,
+  consecutiveLossesAfterLoss,
   didLevelJustEnd,
   findRecipeCardForLevel,
   grantInstantLife,
@@ -39,6 +40,7 @@ import {
   resolveNextLevelIndex,
   resolveStartLevelIndex,
   resolveStartScreen,
+  shouldApplyBreather,
   startingLives,
   unlockRecipeCard,
 } from './appPersistence';
@@ -191,7 +193,12 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   },
 ];
 
-function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {
+// `breather` (see appPersistence.ts's shouldApplyBreather) defaults false so
+// the level-map preview call sites below, which never want to reflect a
+// streak that might change before the player actually starts the level,
+// stay unaffected. The two real "start playing" call sites (handleNextLevel,
+// handlePlayLevel) decide and pass it explicitly.
+function buildLevelConfig(levelIndex: number, lives: number, breather: boolean = false): LevelConfig {
   const base =
     levelIndex <= LEVEL_QUEUE.length
       ? LEVEL_QUEUE[levelIndex - 1]
@@ -201,7 +208,8 @@ function buildLevelConfig(levelIndex: number, lives: number): LevelConfig {
           skinConfig.pieceTypes.map((pieceType) => pieceType.id),
           LEVEL_QUEUE[0].rows,
           LEVEL_QUEUE[0].cols,
-          skinConfig.blockers
+          skinConfig.blockers,
+          breather
         );
   return { ...base, lives };
 }
@@ -302,6 +310,19 @@ function AppRoot() {
   // The regen anchor backing applyLivesRegen — ref-only since nothing ever
   // renders off this value directly, only off `lives` itself.
   const livesLastRegenAtRef = useRef(Date.now());
+  // The difficulty-breather streak (see appPersistence.ts's
+  // shouldApplyBreather/consecutiveLossesAfterLoss) — ref-only, same
+  // reasoning as livesLastRegenAtRef above, since nothing in the UI ever
+  // displays this directly.
+  const consecutiveLossesRef = useRef(0);
+  // Whether the level currently loaded into `levelConfig` was actually
+  // granted a breather at the moment it started — decided once in
+  // handleNextLevel/handlePlayLevel and read (never re-derived) by
+  // handleBoardStateChange's post-win star-rating recompute below, so that
+  // recompute reflects the exact movesLimit this attempt was actually played
+  // against rather than whatever consecutiveLossesRef happens to hold by the
+  // time the level ends (which may already be reset to 0 by then).
+  const isBreatherAttemptRef = useRef(false);
 
   // Initialize all session state from a loaded save (or `null` for a fresh
   // install). Factored out of the mount effect so the dev reset can reuse the
@@ -349,6 +370,8 @@ function AppRoot() {
     unlockedRecipeCardsRef.current = initialUnlockedRecipeCards;
     soundEnabledRef.current = initialSoundEnabled;
     hapticsEnabledRef.current = initialHapticsEnabled;
+    consecutiveLossesRef.current = save?.consecutiveLosses ?? 0;
+    isBreatherAttemptRef.current = false;
     livesRef.current = regenerated.lives;
     livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
     setLives(regenerated.lives);
@@ -418,7 +441,11 @@ function AppRoot() {
     // persisted lives count lives in livesRef, not on GameState (see the
     // `lives` state's doc comment above). livesLastRegenAtRef is passed
     // explicitly too, so a save doesn't silently reset the regen clock to
-    // "now" (see appPersistence.ts's buildSaveData comment).
+    // "now" (see appPersistence.ts's buildSaveData comment). The `undefined`
+    // in the 11th slot is buildSaveData's own `now` param — skipped
+    // (defaulting to Date.now) so consecutiveLossesRef.current can be passed
+    // in its usual trailing position without every call site needing to
+    // also override `now`.
     saveProgress(
       skinConfig.skinId,
       buildSaveData(
@@ -431,7 +458,9 @@ function AppRoot() {
         soundEnabledRef.current,
         hapticsEnabledRef.current,
         { lives: livesRef.current },
-        livesLastRegenAtRef.current
+        livesLastRegenAtRef.current,
+        undefined,
+        consecutiveLossesRef.current
       )
     );
   }, []);
@@ -475,6 +504,11 @@ function AppRoot() {
     // applyLivesRegen's own comment on this).
     livesLastRegenAtRef.current = wasFull ? now : regenerated.livesLastRegenAt;
     setLives(newLives);
+    // Every real life-loss counts toward the difficulty-breather streak
+    // (see appPersistence.ts's consecutiveLossesAfterLoss/shouldApplyBreather),
+    // hand-built level or generated — reset only ever happens on a win
+    // (handleBoardStateChange's won branch below).
+    consecutiveLossesRef.current = consecutiveLossesAfterLoss(consecutiveLossesRef.current);
     // Explicit immediate save, same reasoning as handleGrantLife's own —
     // persistLatestState only ever reads `.lives` from livesRef (see its own
     // comment), so this is safe to call right away rather than waiting for
@@ -496,6 +530,12 @@ function AppRoot() {
           completedLevelsRef.current = updated;
           setCompletedLevels(updated);
 
+          // A win always resets the difficulty-breather streak, whether or
+          // not this particular attempt was itself a breather (see
+          // appPersistence.ts's shouldApplyBreather and CLAUDE.md's
+          // difficulty-breather entry).
+          consecutiveLossesRef.current = 0;
+
           // Same star formula WonOverlay derives for its own in-the-moment
           // display (see wonActions.ts's computeStarRating) — movesLimit
           // isn't on GameState itself (see LevelConfig.movesLimit's own
@@ -503,8 +543,16 @@ function AppRoot() {
           // every other level-progress computation on this screen already
           // calls; `lives` only affects the returned config's own `.lives`
           // field, never movesLimit, so livesRef.current's exact value here
-          // is inconsequential.
-          const movesLimit = buildLevelConfig(levelIndexRef.current, livesRef.current).movesLimit;
+          // is inconsequential. `isBreatherAttemptRef.current` (not a fresh
+          // shouldApplyBreather re-check) is passed through so this reflects
+          // the exact movesLimit the player actually played against — the
+          // streak reset just above means consecutiveLossesRef itself can no
+          // longer answer that question by the time this runs.
+          const movesLimit = buildLevelConfig(
+            levelIndexRef.current,
+            livesRef.current,
+            isBreatherAttemptRef.current
+          ).movesLimit;
           const stars = computeStarRating(state.movesRemaining, movesLimit);
           const updatedStars = recordLevelStars(levelStarsRef.current, levelIndexRef.current, stars);
           levelStarsRef.current = updatedStars;
@@ -563,7 +611,13 @@ function AppRoot() {
     setLives(regenerated.lives);
     levelIndexRef.current = next;
     setLevelIndex(next);
-    setLevelConfig(buildLevelConfig(next, regenerated.lives));
+    // Decide the difficulty breather here, at the real moment this level
+    // starts (see appPersistence.ts's shouldApplyBreather) — never re-derived
+    // later, since granting one consumes the streak immediately below.
+    const breather = shouldApplyBreather(consecutiveLossesRef.current, next, LEVEL_QUEUE.length);
+    isBreatherAttemptRef.current = breather;
+    if (breather) consecutiveLossesRef.current = 0;
+    setLevelConfig(buildLevelConfig(next, regenerated.lives, breather));
     // A new level is starting in_progress — reset so the next won/paused
     // transition on it is correctly detected as a fresh level ending, not
     // read against the previous level's leftover 'won' status.
@@ -620,7 +674,11 @@ function AppRoot() {
 
     levelIndexRef.current = targetLevelIndex;
     setLevelIndex(targetLevelIndex);
-    setLevelConfig(buildLevelConfig(targetLevelIndex, regenerated.lives));
+    // Same breather decision-and-consume shape as handleNextLevel above.
+    const breather = shouldApplyBreather(consecutiveLossesRef.current, targetLevelIndex, LEVEL_QUEUE.length);
+    isBreatherAttemptRef.current = breather;
+    if (breather) consecutiveLossesRef.current = 0;
+    setLevelConfig(buildLevelConfig(targetLevelIndex, regenerated.lives, breather));
     prevStatusRef.current = null;
     setScreen('game');
   }, []);
@@ -663,7 +721,9 @@ function AppRoot() {
         soundEnabledRef.current,
         hapticsEnabledRef.current,
         { lives: newLives },
-        livesLastRegenAtRef.current
+        livesLastRegenAtRef.current,
+        undefined,
+        consecutiveLossesRef.current
       )
     );
   }, []);
@@ -691,7 +751,9 @@ function AppRoot() {
         soundEnabledRef.current,
         hapticsEnabledRef.current,
         { lives: livesRef.current },
-        livesLastRegenAtRef.current
+        livesLastRegenAtRef.current,
+        undefined,
+        consecutiveLossesRef.current
       )
     );
   }, []);
@@ -715,7 +777,9 @@ function AppRoot() {
         next,
         hapticsEnabledRef.current,
         { lives: livesRef.current },
-        livesLastRegenAtRef.current
+        livesLastRegenAtRef.current,
+        undefined,
+        consecutiveLossesRef.current
       )
     );
   }, []);
@@ -735,7 +799,9 @@ function AppRoot() {
         soundEnabledRef.current,
         next,
         { lives: livesRef.current },
-        livesLastRegenAtRef.current
+        livesLastRegenAtRef.current,
+        undefined,
+        consecutiveLossesRef.current
       )
     );
   }, []);
@@ -769,6 +835,11 @@ function AppRoot() {
   // (cheap: buildLevelConfig never runs the board generator itself, see
   // appPersistence.ts's buildGeneratedLevelConfig) rather than the
   // mockup's illustrative "11 of 24"/"Wooden Spoon" placeholder values.
+  // Both buildLevelConfig calls below omit `breather` deliberately — a map
+  // preview isn't "starting" the level (see shouldApplyBreather), so it
+  // always shows the ramp's normal numbers even when a breather happens to
+  // be currently due; the real decision is made fresh, and consumed, only
+  // when the player actually taps in (handleNextLevel/handlePlayLevel).
   const nextLevelIndex = resolveNextUnplayedLevel(completedLevels);
   const nextLevelSummary = buildLevelSummary(buildLevelConfig(nextLevelIndex, lives), nextLevelIndex);
   // resolveLevelMapIndices (not the old resolveVisibleLevelIndices) is what

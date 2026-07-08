@@ -42,6 +42,9 @@ import {
   HOW_TO_PLAY_TUTORIAL_ID,
   startingLives,
   unlockRecipeCard,
+  BREATHER_LOSS_THRESHOLD,
+  consecutiveLossesAfterLoss,
+  shouldApplyBreather,
 } from './appPersistence';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -383,6 +386,21 @@ describe('generatedMovesLimit', () => {
   test('playableRatio 1 (a plain rectangle) is a no-op — same as omitting it', () => {
     expect(generatedMovesLimit(5, 1)).toBe(generatedMovesLimit(5));
   });
+
+  test('breather grants ~30% more moves than the same level would normally get', () => {
+    const normal = generatedMovesLimit(500);
+    const breather = generatedMovesLimit(500, 1, true);
+    expect(breather).toBeGreaterThan(normal);
+    expect(breather).toBe(Math.round(normal * 1.3));
+  });
+
+  test('breather composes with a shaped board\'s playableRatio scaling', () => {
+    expect(generatedMovesLimit(500, 0.55, true)).toBe(Math.max(18, Math.round(18 * 0.55 * 1.3)));
+  });
+
+  test('breather defaults off — omitting it matches passing false explicitly', () => {
+    expect(generatedMovesLimit(10)).toBe(generatedMovesLimit(10, 1, false));
+  });
 });
 
 describe('generatedTargetCount', () => {
@@ -404,6 +422,48 @@ describe('generatedTargetCount', () => {
 
   test('playableRatio 1 (a plain rectangle) is a no-op — same as omitting it', () => {
     expect(generatedTargetCount(10, 1)).toBe(generatedTargetCount(10));
+  });
+
+  test('breather asks for ~30% fewer pieces than the same level would normally require', () => {
+    const normal = generatedTargetCount(500);
+    const breather = generatedTargetCount(500, 1, true);
+    expect(breather).toBeLessThan(normal);
+    expect(breather).toBe(Math.round(normal * 0.7));
+  });
+
+  test('the MIN_TARGET floor still holds under a breather on a severely reduced board', () => {
+    expect(generatedTargetCount(1, 0.1, true)).toBe(10);
+  });
+
+  test('breather defaults off — omitting it matches passing false explicitly', () => {
+    expect(generatedTargetCount(10)).toBe(generatedTargetCount(10, 1, false));
+  });
+});
+
+describe('shouldApplyBreather / consecutiveLossesAfterLoss', () => {
+  test('increments by exactly one per loss', () => {
+    expect(consecutiveLossesAfterLoss(0)).toBe(1);
+    expect(consecutiveLossesAfterLoss(1)).toBe(2);
+    expect(consecutiveLossesAfterLoss(5)).toBe(6);
+  });
+
+  test('no breather on a single loss', () => {
+    expect(shouldApplyBreather(1, 20, 7)).toBe(false);
+  });
+
+  test('breather kicks in once losses reach the threshold, on a generated level', () => {
+    expect(BREATHER_LOSS_THRESHOLD).toBe(2);
+    expect(shouldApplyBreather(2, 20, 7)).toBe(true);
+    expect(shouldApplyBreather(3, 20, 7)).toBe(true);
+  });
+
+  test('never applies to a hand-built level, no matter how long the streak', () => {
+    expect(shouldApplyBreather(10, 5, 7)).toBe(false);
+    expect(shouldApplyBreather(10, 7, 7)).toBe(false);
+  });
+
+  test('applies to the very first generated level past the hand-built queue', () => {
+    expect(shouldApplyBreather(2, 8, 7)).toBe(true);
   });
 });
 
@@ -712,6 +772,38 @@ describe('buildGeneratedLevelConfig', () => {
     }
     expect(state.board.flat().some((p) => p.type === 'blocker')).toBe(true);
   });
+
+  test('breather=true produces a genuinely easier level than the same levelIndex normally gets', () => {
+    // levelIndex 40 -> generated level number 37, well past every ramp floor/
+    // cap (movesLimit floors at 13, targetCount caps at 6) — exactly the
+    // "flatlined" range a real losing streak would occur in.
+    const normal = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
+    const breather = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, [], true);
+    expect(breather.movesLimit).toBeGreaterThan(normal.movesLimit);
+    // buildGeneratedLevelConfig never produces a 'clearance' objective (only
+    // 'collect'/'score', both of which carry targetCount) — see this file's
+    // other buildGeneratedLevelConfig tests on this same point.
+    const sumTargets = (objectives: typeof normal.objectives) =>
+      objectives.reduce((sum, o) => sum + (o as { targetCount: number }).targetCount, 0);
+    expect(sumTargets(breather.objectives)).toBeLessThan(sumTargets(normal.objectives));
+  });
+
+  test('breather never changes anything other than movesLimit/targetCount — same seed, shape, blockers', () => {
+    const normal = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
+    const breather = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS, true);
+    expect(breather.seed).toBe(normal.seed);
+    expect(breather.pieceTypeIds).toEqual(normal.pieceTypeIds);
+    expect(breather.voidCells).toEqual(normal.voidCells);
+    expect(breather.blockerCount).toBe(normal.blockerCount);
+    expect(breather.blockerMatchType).toBe(normal.blockerMatchType);
+    expect(breather.denialSpread).toBe(normal.denialSpread);
+  });
+
+  test('breather defaults off — omitting it matches passing false explicitly', () => {
+    const omitted = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
+    const explicit = buildGeneratedLevelConfig(40, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, [], false);
+    expect(omitted).toEqual(explicit);
+  });
 });
 
 describe('eligibleBlockerIds', () => {
@@ -887,6 +979,18 @@ describe('buildSaveData — sound/haptics flags', () => {
   test('writes hapticsEnabled through unchanged', () => {
     const data = buildSaveData('skin', 1, [], {}, [], [], false, true, { lives: 3 });
     expect(data.hapticsEnabled).toBe(true);
+  });
+});
+
+describe('buildSaveData — consecutiveLosses (difficulty breather)', () => {
+  test('writes the explicitly-passed streak through unchanged', () => {
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 }, undefined, Date.now, 2);
+    expect(data.consecutiveLosses).toBe(2);
+  });
+
+  test('defaults to 0 when omitted, same as every other pre-existing call site', () => {
+    const data = buildSaveData('skin', 1, [], {}, [], [], false, false, { lives: 3 });
+    expect(data.consecutiveLosses).toBe(0);
   });
 });
 

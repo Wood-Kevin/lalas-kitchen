@@ -1941,6 +1941,15 @@ export interface SaveData {
   // real default (also off, for the same calm-by-default reasoning as
   // sound — no documented user research exists for haptics specifically).
   hapticsEnabled?: boolean;
+  // How many level losses in a row the player has just had, hand-built or
+  // generated — see appPersistence.ts's consecutiveLossesAfterLoss/
+  // shouldApplyBreather and CLAUDE.md's difficulty-breather entry. Reset to
+  // 0 on any win, and consumed back to 0 the instant a breather is actually
+  // granted to a generated level. Optional for the same pre-existing-save-
+  // file reason as every other field above; App.tsx's applyLoadedSave
+  // resolves the real default (0 — a save with no history of this yet has
+  // no streak) at read time via `??`, never here.
+  consecutiveLosses?: number;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

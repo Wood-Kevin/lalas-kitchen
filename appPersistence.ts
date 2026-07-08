@@ -53,6 +53,12 @@ export function didLevelJustEnd(prevStatus: GameStatus | null, nextStatus: GameS
 // current authoritative anchor explicitly — see `applyLivesRegen` — rather
 // than letting every save silently reset the regen clock to "now", which
 // would erase progress toward the next tick on every single save.
+// `consecutiveLosses` is appended after `now` (rather than inserted amongst
+// the other progress fields above) purely so every pre-existing positional
+// call site — this repo has many, in both App.tsx and its tests — keeps
+// working unchanged rather than silently shifting `state`/`livesLastRegenAt`
+// into the wrong slot. Defaults to 0, the same "not tracked yet" fallback
+// SaveData.consecutiveLosses itself resolves to on read.
 export function buildSaveData(
   skinId: string,
   currentLevel: number,
@@ -64,7 +70,8 @@ export function buildSaveData(
   hapticsEnabled: boolean,
   state: Pick<GameState, 'lives'>,
   livesLastRegenAt?: number,
-  now: () => number = Date.now
+  now: () => number = Date.now,
+  consecutiveLosses: number = 0
 ): SaveData {
   return {
     skinId,
@@ -79,6 +86,7 @@ export function buildSaveData(
     unlockedRecipeCards,
     soundEnabled,
     hapticsEnabled,
+    consecutiveLosses,
   };
 }
 
@@ -88,6 +96,17 @@ export function buildSaveData(
 // asks for anything richer.
 export function livesAfterLoss(lives: number): number {
   return Math.max(0, lives - 1);
+}
+
+// The difficulty-breather streak counter (see shouldApplyBreather/
+// buildGeneratedLevelConfig below): every real life-loss — hand-built or
+// generated level, the streak doesn't care which — increments it by one.
+// It's reset to 0 on any win (see App.tsx's handleBoardStateChange) and
+// consumed back to 0 the moment a breather is actually granted (see
+// shouldApplyBreather's own comment), so this is a plain unbounded counter,
+// not itself gated at a max.
+export function consecutiveLossesAfterLoss(consecutiveLosses: number): number {
+  return consecutiveLosses + 1;
 }
 
 // The one gate every level-start entry point shares — Home's "Start
@@ -569,12 +588,27 @@ export function generatedPieceTypeCount(levelNumber: number, availableTypeCount:
 // re-applied after scaling, not just before, so a heavily-voided board still
 // can't drop below the same mechanically-unwinnable guarantee a full board
 // gets.
-export function generatedMovesLimit(levelNumber: number, playableRatio: number = 1): number {
+//
+// `breather` (see shouldApplyBreather below) is the difficulty-breather
+// lever's own scale-up, same shape and same default-off convention as
+// playableRatio — composed with it rather than replacing it, so a breather
+// on a shaped board still gets both adjustments. BREATHER_MOVES_RATIO is a
+// flat +30%: by the level range where a real losing streak is likely (past
+// ~13), this function has already flatlined at MIN_MOVES, so the boost has
+// to be large enough to read as a genuine, felt difference rather than a
+// rounding blip.
+export function generatedMovesLimit(
+  levelNumber: number,
+  playableRatio: number = 1,
+  breather: boolean = false
+): number {
   const BASE_MOVES = 24;
   const MIN_MOVES = 18;
+  const BREATHER_MOVES_RATIO = 1.3;
   const step = Math.floor((levelNumber - 1) / 2);
   const fullBoardMoves = Math.max(MIN_MOVES, BASE_MOVES - step);
-  return Math.max(MIN_MOVES, Math.round(fullBoardMoves * playableRatio));
+  const scaled = fullBoardMoves * playableRatio * (breather ? BREATHER_MOVES_RATIO : 1);
+  return Math.max(MIN_MOVES, Math.round(scaled));
 }
 
 // Mirrors LEVEL_QUEUE's own light per-level growth in target count, capped
@@ -588,12 +622,25 @@ export function generatedMovesLimit(levelNumber: number, playableRatio: number =
 // disproportionately harder on a board that's lost, say, 45% of its cells to
 // a `ring` template. MIN_TARGET floors the result so a heavily-voided board
 // never asks for a degenerately trivial handful of pieces.
-export function generatedTargetCount(levelNumber: number, playableRatio: number = 1): number {
+//
+// `breather` (see shouldApplyBreather below) is the difficulty-breather
+// lever's own scale-down, same shape as generatedMovesLimit's own breather
+// param above — composed with playableRatio, defaults off. BREATHER_TARGET_
+// RATIO is a flat -30%, matching generatedMovesLimit's +30% in magnitude so
+// the breather reads as one coherent easier level, not one lever moving far
+// more than the other.
+export function generatedTargetCount(
+  levelNumber: number,
+  playableRatio: number = 1,
+  breather: boolean = false
+): number {
   const BASE_TARGET = 20;
   const MAX_TARGET = 26;
   const MIN_TARGET = 10;
+  const BREATHER_TARGET_RATIO = 0.7;
   const fullBoardTarget = Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
-  return Math.max(MIN_TARGET, Math.round(fullBoardTarget * playableRatio));
+  const scaled = fullBoardTarget * playableRatio * (breather ? BREATHER_TARGET_RATIO : 1);
+  return Math.max(MIN_TARGET, Math.round(scaled));
 }
 
 // How many simultaneous objectives a generated level asks for. Gated on
@@ -663,6 +710,30 @@ const BLOCKER_MIN_LEVEL_NUMBER: Record<string, number> = {
 // existing blocker contract already IS "cells clearable only by matches landing
 // on them." See CLAUDE.md's Data Model Notes.
 const DENIAL_SPREAD_MIN_LEVEL_NUMBER = 10;
+
+// The difficulty-breather gate: the ramp above climbs then flatlines for
+// good (generatedMovesLimit hits MIN_MOVES by level 13, generatedTargetCount
+// hits MAX_TARGET by level 6), applying the same pressure forever regardless
+// of how a player is actually doing. Two or more consecutive level losses in
+// a row (App.tsx's consecutiveLossesRef, incremented by
+// consecutiveLossesAfterLoss above on every real life-loss, hand-built or
+// generated) earns the very next GENERATED level a temporary easier
+// movesLimit/targetCount (see generatedMovesLimit/generatedTargetCount's own
+// `breather` param) — never a hand-built LEVEL_QUEUE level, which has no
+// formula-driven difficulty to relax. This is deliberately a one-off dip,
+// not a ramp change: the moment it's granted, App.tsx consumes it by
+// resetting the streak to 0, so the level immediately after resumes the
+// exact same numbers the ramp would have given it anyway. A win also resets
+// the streak to 0 regardless of whether a breather fired, per this
+// session's brief.
+export const BREATHER_LOSS_THRESHOLD = 2;
+export function shouldApplyBreather(
+  consecutiveLosses: number,
+  levelIndex: number,
+  handBuiltLevelCount: number
+): boolean {
+  return levelIndex > handBuiltLevelCount && consecutiveLosses >= BREATHER_LOSS_THRESHOLD;
+}
 
 // Which of a skin's blocker ids are allowed to appear at all at this
 // generated-level-number — id order preserved from the input array so
@@ -754,13 +825,21 @@ export function generatedShapeId(levelNumber: number): BoardShapeId | undefined 
 // `blockers` (a blocker-less skin) means no eligible ids ever, so
 // generatedBlockerCount is never even consulted — unchanged behavior from
 // before this pool existed.
+//
+// `breather` (see shouldApplyBreather above) is decided and consumed by the
+// caller (App.tsx, at the moment a level actually starts), never derived in
+// here — this function stays a pure projection of levelIndex plus whatever
+// the caller passes, with no knowledge of loss streaks. Defaults false so
+// every pre-existing call site (tests, the level-map preview calls) is
+// unaffected.
 export function buildGeneratedLevelConfig(
   levelIndex: number,
   handBuiltLevelCount: number,
   allPieceTypeIds: string[],
   rows: number,
   cols: number,
-  blockers: Array<{ id: string; hitsToClear: number }> = []
+  blockers: Array<{ id: string; hitsToClear: number }> = [],
+  breather: boolean = false
 ): Omit<LevelConfig, 'lives'> {
   const levelNumber = generatedLevelNumber(levelIndex, handBuiltLevelCount);
   const typeCount = generatedPieceTypeCount(levelNumber, allPieceTypeIds.length);
@@ -798,7 +877,7 @@ export function buildGeneratedLevelConfig(
   // once the target has saturated at 26 (both need levelNumber >= 7), so
   // this splits cleanly to 13 + 13 on a full board (scaled down together by
   // playableRatio on a shaped one).
-  const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber, playableRatio) / objectiveCount);
+  const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber, playableRatio, breather) / objectiveCount);
   const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
     targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
     targetCount: perObjectiveTarget,
@@ -822,7 +901,7 @@ export function buildGeneratedLevelConfig(
     rows,
     cols,
     pieceTypeIds,
-    movesLimit: generatedMovesLimit(levelNumber, playableRatio),
+    movesLimit: generatedMovesLimit(levelNumber, playableRatio, breather),
     objectives,
     ...(blockerCount > 0 && chosenBlocker
       ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
