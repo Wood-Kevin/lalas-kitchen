@@ -420,8 +420,13 @@ describe('generatedObjectiveCount', () => {
 });
 
 describe('generatedShapeId', () => {
+  // SHAPE_ROTATION_OFFSET (1) shifts the rotation's starting point by one
+  // step, so the very first shaped level lands on BOARD_SHAPE_ROTATION[1]
+  // (plus), not [0] (cut_corners) — closing the coincidental back-to-back
+  // repeat with hand-built level 7 "Pantry Corners", which also uses
+  // cut_corners (see appPersistence.ts's SHAPE_ROTATION_OFFSET doc).
   test('a shape appears at the very first generated level — threshold is now 1', () => {
-    expect(generatedShapeId(1)).toBe(BOARD_SHAPE_ROTATION[0]);
+    expect(generatedShapeId(1)).toBe(BOARD_SHAPE_ROTATION[1]);
   });
 
   test('off-cadence levels get no shape (1 in 2, half of all generated levels)', () => {
@@ -431,16 +436,16 @@ describe('generatedShapeId', () => {
     }
   });
 
-  test('rotates through every template in BOARD_SHAPE_ROTATION order across successive on-cadence levels', () => {
+  test('rotates through every template in BOARD_SHAPE_ROTATION order across successive on-cadence levels, offset by one', () => {
     const onCadenceLevels = [1, 3, 5, 7, 9, 11];
     const seen = onCadenceLevels.map((levelNumber) => generatedShapeId(levelNumber));
     expect(seen).toEqual([
-      BOARD_SHAPE_ROTATION[0],
       BOARD_SHAPE_ROTATION[1],
       BOARD_SHAPE_ROTATION[2],
       BOARD_SHAPE_ROTATION[0],
       BOARD_SHAPE_ROTATION[1],
       BOARD_SHAPE_ROTATION[2],
+      BOARD_SHAPE_ROTATION[0],
     ]);
   });
 
@@ -459,12 +464,13 @@ describe('buildGeneratedLevelConfig', () => {
     // generatedPieceTypeCount), which is below MIN_TYPES_FOR_SECOND_OBJECTIVE,
     // so this is still a single-objective level — an array of length one,
     // not a special case. SHAPE_MIN_LEVEL_NUMBER is now 1, so this very first
-    // generated level is also shaped (rotation[0], cut_corners at 8x6) —
+    // generated level is also shaped (rotation[1], plus at 8x6 — offset by
+    // SHAPE_ROTATION_OFFSET to avoid repeating Pantry Corners' cut_corners) —
     // movesLimit/targetCount are computed via the real playableRatio-scaled
     // helpers rather than hand-typed, so this test can't silently drift from
     // the actual scaling formula the way a hardcoded number would.
     const config = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[0]](8, 6);
+    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6);
     const ratio = playableCellRatio(8, 6, voidCells);
     expect(config).toEqual({
       seed: 301,
@@ -480,18 +486,19 @@ describe('buildGeneratedLevelConfig', () => {
   test('grows the piece-type pool and shares the target total across two objectives', () => {
     // Level 10 -> generated level number 7 -> 3 + floor(6/3) = 5 types,
     // which clears MIN_TYPES_FOR_SECOND_OBJECTIVE (5), so this level now
-    // asks for two distinct objectives. This level is also shaped (still
-    // rotation[0] — level 7's steps-since-threshold, 6, wraps back to index 0
-    // — at the same 8x6 board, same ratio as the test above), so the shared
-    // total below is generatedTargetCount(7, ratio), not the unscaled 26 a
-    // plain rectangle would get. That total is the TOTAL burden shared across
-    // the objectives, not a per-objective quota — divided by 2, not doubled.
+    // asks for two distinct objectives. This level is also shaped (rotation[1]
+    // — level 7's steps-since-threshold, 6, floors to 3, offset by
+    // SHAPE_ROTATION_OFFSET (1) to (3+1)%3 = 1 — at the same 8x6 board, same
+    // ratio as the test above), so the shared total below is
+    // generatedTargetCount(7, ratio), not the unscaled 26 a plain rectangle
+    // would get. That total is the TOTAL burden shared across the
+    // objectives, not a per-objective quota — divided by 2, not doubled.
     // An earlier version of this test asserted the doubled total and so
     // enshrined the compounding bug (a two-objective level demanding double
     // an equivalent single-objective one) as intended behavior — see
     // engine/DECISIONS.md's target-sharing entry.
     const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[0]](8, 6);
+    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6);
     const ratio = playableCellRatio(8, 6, voidCells);
     const perObjective = Math.ceil(generatedTargetCount(7, ratio) / 2);
     expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E']);
@@ -619,10 +626,12 @@ describe('buildGeneratedLevelConfig', () => {
 
   test('voidCells appear at the very first generated level and match the curated template exactly', () => {
     // levelIndex 4 -> generated level number 1 (HAND_BUILT_COUNT is 3) ->
-    // SHAPE_MIN_LEVEL_NUMBER is now 1, so this is on-cadence from the start,
-    // first entry of BOARD_SHAPE_ROTATION.
+    // SHAPE_MIN_LEVEL_NUMBER is now 1, so this is on-cadence from the start —
+    // but SHAPE_ROTATION_OFFSET (1) shifts the starting index, landing on
+    // rotation[1] ('plus') rather than rotation[0] ('cut_corners'), closing
+    // the coincidental repeat with hand-built Pantry Corners.
     const config = buildGeneratedLevelConfig(4, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
-    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[0]](8, 6));
+    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6));
   });
 
   test('off-cadence levels get no voidCells (1 in 2, half of all generated levels)', () => {
@@ -636,10 +645,11 @@ describe('buildGeneratedLevelConfig', () => {
 
   test('a shaped level composes freely with blockers — voidCells are set independent of blocker gating', () => {
     // levelIndex 6 -> generated level number 3: still on-cadence (rotation
-    // index 1, 'plus') and past blockers' own INTRODUCE_AT_LEVEL (3), so both
-    // are genuinely active on the same level, not just one or the other.
+    // index 2, 'ring' — offset by SHAPE_ROTATION_OFFSET) and past blockers'
+    // own INTRODUCE_AT_LEVEL (3), so both are genuinely active on the same
+    // level, not just one or the other.
     const config = buildGeneratedLevelConfig(6, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
-    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6));
+    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[2]](8, 6));
     expect(config.blockerCount).toBeGreaterThan(0);
   });
 
@@ -652,7 +662,8 @@ describe('buildGeneratedLevelConfig', () => {
   // — not just present but numerically smaller, which is the actual fix.
   test('a shaped level asks for proportionally less than an equivalent plain rectangle', () => {
     // levelIndex 4 -> generated level number 1 -> the first on-cadence shape
-    // (BOARD_SHAPE_ROTATION[0]) at 8x6. Compare against the same levelIndex
+    // (BOARD_SHAPE_ROTATION[1], offset by SHAPE_ROTATION_OFFSET) at 8x6.
+    // Compare against the same levelIndex
     // with no blockers/skin content that would carve voidCells (there's no
     // "force no shape" knob, so instead compare the shaped config directly
     // against generatedMovesLimit/generatedTargetCount's own unscaled values,
@@ -689,10 +700,10 @@ describe('buildGeneratedLevelConfig', () => {
     // reach generateLevel and produce a legally playable shaped board, the
     // same guarantee a hand-built shaped level gets. levelIndex 6 -> generated
     // level number 3, same shaped-and-blockered level as the composability
-    // test above (rotation index 1, 'plus').
+    // test above (rotation index 2, 'ring').
     const config = buildGeneratedLevelConfig(6, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
     const state = createGameState({ ...config, lives: 5 });
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6);
+    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[2]](8, 6);
     // Every requested void position genuinely holds a void, not a blocker or
     // an ordinary piece — this alone also proves no blocker landed on one,
     // since a cell can't be both 'void' and 'blocker' at once.

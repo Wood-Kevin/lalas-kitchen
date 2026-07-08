@@ -4300,21 +4300,50 @@ recipe-card milestone lookup), so appending a 7th entry needed no changes to
 any of those call sites — the generator's own "generated level 1" simply
 shifts to raw level 8 automatically.
 
-**A disclosed, accepted cosmetic overlap, not a bug.** Because
-`SHAPE_MIN_LEVEL_NUMBER` is now 1, the generator's very first shaped level
-(raw level 8, generatedLevelNumber 1, `BOARD_SHAPE_ROTATION[0]` =
-`cut_corners`) lands immediately after the new hand-built "Pantry Corners"
-level (level 7) — which itself uses `cut_corners`, deliberately: it's the
-gentlest, most board-proportion-appropriate template for a still fairly
-early, generous curated level (`ring`'s 55% playable reads as meaningfully
-more severe, and was judged less appropriate for a guaranteed early level).
-The net effect is the same template silhouette appearing on two consecutive
-levels at that exact boundary — different seed, piece layout, and objective
-each time, but the same cut-corner shape twice in a row. This is a real,
-minor, accepted cosmetic overlap, logged here per the standing "log it,
-don't silently drop it" habit, not escalated to `DEFERRED_COMPLEXITY.md`
-since it's a one-time, low-stakes seam at a single fixed boundary rather than
-an unresolved feature gap.
+**A disclosed, accepted cosmetic overlap, not a bug — later fixed after a
+real playtest report.** Because `SHAPE_MIN_LEVEL_NUMBER` is now 1, the
+generator's very first shaped level (raw level 8, generatedLevelNumber 1,
+`BOARD_SHAPE_ROTATION[0]` = `cut_corners`) landed immediately after the new
+hand-built "Pantry Corners" level (level 7) — which itself uses
+`cut_corners`, deliberately: it's the gentlest, most board-proportion-
+appropriate template for a still fairly early, generous curated level
+(`ring`'s 55% playable reads as meaningfully more severe, and was judged less
+appropriate for a guaranteed early level). The net effect was the same
+template silhouette appearing on two consecutive levels at that exact
+boundary — different seed, piece layout, and objective each time, but the
+same cut-corner shape twice in a row. This was originally logged here as a
+real, minor, accepted cosmetic overlap rather than escalated to
+`DEFERRED_COMPLEXITY.md`, on the reasoning that it was a one-time, low-stakes
+seam at a single fixed boundary, not an unresolved feature gap.
+
+**Real playtesting disagreed with that call.** A report came back reading as
+"the same board shape keeps appearing... doesn't read as randomly varying" —
+investigated per the standing Playtest Feedback Protocol before touching
+anything: traced `generatedShapeId`'s actual formula by hand across levels
+1–26, which confirmed the rotation itself has no bug (gating and template
+selection share `stepsSinceThreshold`, but `SHAPE_CADENCE` (2) and
+`BOARD_SHAPE_ROTATION.length` (3) are coprime, so it cycles cleanly with no
+correlation artifact) — the entire symptom traced back to exactly this
+already-disclosed seam, amplified by early players naturally concentrating
+their play right at the level-7/level-8 boundary (and by shape being a pure
+function of level number, so every retry of a hard level 8 repeats the same
+shape). Fixed by adding `appPersistence.ts`'s `SHAPE_ROTATION_OFFSET = 1`,
+which shifts the generator's rotation starting index by one step so raw
+level 8 now lands on `BOARD_SHAPE_ROTATION[1]` (`plus`) instead of `[0]`
+(`cut_corners`) — chosen over `ring` because `plus`'s 80% playable ratio is
+gentler than `ring`'s 55%, matching the same "gentlest first" reasoning
+Pantry Corners itself used. Pantry Corners was deliberately left unchanged —
+its own `cut_corners` choice is reasonable on its own merits, so this is
+purely about where the generator's independent rotation happens to start.
+The offset only rotates the starting point: every template still appears
+exactly once per 3 shaped levels in the same round-robin order (confirmed by
+a live trace of the real `LEVEL_QUEUE.length` (7) and real 8×5 board across
+levels 1–26 — `cut_corners(hand,7) → plus(8) → ring(10) → cut_corners(12) →
+plus(14) → ring(16) → cut_corners(18) → plus(20) → ring(22) → cut_corners(24)
+→ plus(26)`, no adjacent repeat anywhere, including the 7→8 boundary). See
+`appPersistence.test.ts`'s updated `generatedShapeId`/`buildGeneratedLevelConfig`
+describe blocks — every test asserting a specific rotation index was
+re-traced against the new formula, not blindly shifted.
 
 **Tests updated, not just the constants.** `appPersistence.test.ts`'s
 `generatedShapeId` describe block and every `buildGeneratedLevelConfig` test

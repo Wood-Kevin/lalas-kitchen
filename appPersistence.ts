@@ -693,6 +693,27 @@ export function eligibleBlockerIds(levelNumber: number, blockerIds: string[]): s
 const SHAPE_MIN_LEVEL_NUMBER = 1;
 const SHAPE_CADENCE = 2;
 
+// A real playtest report ("the same board shape keeps appearing") traced back
+// to a disclosed, deliberately-accepted coincidence (see engine/DECISIONS.md's
+// "A disclosed, accepted cosmetic overlap" entry): SHAPE_MIN_LEVEL_NUMBER = 1
+// always starts the rotation at BOARD_SHAPE_ROTATION[0] (cut_corners) on the
+// generator's very first shaped level (raw level 8, generatedLevelNumber 1) —
+// and hand-built level 7 "Pantry Corners" (App.tsx's LEVEL_QUEUE) was
+// independently, deliberately given cut_corners too, as the gentlest template
+// for a guaranteed early level. Those two independent choices collided,
+// producing the same shape silhouette on two consecutive levels. Pantry
+// Corners' own choice is left untouched — it's a reasonable pick on its own
+// merits — so instead the generator's rotation is offset by 1 step, landing
+// its first shaped level on BOARD_SHAPE_ROTATION[1] (plus) instead. plus, not
+// ring, specifically: ring is the most severe template (55% playable, vs.
+// plus's 80% and cut_corners' 70% — see boardShapes.ts's playableCellRatio
+// doc), and easing a brand-new generated-level player into shapes via the
+// gentler of the two remaining templates matches the same "gentlest first"
+// reasoning Pantry Corners itself used. The offset only rotates the starting
+// point — every template still appears exactly once per 3 shaped levels, in
+// the same round-robin order, just starting one step in.
+const SHAPE_ROTATION_OFFSET = 1;
+
 // Which curated template (see engine/boardShapes.ts), if any, a generated
 // level at this levelNumber should use. undefined means "plain rectangle".
 // Cycles through BOARD_SHAPE_ROTATION by how many cadence steps have elapsed
@@ -703,7 +724,8 @@ export function generatedShapeId(levelNumber: number): BoardShapeId | undefined 
   if (levelNumber < SHAPE_MIN_LEVEL_NUMBER) return undefined;
   const stepsSinceThreshold = levelNumber - SHAPE_MIN_LEVEL_NUMBER;
   if (stepsSinceThreshold % SHAPE_CADENCE !== 0) return undefined;
-  const shapeIndex = Math.floor(stepsSinceThreshold / SHAPE_CADENCE) % BOARD_SHAPE_ROTATION.length;
+  const shapeIndex =
+    (Math.floor(stepsSinceThreshold / SHAPE_CADENCE) + SHAPE_ROTATION_OFFSET) % BOARD_SHAPE_ROTATION.length;
   return BOARD_SHAPE_ROTATION[shapeIndex];
 }
 
