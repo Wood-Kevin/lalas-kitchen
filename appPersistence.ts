@@ -720,6 +720,73 @@ export function generatedTargetCount(
   return Math.max(MIN_TARGET, Math.round(scaled));
 }
 
+// Teaching the generator to occasionally place a 'score' objective instead
+// of the usual 'collect' one, reusing the same gate+cadence rotation shape
+// every other generated-level lever already uses (generatedShapeId,
+// eligibleBlockerIds' BLOCKER_MIN_LEVEL_NUMBER, DENIAL_SPREAD_MIN_LEVEL_
+// NUMBER) rather than inventing a new gating mechanism. SCORE_OBJECTIVE_
+// MIN_LEVEL_NUMBER is deliberately low (3, matching blockers' own
+// introduce-at-level-3) rather than requiring a long ramp-up first: unlike
+// blockers or board shapes, a player has already SEEN a 'score' objective
+// by the time they ever reach a generated level at all — the hand-built
+// LEVEL_QUEUE's own "Score Rush" (level 5) teaches it before the generator
+// starts at level 8 (generatedLevelNumber 1) — so there's no new mechanic
+// to ease a player into here, only variety to introduce. SCORE_OBJECTIVE_
+// CADENCE (3) keeps it an occasional flavor, not a replacement for
+// 'collect' objectives in general.
+const SCORE_OBJECTIVE_MIN_LEVEL_NUMBER = 3;
+const SCORE_OBJECTIVE_CADENCE = 3;
+
+// Deliberately only ever consulted by buildGeneratedLevelConfig when
+// objectiveCount === 1 (see generatedObjectiveCount below) — a generated
+// level's multi-objective case (levelNumber >= 7, several distinct
+// targetMatchTypes) is a separate, already-solved question, and mixing a
+// score objective into that array was never asked for; keeping this
+// function itself objectiveCount-agnostic (it just answers "is this
+// levelNumber a score-flavored one," not "should THIS level use it") keeps
+// that guard at the one real call site instead of being duplicated here.
+export function isScoreObjectiveLevel(levelNumber: number): boolean {
+  if (levelNumber < SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) return false;
+  return (levelNumber - SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) % SCORE_OBJECTIVE_CADENCE === 0;
+}
+
+// The score-target equivalent of generatedTargetCount above, for a
+// generated level chosen (via isScoreObjectiveLevel) to use a 'score'
+// objective instead of 'collect'. Calibrated against the one real
+// precedent this game has, the hand-built "Score Rush" (App.tsx's
+// LEVEL_QUEUE, level 5): 1000 points across a 24-move level, ~41.7
+// points/move — comfortably reachable from ordinary matches alone (a plain
+// 3-match nets 30), with cascades/specials pulling it in faster.
+//
+// Density is deliberately calibrated against the level's UNSCALED moves
+// limit (breather omitted from this inner call) rather than its final,
+// already-breather-inflated one: generatedMovesLimit's own `breather` param
+// already grants +30% MORE moves under a breather, so scaling the score
+// target by that SAME inflated value would leave the points-per-move
+// density — and therefore the real difficulty — completely unchanged,
+// silently defeating the whole point of a breather. Applying
+// BREATHER_SCORE_RATIO (a flat -30%, matching generatedTargetCount's own
+// BREATHER_TARGET_RATIO) directly to the target, on top of the
+// non-breather move count, is what actually makes a breather-granted score
+// level easier.
+//
+// No separate MIN_SCORE_TARGET floor: generatedMovesLimit's own MIN_MOVES
+// floor (18) already guarantees baseMovesLimit never drops below 18, so any
+// additional floor here at or below round(18 * SCORE_POINTS_PER_MOVE) (750)
+// could never actually bind — an unreachable safety net is worse than none,
+// since it reads as protecting against a case that can't happen.
+const SCORE_POINTS_PER_MOVE = 1000 / 24;
+const BREATHER_SCORE_RATIO = 0.7;
+export function generatedScoreTarget(
+  levelNumber: number,
+  playableRatio: number = 1,
+  breather: boolean = false
+): number {
+  const baseMovesLimit = generatedMovesLimit(levelNumber, playableRatio);
+  const scaled = baseMovesLimit * SCORE_POINTS_PER_MOVE * (breather ? BREATHER_SCORE_RATIO : 1);
+  return Math.round(scaled);
+}
+
 // How many simultaneous objectives a generated level asks for. Gated on
 // typeCount itself, not levelNumber, since typeCount is what actually
 // determines whether a second objective trivializes the level: with only a
@@ -955,10 +1022,18 @@ export function buildGeneratedLevelConfig(
   // this splits cleanly to 13 + 13 on a full board (scaled down together by
   // playableRatio on a shaped one).
   const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber, playableRatio, breather) / objectiveCount);
-  const objectives = Array.from({ length: objectiveCount }, (_, i) => ({
-    targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
-    targetCount: perObjectiveTarget,
-  }));
+  // A 'score' objective only ever replaces a level's single 'collect'
+  // objective (objectiveCount === 1) — never mixed alongside a second,
+  // distinct-matchType 'collect' objective, which is a separate, already-
+  // solved multi-objective question this wasn't asked to touch. See
+  // isScoreObjectiveLevel's own comment for why the gate is levelNumber-only.
+  const useScoreObjective = objectiveCount === 1 && isScoreObjectiveLevel(levelNumber);
+  const objectives = useScoreObjective
+    ? [{ type: 'score' as const, targetCount: generatedScoreTarget(levelNumber, playableRatio, breather) }]
+    : Array.from({ length: objectiveCount }, (_, i) => ({
+        targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
+        targetCount: perObjectiveTarget,
+      }));
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
   const chosenBlocker =

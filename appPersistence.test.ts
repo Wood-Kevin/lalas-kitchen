@@ -24,8 +24,10 @@ import {
   generatedMovesLimit,
   generatedObjectiveCount,
   generatedPieceTypeCount,
+  generatedScoreTarget,
   generatedShapeId,
   generatedTargetCount,
+  isScoreObjectiveLevel,
   grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
@@ -482,6 +484,65 @@ describe('generatedObjectiveCount', () => {
   });
 });
 
+describe('isScoreObjectiveLevel', () => {
+  test('no score objective below the threshold', () => {
+    expect(isScoreObjectiveLevel(1)).toBe(false);
+    expect(isScoreObjectiveLevel(2)).toBe(false);
+  });
+
+  test('on-cadence levels starting at the threshold (3, then every 3rd)', () => {
+    expect(isScoreObjectiveLevel(3)).toBe(true);
+    expect(isScoreObjectiveLevel(6)).toBe(true);
+    expect(isScoreObjectiveLevel(9)).toBe(true);
+  });
+
+  test('off-cadence levels get no score objective', () => {
+    for (const levelNumber of [4, 5, 7, 8, 10, 11]) {
+      expect(isScoreObjectiveLevel(levelNumber)).toBe(false);
+    }
+  });
+
+  test('is deterministic — the same levelNumber always returns the same answer', () => {
+    expect(isScoreObjectiveLevel(6)).toBe(isScoreObjectiveLevel(6));
+  });
+});
+
+describe('generatedScoreTarget', () => {
+  test('scales with the level\'s own (unscaled) moves limit, calibrated against Score Rush\'s 1000/24 density', () => {
+    // levelNumber 1 -> generatedMovesLimit(1) = 24 (BASE_MOVES, no step yet).
+    expect(generatedScoreTarget(1)).toBe(Math.round(24 * (1000 / 24)));
+  });
+
+  test('a shaped board (playableRatio < 1) scales the target down through generatedMovesLimit\'s own scaling', () => {
+    // Not a clean "* ratio" relationship end to end — generatedMovesLimit
+    // has its own MIN_MOVES floor (18), so the real expected value is
+    // derived from calling it directly, not assumed via simple arithmetic.
+    const full = generatedScoreTarget(1);
+    const shaped = generatedScoreTarget(1, 0.7);
+    expect(shaped).toBeLessThan(full);
+    expect(shaped).toBe(Math.round(generatedMovesLimit(1, 0.7) * (1000 / 24)));
+  });
+
+  test('a severely reduced board still floors at generatedMovesLimit\'s own MIN_MOVES-derived value, never lower', () => {
+    // generatedMovesLimit(1, 0.05) itself floors at MIN_MOVES (18) regardless
+    // of how small playableRatio gets, so generatedScoreTarget's own floor is
+    // inherited from that, not a separate constant of its own.
+    expect(generatedScoreTarget(1, 0.05)).toBe(Math.round(generatedMovesLimit(1, 0.05) * (1000 / 24)));
+    expect(generatedMovesLimit(1, 0.05)).toBe(18);
+  });
+
+  test('breather asks for ~30% fewer points, calibrated against the UNSCALED moves limit — not cancelled out by breather\'s own +30% moves boost', () => {
+    const normal = generatedScoreTarget(500);
+    const breather = generatedScoreTarget(500, 1, true);
+    expect(breather).toBeLessThan(normal);
+    expect(breather).toBe(Math.round(normal * 0.7));
+  });
+
+  test('breather defaults off — omitting it matches passing false explicitly', () => {
+    expect(generatedScoreTarget(10)).toBe(generatedScoreTarget(10, 1, false));
+  });
+});
+
 describe('generatedShapeId', () => {
   // SHAPE_ROTATION_OFFSET (1) shifts the rotation's starting point by one
   // step, so the very first shaped level lands on BOARD_SHAPE_ROTATION[1]
@@ -580,21 +641,71 @@ describe('buildGeneratedLevelConfig', () => {
   test('never targets the same piece type twice on a level with two objectives', () => {
     // Scans well past the two-objective threshold — every level in range
     // must have distinct targetMatchTypes across its own objectives array,
-    // regardless of how the piece-type pool has shrunk by that point.
+    // regardless of how the piece-type pool has shrunk by that point. A
+    // 'score' objective only ever appears alone (objectiveCount === 1 —
+    // see isScoreObjectiveLevel's own comment), so it can never be the
+    // duplicate-target case this test actually guards; skip it rather than
+    // asserting on its (deliberately absent) targetMatchType. 'clearance'
+    // is not produced by the generator at all yet (see
+    // DEFERRED_COMPLEXITY.md) and would still throw here if that ever
+    // changed silently.
     for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-      // buildGeneratedLevelConfig never produces a 'score' or 'clearance'
-      // objective today — see DEFERRED_COMPLEXITY.md — so every entry here is
-      // real collect-shaped data; this throw documents that invariant instead
-      // of silently asserting on a possibly-undefined targetMatchType.
+      if (config.objectives.length === 1 && config.objectives[0].type === 'score') continue;
       const targetTypes = config.objectives.map((o) => {
-        if (o.type === 'score' || o.type === 'clearance') {
-          throw new Error(`generated objective should never be ${o.type}-type`);
+        // Only reachable for a level NOT skipped above — i.e. objectiveCount
+        // 2 or a single 'collect' entry — so a 'score'/'clearance' entry
+        // here would itself be the bug (see isScoreObjectiveLevel's own
+        // "only ever alone" invariant).
+        if (o.type === 'clearance' || o.type === 'score') {
+          throw new Error(`unexpected ${o.type}-type objective in a multi-objective scan`);
         }
         return o.targetMatchType;
       });
       expect(new Set(targetTypes).size).toBe(targetTypes.length);
     }
+  });
+
+  test('places a real score objective on an on-cadence, single-objective level', () => {
+    // levelIndex 6, handBuiltLevelCount 3 -> levelNumber 3 -> on-cadence
+    // (isScoreObjectiveLevel(3) === true) and still single-objective
+    // (typeCount well below MIN_TYPES_FOR_SECOND_OBJECTIVE at levelNumber 3).
+    // levelNumber 3 is also shaped (generatedShapeId(3) is on-cadence too),
+    // so the expected target must go through the same real playableRatio a
+    // plain-rectangle assumption would silently get wrong — same approach
+    // the "builds a full LevelConfig" test above uses.
+    const config = buildGeneratedLevelConfig(6, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    const shapeId = generatedShapeId(3);
+    const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](8, 6) : undefined;
+    const ratio = playableCellRatio(8, 6, voidCells);
+    expect(config.objectives).toEqual([{ type: 'score', targetCount: generatedScoreTarget(3, ratio) }]);
+  });
+
+  test('an off-cadence level stays plain collect, unaffected', () => {
+    // levelNumber 4 (levelIndex 7) — one past the score-cadence level 3, off
+    // the SCORE_OBJECTIVE_CADENCE (3) rotation.
+    const config = buildGeneratedLevelConfig(7, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    expect(config.objectives[0].type).not.toBe('score');
+    expect(config.objectives[0]).toHaveProperty('targetMatchType');
+  });
+
+  test('a score objective never coexists with a second objective, even on an on-cadence multi-objective level', () => {
+    // levelNumber 9 (levelIndex 12) is on-cadence (9 - 3 = 6, divisible by
+    // 3) AND past the two-objective threshold (typeCount >= 5 at
+    // levelNumber >= 7) — confirms objectiveCount === 1 always wins the
+    // guard, so this level stays a real two-objective 'collect' level, not
+    // a lone 'score' one.
+    const config = buildGeneratedLevelConfig(12, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    expect(config.objectives).toHaveLength(2);
+    expect(config.objectives.every((o) => o.type === undefined || o.type === 'collect')).toBe(true);
+  });
+
+  test('a score-objective level still gets its blockers/shape exactly like a collect level would', () => {
+    const blockers = [{ id: 'cling', hitsToClear: 1 }];
+    const scoreLevel = buildGeneratedLevelConfig(6, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
+    expect(scoreLevel.objectives[0].type).toBe('score');
+    expect(scoreLevel.blockerCount).toBeGreaterThan(0);
+    expect(scoreLevel.blockerMatchType).toBe('cling');
   });
 
   // Regression guard for a reported symptom (boards only ever spawning 3 of
