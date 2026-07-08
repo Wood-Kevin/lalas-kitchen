@@ -419,11 +419,11 @@ function LayerOverlay({ layersRemaining }: { layersRemaining: number }) {
   );
 }
 
-// The calm stuck-player hint's timing knob — see Board.tsx's HINT_IDLE_MS for
-// how long the player must be genuinely quiet before this ever mounts. A
-// separate constant from SPREAD_WARNING_PULSE_MS (same value today) rather
-// than sharing one: these are two different features whose pacing might need
-// to diverge later, and nothing here should couple their tuning by accident.
+// The calm stuck-player hint's breathing speed — mounts whenever Board.tsx's
+// hint button (see its handleRequestHint) has just been tapped. A separate
+// constant from SPREAD_WARNING_PULSE_MS (same value today) rather than
+// sharing one: these are two different features whose pacing might need to
+// diverge later, and nothing here should couple their tuning by accident.
 const HINT_GLOW_PULSE_MS = 900;
 
 // Reuses SpreadWarningOverlay's exact breathing mechanism (a looped opacity

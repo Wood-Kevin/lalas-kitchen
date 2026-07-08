@@ -1,8 +1,10 @@
 import {
   canGrantBonusMoves,
+  canUseHint,
   getPauseAction,
+  HINT_USES_PER_ATTEMPT,
   MOVE_GRANTS_PER_ATTEMPT,
-  nextBonusGrantsUsed,
+  nextAttemptUseCount,
   shouldOfferContinue,
 } from './pauseActions';
 
@@ -48,20 +50,63 @@ describe('canGrantBonusMoves', () => {
 
     // First grant offered and taken.
     expect(canGrantBonusMoves(used)).toBe(true);
-    used = nextBonusGrantsUsed(used, 'grant');
+    used = nextAttemptUseCount(used, 'use');
 
     // Second grant offered and taken.
     expect(canGrantBonusMoves(used)).toBe(true);
-    used = nextBonusGrantsUsed(used, 'grant');
+    used = nextAttemptUseCount(used, 'use');
 
     // Third out-of-moves in the same attempt: no grant on offer.
     expect(canGrantBonusMoves(used)).toBe(false);
 
     // Starting the attempt over (Play Again, or a re-entry that remounts Board)
     // clears the count, so the grant is fully available again.
-    used = nextBonusGrantsUsed(used, 'restart');
+    used = nextAttemptUseCount(used, 'restart');
     expect(used).toBe(0);
     expect(canGrantBonusMoves(used)).toBe(true);
+  });
+});
+
+describe('canUseHint', () => {
+  test('the cap is 2 hint uses per attempt', () => {
+    // Guards the design contract itself — the stuck-hint button's per-attempt
+    // cap is 2, the same number as the bonus-moves grant today but tracked
+    // independently.
+    expect(HINT_USES_PER_ATTEMPT).toBe(2);
+  });
+
+  test('the first two hint taps of an attempt are allowed', () => {
+    expect(canUseHint(0)).toBe(true);
+    expect(canUseHint(1)).toBe(true);
+  });
+
+  test('a third hint tap in the same attempt is blocked', () => {
+    expect(canUseHint(2)).toBe(false);
+    expect(canUseHint(3)).toBe(false);
+  });
+
+  test('a full attempt: two hint uses land, the third is blocked, a restart resets', () => {
+    // Same walk as canGrantBonusMoves's own full-attempt test above, against
+    // the shared nextAttemptUseCount — confirms the hint button's cap and the
+    // bonus-moves grant's cap behave identically without being the same
+    // counter.
+    let used = 0; // fresh attempt
+
+    expect(canUseHint(used)).toBe(true);
+    used = nextAttemptUseCount(used, 'use');
+
+    expect(canUseHint(used)).toBe(true);
+    used = nextAttemptUseCount(used, 'use');
+
+    // Third tap in the same attempt: button should already be gone, but the
+    // underlying predicate is blocked regardless.
+    expect(canUseHint(used)).toBe(false);
+
+    // A fresh attempt (Play Again, or a re-entry that remounts Board) resets
+    // the hint counter fully, independent of the bonus-moves grant counter.
+    used = nextAttemptUseCount(used, 'restart');
+    expect(used).toBe(0);
+    expect(canUseHint(used)).toBe(true);
   });
 });
 

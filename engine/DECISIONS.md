@@ -3116,6 +3116,83 @@ minute for a nudge. Verified live against the real running app that the
 hint now waits the new duration before appearing — see the retune capture
 in `docs/verification/stuck-player-hint/`.
 
+**Converted from an automatic idle timer to a player-initiated button.**
+The retune above treated the threshold as a tuning problem — pick the right
+number of seconds — but real feedback surfaced that this was the wrong
+framing entirely: **any** automatic idle threshold risks firing while a
+player is still genuinely thinking, no matter how generously tuned, because
+"stuck" and "taking your time" look identical to a timer. There is no
+number that's simultaneously "long enough to never interrupt real thought"
+and "short enough to actually help someone stuck" — the two goals are in
+real tension, not a tuning slider. The fix removes the guess entirely: the
+player decides when they want a hint, by tapping for one.
+
+**Everything the automatic version needed for detection is unchanged.**
+`engine/matrix.ts`'s `findAnyLegalMove` and `components/Tile.tsx`'s
+`HintGlowOverlay` (the calm breathing glow, no dim wash, no crack) are
+called/rendered exactly as before — only the trigger changed, confirmed by
+direct investigation before writing any code (no new detection logic was
+needed or added).
+
+**Removed entirely, not left dead:** `HINT_IDLE_MS`, the `hintTimerRef`
+ref, the arm/re-arm `useEffect` keyed on the full `canAcceptMove` gate, and
+`components/stuckHintTiming.ts` (`resetIdleHintTimer`) plus its test file —
+all of it was infrastructure for scheduling and cancelling a countdown that
+no longer exists, and per this project's own standing habits, unused
+scheduling code doesn't get to sit beside a feature that no longer uses it.
+`Board.tsx`'s hint-hiding effect (now un-timed — it just clears `hintPair`
+whenever the move-acceptance gate changes) and `attemptSwap`'s
+move-triggered hide both stayed, since a stale glow surviving into a state
+where it no longer applies is still the same "glitchy, not calm" case that
+was always the point of clearing it.
+
+**A real, always-visible "💡 Hint" button** lives in `Board.tsx`'s existing
+top bar, beside the exit button, rather than a fourth `Hud.tsx` panel —
+same reasoning the exit button's own placement already established
+(Target/Moves/Lives can't spare the width). `topBar`'s `justifyContent:
+'flex-end'` keeps both buttons anchored together at the top-right
+regardless of whether the hint button is currently rendered, so the exit
+button never visibly shifts position the moment the hint cap is reached.
+`handleRequestHint` guards on both `canAcceptMove()` (no point hinting a
+move that can't be made right now, mirroring every other input path) and
+`canUseHint(hintUsesUsed)` (belt-and-suspenders — the button itself only
+renders while this is true, but a stray tap during a render gap shouldn't
+sneak past the cap).
+
+**Capped at `HINT_USES_PER_ATTEMPT` (2) per level attempt, reusing the
+bonus-moves grant's exact cap mechanism rather than inventing a new one.**
+`pauseActions.ts`'s `nextBonusGrantsUsed`/`GrantEvent` were already 100%
+generic in their actual logic (`event === 'restart' ? 0 : used + 1` neither
+reads nor cares what resource it's counting) — only their *names* implied
+"bonus moves specifically." Generalized to `nextAttemptUseCount`/
+`AttemptUseEvent` (`'use' | 'restart'`), with `canUseHint`/
+`HINT_USES_PER_ATTEMPT` added as hint's own sibling to
+`canGrantBonusMoves`/`MOVE_GRANTS_PER_ATTEMPT` — two independent counters
+(`bonusGrantsUsed`, `hintUsesUsed`) sharing one increment/reset function,
+not one counter serving two purposes (using a video grant doesn't spend a
+hint, and vice versa). Both reset to 0 in the exact same place,
+`handlePlayAgain`, for the exact same reason: a fresh attempt is a fresh
+attempt, whichever cap you're asking about. Once the cap is reached the
+button disappears entirely (`canUseHint(hintUsesUsed) &&` gates its render)
+rather than staying mounted disabled — the same "drop the CTA" choice
+`ContinueOffer`'s own video button already made once its cap is reached, so
+a spent resource never sits on screen inviting a tap that does nothing.
+
+**Test coverage:** `pauseActions.test.ts` gained a `canUseHint` describe
+block mirroring `canGrantBonusMoves`'s own tests exactly (cap-is-2, first
+two allowed, third blocked, full-attempt walk including a restart reset) —
+proving the shared `nextAttemptUseCount` behaves identically for both
+resources without being the same counter. The button's own wiring inside
+`Board.tsx` — like every other Board-level timer/effect in this project —
+has no component-rendering test harness to exercise it in isolation (see
+CLAUDE.md's Testing Philosophy), so "tapping the button calls
+`findAnyLegalMove` against real board state," "nothing fires without a
+tap regardless of idle time," and "the cap blocks a third use and a fresh
+attempt resets it" were all confirmed live against the real running app
+instead. All existing tests still pass (deleting `stuckHintTiming.test.ts`
+removes exactly the tests for the deleted timer-reset helper, nothing
+else). Verified live, see `docs/verification/stuck-player-hint-button/`.
+
 # Level map: a winding path replacing the All Levels list, plus persisted best-ever star ratings
 
 `components/AllLevels.tsx` — a plain scrollable list of level rows — is
@@ -4407,7 +4484,7 @@ The prior session's entry above optimized `background.wav` but deliberately stop
 
 **`expoAudioSoundService.ts` gained a second player pool** (`musicPlayers`, mirroring the existing `players` pool exactly), rather than reusing one map keyed by a widened id type — a `SoundEffectId` player is fire-once-from-zero (`play()` re-seeks to 0 every call); a `MusicId` player is created once with `player.loop = true` and only ever `play()`/`pause()`d after that, a genuinely different lifecycle that a shared map would have obscured. `stopMusic` pauses immediately (silence takes effect synchronously) then asynchronously seeks back to 0, so the *next* `playMusic` always restarts from the top of the 26.97s loop rather than resuming mid-track — deliberate, since each level entering fresh should get the same beginning, not wherever the last level happened to leave off.
 
-**The start/stop decision was extracted as a pure function** (`components/backgroundMusic.ts`'s `syncBackgroundMusic`), the same pattern `stuckHintTiming.ts`'s `resetIdleHintTimer` already established for Board-adjacent logic — this repo has no React component-rendering test harness (see CLAUDE.md's Testing Philosophy), so the one thing genuinely worth pinning down in a test file is the *decision* ("sound on → start, sound off → stop"), not the `useEffect` wiring around it. `Board.tsx`'s new effect is `useEffect(() => { syncBackgroundMusic(soundEnabled, soundService); return () => soundService.stopMusic('background'); }, [soundEnabled])`, placed beside the existing stepTimersRef cleanup effect — it re-syncs on every `soundEnabled` toggle (so muting mid-level stops the loop immediately, unmuting restarts it) and its cleanup unconditionally stops the track on unmount, regardless of the toggle's value at that instant, so a level left via exit/win/loss can never leave the loop playing behind it.
+**The start/stop decision was extracted as a pure function** (`components/backgroundMusic.ts`'s `syncBackgroundMusic`), the same pattern `pauseActions.ts`'s cap logic already established for Board-adjacent logic — this repo has no React component-rendering test harness (see CLAUDE.md's Testing Philosophy), so the one thing genuinely worth pinning down in a test file is the *decision* ("sound on → start, sound off → stop"), not the `useEffect` wiring around it. `Board.tsx`'s new effect is `useEffect(() => { syncBackgroundMusic(soundEnabled, soundService); return () => soundService.stopMusic('background'); }, [soundEnabled])`, placed beside the existing stepTimersRef cleanup effect — it re-syncs on every `soundEnabled` toggle (so muting mid-level stops the loop immediately, unmuting restarts it) and its cleanup unconditionally stops the track on unmount, regardless of the toggle's value at that instant, so a level left via exit/win/loss can never leave the loop playing behind it.
 
 **Verified live over CDP against the real running app** (the same headless-Windows-Chrome-from-WSL2 technique `docs/verification/real-audio-backend/` used, patching `window.Audio`/`HTMLAudioElement.play`/`pause` to log real invocations): entering a level produced a real `Audio` construct for `background.wav` with `.loop === true` and a real `.play()`; a real drag-swap match fired `match.wav`'s own `play()` while the background element's `currentTime` kept advancing uninterrupted (2.83s→8.63s) — confirming the loop and the one-shot cue genuinely overlap rather than one displacing the other; exiting the level produced a real `.pause()` followed by a rewind to `currentTime: 0`; re-entering with Sound toggled off produced no new construct/play at all. See `docs/verification/background-music-loop/`. All 505 tests pass, including this session's new `components/backgroundMusic.test.ts` and the two existing fake-`SoundService` test fixtures (`services/soundService.test.ts`, `components/soundEffects.test.ts`) updated to satisfy the widened interface.
 
@@ -4419,7 +4496,7 @@ A playability audit (not a playtest, a code-level review) surfaced two findings 
 
 **Defensive save loading** (`engine/gameState.ts`'s `loadSave`). `JSON.parse(raw)` had no try/catch and no schema check at all — any malformed blob (an interrupted write, storage corruption, or a future save-format change an old file doesn't match) threw straight out of `loadSave`, and with no `ErrorBoundary` above it, that crash repeated on every subsequent launch, permanently, with the only "fix" being a full app-data wipe the player has no way to know to perform. The fix reuses `loadSave`'s own already-real "no save yet" contract: a `try`/`catch` around `JSON.parse`, plus a new `isValidSaveData` type guard checking the required backbone fields strictly (`skinId`, `currentLevel`, `lives`, `livesLastRegenAt`, `itemsCollected`, `powerUpCounts`) and every field added since (`completedLevels`, `seenTutorials`, `unlockedRecipeCards`, `levelStars`, `soundEnabled`, `hapticsEnabled`) only IF PRESENT, matching each field's own existing "optional for pre-existing saves" comment — but if present, still shape-checked, so a save can't pass validation carrying e.g. a bare string where `seenTutorials` expects an array only to throw the first time something calls `.includes()` on it downstream. Either failure mode now falls back to `null` (logged via `console.error`, not silent) — the exact path `App.tsx`'s `applyLoadedSave(null)` already handles correctly (it's the same state the dev-only reset already exercises), so this needed zero App.tsx changes. Costs at most that one corrupted save's progress, a real but completely different category of problem than the app refusing to open at all.
 
-**An app-level `ErrorBoundary`** (`components/ErrorBoundary.tsx`) is the one class component in an otherwise all-function-component tree — React only exposes `getDerivedStateFromError`/`componentDidCatch` via a class, there's no hook equivalent. It deliberately does NOT import `SkinConfig` or anything from `skins/`: its entire job is to still work when something ELSE is broken, which could plausibly include the skin config itself, so its palette is a small fixed set of colors matching lalas-kitchen's own today rather than a prop — a narrow, deliberate exception to this project's usual "components read from skin config" rule. "Start Fresh" bumps a `resetKey` used as the wrapped tree's own `key`, forcing a genuinely fresh mount (re-running `App`'s own `loadSave` from scratch) rather than just clearing `hasError`, which would hand the SAME crashed props/state straight back to the same instances. Wired in `App.tsx` as the outermost wrapper — the old default-exported `App` was renamed `AppRoot` and a new `App` wraps it in `<ErrorBoundary>`, so nothing in the tree (fonts loading, save loading, `GestureHandlerRootView`/`SafeAreaProvider` setup, gameplay) can crash without being caught. The actual recovery logic lives in a separate react-native-free module, `components/errorRecovery.ts` (`erroredRecoveryState`/`nextResetState`/`describeCaughtError`), confirmed necessary rather than assumed: importing `'react-native'` genuinely fails to parse under this repo's plain ts-jest config (verified directly with a throwaway test file), the same limitation `services/hapticsService.ts` already documents for `expo-haptics` — so `ErrorBoundary.tsx` itself can only ever be verified live, but its logic is fully unit tested via the extracted module, matching the `stuckHintTiming.ts`/`pauseActions.ts`/`wonActions.ts` pattern this project already uses for the same reason.
+**An app-level `ErrorBoundary`** (`components/ErrorBoundary.tsx`) is the one class component in an otherwise all-function-component tree — React only exposes `getDerivedStateFromError`/`componentDidCatch` via a class, there's no hook equivalent. It deliberately does NOT import `SkinConfig` or anything from `skins/`: its entire job is to still work when something ELSE is broken, which could plausibly include the skin config itself, so its palette is a small fixed set of colors matching lalas-kitchen's own today rather than a prop — a narrow, deliberate exception to this project's usual "components read from skin config" rule. "Start Fresh" bumps a `resetKey` used as the wrapped tree's own `key`, forcing a genuinely fresh mount (re-running `App`'s own `loadSave` from scratch) rather than just clearing `hasError`, which would hand the SAME crashed props/state straight back to the same instances. Wired in `App.tsx` as the outermost wrapper — the old default-exported `App` was renamed `AppRoot` and a new `App` wraps it in `<ErrorBoundary>`, so nothing in the tree (fonts loading, save loading, `GestureHandlerRootView`/`SafeAreaProvider` setup, gameplay) can crash without being caught. The actual recovery logic lives in a separate react-native-free module, `components/errorRecovery.ts` (`erroredRecoveryState`/`nextResetState`/`describeCaughtError`), confirmed necessary rather than assumed: importing `'react-native'` genuinely fails to parse under this repo's plain ts-jest config (verified directly with a throwaway test file), the same limitation `services/hapticsService.ts` already documents for `expo-haptics` — so `ErrorBoundary.tsx` itself can only ever be verified live, but its logic is fully unit tested via the extracted module, matching the `pauseActions.ts`/`wonActions.ts` pattern this project already uses for the same reason.
 
 **Hardening `shuffle`'s rescue fallback** (`engine/matrix.ts`) turned out to be the deepest of the three. The old code's 100-attempt loop returned the last random candidate unconditionally — no final legality check at all. The fix adds two further tiers, both multiset-preserving (position swaps only, never recoloring a piece's `matchType` the way `generator.ts`'s `repairAccidentalMatches` does when filling a *fresh* level — a reshuffle must never silently change what pieces exist, only where they sit): `repairShuffleViaSwaps`, a deterministic, bounded repair loop breaking each remaining match/square by swapping its offending cell with the first other movable piece of a genuinely different type (mirroring `repairAccidentalMatches`'s own bounded-pass convergence argument, just via swaps); then, for the rarer case of a board that's clean but still has zero legal moves, `forceLegalMove`, which searches the board for a template it can rearrange into one guaranteed legal move. Neither tier trusts its own geometry — every candidate either produces is re-verified from scratch against `checkMatches`/`checkSquares`/`hasLegalMoves` (the same ground truth every other legality check in this file already uses) before being accepted, so a mistake in either tier's reasoning can only ever cause it to keep searching or come up empty, never hand back a board that isn't genuinely legal. Only if every tier fails does `shuffle` now throw a descriptive `Error` — matching `repairAccidentalMatches`'s own precedent of throwing rather than lying when a board is structurally impossible — instead of returning something it can't vouch for.
 

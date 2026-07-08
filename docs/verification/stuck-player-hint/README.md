@@ -15,6 +15,17 @@ specific timings (3507ms, 8458ms), reflects the **original 8000ms constant**
 and is kept as-is for historical record. See `retune-8s-to-18s.md` in this
 same folder for the fresh capture against the current 18000ms value.
 
+**Superseded notice:** the automatic idle timer described in this whole
+document — `HINT_IDLE_MS`, `hintTimerRef`, the arm/re-arm effect, and
+`components/stuckHintTiming.ts` — was later **removed entirely** and
+replaced with a player-initiated "💡 Hint" button (see
+`engine/DECISIONS.md`'s stuck-player-hint entry, conversion addendum): no
+automatic threshold avoids sometimes interrupting genuine thinking, so the
+player now decides when to ask for a hint instead of a timer guessing for
+them. This document (and `retune-8s-to-18s.md`) are kept as historical
+record of a mechanism that no longer exists in the live app. See
+`docs/verification/stuck-player-hint-button/` for the current behavior.
+
 ## How this was captured
 
 Driven against the **real running app**, not a synthetic harness — same rig

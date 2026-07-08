@@ -33,7 +33,6 @@ import {
   buildPassAnimation,
   resolveSpecialEffectDescriptor,
 } from './specialEffectAnimation';
-import { resetIdleHintTimer } from './stuckHintTiming';
 import { getSpriteForPiece } from './spriteMap';
 import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
@@ -53,7 +52,11 @@ import { soundService } from '../services/defaultSoundService';
 import { hapticsService } from '../services/defaultHapticsService';
 import { PausedOverlay } from './PausedOverlay';
 import { ContinueOffer } from './ContinueOffer';
-import { nextBonusGrantsUsed, shouldOfferContinue } from './pauseActions';
+import {
+  canUseHint,
+  nextAttemptUseCount,
+  shouldOfferContinue,
+} from './pauseActions';
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
@@ -159,17 +162,6 @@ const BOARD_HORIZONTAL_PADDING = 12;
 // require dragging the whole way there, but far enough that a small wobble on a
 // tap-turned-drag doesn't fire an unintended swap.
 const DRAG_SWAP_THRESHOLD_FRACTION = 0.4;
-
-// How long a player must be genuinely idle before the calm stuck-player hint
-// appears — 18 seconds, long enough that it never fires on someone still
-// reading the board or mid-decision (this player plays to stay occupied, not
-// to solve quickly, so normal thinking time can easily run past what a
-// speed-focused player would need) yet short enough that someone genuinely
-// stuck isn't left scanning the board for the better part of half a minute.
-// Raised from an original 8000ms after real feedback that 8s read as fighting
-// the calm-not-frantic principle. See the hintPair/hintTimerRef declarations
-// above for the full feature rationale.
-const HINT_IDLE_MS = 18000;
 
 function isAdjacent(a: Position, b: Position): boolean {
   return Math.abs(a.row - b.row) + Math.abs(a.col - b.col) === 1;
@@ -308,14 +300,21 @@ export function Board({
   // Monotonic per-move id, used only to key exiting tiles uniquely across
   // moves (a piece clears at most once per move, so id+move is unique).
   const moveCounterRef = useRef(0);
-  // The calm stuck-player hint (see components/stuckHintTiming.ts and
-  // CLAUDE.md's Playtest Feedback Protocol's calm-not-frantic principle):
-  // after HINT_IDLE_MS of genuine quiet, gently glow a real legal move
-  // (engine/matrix.ts's findAnyLegalMove) so a player who plays to relax and
-  // gets stuck scanning the board has an easy way out — never a flashing
-  // arrow, never manufactured urgency. Null whenever no hint is showing.
+  // The calm stuck-player hint (see CLAUDE.md's Playtest Feedback Protocol's
+  // calm-not-frantic principle and engine/DECISIONS.md's stuck-player-hint
+  // entry): tapping the HUD hint button glows a real legal move
+  // (engine/matrix.ts's findAnyLegalMove) so a player who gets stuck scanning
+  // the board has an easy way out. This used to fire automatically after an
+  // idle countdown, but that risked interrupting genuine thinking time no
+  // matter how the threshold was tuned — a player-initiated button removes
+  // the guess entirely. Null whenever no hint is showing.
   const [hintPair, setHintPair] = useState<{ a: Position; b: Position } | null>(null);
-  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // How many times this attempt has tapped the hint button. Same per-attempt
+  // shape as bonusGrantsUsed just below — starts at 0 on a fresh mount, reset
+  // in handlePlayAgain — via the same shared nextAttemptUseCount/
+  // AttemptUseEvent pauseActions.ts already provides for the bonus-moves
+  // grant, rather than a second copy of "increment, or reset on restart."
+  const [hintUsesUsed, setHintUsesUsed] = useState(0);
 
   // The board actually drawn: the mid-cascade snapshot when animating, else
   // the committed game state. Grid dimensions are identical either way, so
@@ -431,54 +430,31 @@ export function Board({
     );
   }
 
-  // Arms/re-arms the calm stuck-player hint's idle countdown any time the
-  // "can a move even be made right now" gate changes for any reason: a move
-  // settles (gameState changes), an illegal swap snaps back (still real
-  // input — attemptSwap's own immediate hide below covers the gap before
-  // that state change lands), or an overlay/tutorial opens or closes. Broader
-  // deps than the onStateChange/special-tutorial effects above on purpose —
-  // those only care about committed moves, but this needs the FULL
-  // canAcceptMove gate, not just gameState, or the hint would never re-arm
-  // after e.g. a tutorial dismisses with no move made yet.
+  // Hides any showing hint any time the "can a move even be made right now"
+  // gate changes for any reason: a move settles (gameState changes), an
+  // illegal swap snaps back (still real input — attemptSwap's own immediate
+  // hide below covers the gap before that state change lands), or an
+  // overlay/tutorial opens or closes. A stale hint glow surviving into a
+  // state where it no longer applies (e.g. a tutorial covering the board) is
+  // exactly the "glitchy, not calm" moment this feature exists to avoid; the
+  // button itself only requests a fresh hint on demand, so there's no
+  // countdown left to re-arm here — just the same clearing this effect always
+  // did.
   useEffect(() => {
     setHintPair(null);
-    hintTimerRef.current = resetIdleHintTimer(
-      hintTimerRef.current,
-      canAcceptMove(),
-      () =>
-        setTimeout(() => {
-          setHintPair(findAnyLegalMove(gameState.board));
-        }, HINT_IDLE_MS),
-      clearTimeout
-    );
-    // canAcceptMove also reads animatingRef, deliberately excluded (a ref, not
-    // reactive — see its own doc comment above); attemptSwap's immediate hide
-    // is what covers the moment a move starts, before gameState settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, snapBack, showOnboardingTutorial, showBoardShapeTutorial, showBlockerTutorial, specialTutorial]);
-
-  useEffect(() => {
-    // Same unmount safety net as stepTimersRef's own cleanup effect above,
-    // for the hint's timer specifically — a ref needs no deps here either.
-    return () => {
-      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
-    };
-  }, []);
 
   // The single move-commit path shared by tap-to-select and drag-to-swap: run
   // applyMove for an adjacent pair and either snap back (rejected) or animate
   // the resulting cascade. Both callers have already established the two cells
   // are adjacent and a move is allowed.
   function attemptSwap(posA: Position, posB: Position) {
-    // Hide any showing hint and cancel its pending timer immediately — "the
-    // moment a player actually makes a move," not after this move's cascade
-    // finishes settling (gameState doesn't commit until animateCascade's
-    // final pass, well below), which would otherwise leave a stale countdown
-    // free to fire mid-animation against an already-outdated board.
-    if (hintTimerRef.current) {
-      clearTimeout(hintTimerRef.current);
-      hintTimerRef.current = null;
-    }
+    // Hide any showing hint the moment a player actually makes a move, not
+    // after this move's cascade finishes settling (gameState doesn't commit
+    // until animateCascade's final pass, well below) — a stale glow surviving
+    // into an already-outdated board is the same "glitchy, not calm" case the
+    // effect above guards against.
     setHintPair(null);
 
     const result = applyMove(gameState, posA, posB);
@@ -747,8 +723,21 @@ export function Board({
     // while canGrantBonusMoves is true, but incrementing here (not relying on
     // the screen being hidden) keeps the cap honest even if it's re-entered
     // before this render settles.
-    setBonusGrantsUsed((used) => nextBonusGrantsUsed(used, 'grant'));
+    setBonusGrantsUsed((used) => nextAttemptUseCount(used, 'use'));
     setGameState((current) => grantBonusMoves(current, amount));
+  }
+
+  // The hint button's own tap handler (see the hintPair/hintUsesUsed
+  // declarations above). Guarded by both canAcceptMove (no point hinting a
+  // move that can't be made right now — mirrors every other input path's
+  // gate) and canUseHint (the button itself only renders while this is true,
+  // but the check is repeated here so a stray tap during the render gap can't
+  // sneak past the cap). Calls the exact same findAnyLegalMove the old
+  // automatic timer used — no new detection logic, only a new trigger.
+  function handleRequestHint() {
+    if (!canAcceptMove() || !canUseHint(hintUsesUsed)) return;
+    setHintUsesUsed((used) => nextAttemptUseCount(used, 'use'));
+    setHintPair(findAnyLegalMove(gameState.board));
   }
 
   // ContinueOffer's two decline paths — restarting or leaving instead of
@@ -847,10 +836,11 @@ export function Board({
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
-    // A restart is a brand-new attempt, so the bonus-moves cap starts over —
+    // A restart is a brand-new attempt, so both per-attempt caps start over —
     // same reasoning as a fresh mount, just without the remount (Play Again
     // keeps this Board instance and rebuilds its state in place).
-    setBonusGrantsUsed((used) => nextBonusGrantsUsed(used, 'restart'));
+    setBonusGrantsUsed((used) => nextAttemptUseCount(used, 'restart'));
+    setHintUsesUsed((used) => nextAttemptUseCount(used, 'restart'));
   }
 
   return (
@@ -859,8 +849,30 @@ export function Board({
         // Persistent exit, not just a paused-state option — a small corner
         // button rather than a fourth HUD panel, so it never competes with
         // Target/Moves/Lives for width. Immediate, no confirmation dialog,
-        // matching this app's calm/low-friction tone everywhere else.
+        // matching this app's calm/low-friction tone everywhere else. The
+        // hint button lives in this same row for the same reason — flex-end
+        // keeps both anchored together at the top-right regardless of
+        // whether the hint button is currently rendered, so the exit button
+        // never shifts position once the hint cap is reached and it drops
+        // away (see canUseHint below).
         <View style={styles.topBar}>
+          {canUseHint(hintUsesUsed) && (
+            <Pressable
+              onPress={handleRequestHint}
+              disabled={!canAcceptMove()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[
+                styles.hintButton,
+                {
+                  borderColor: skinConfig.palette.accent,
+                  backgroundColor: skinConfig.palette.panel,
+                  opacity: canAcceptMove() ? 1 : 0.5,
+                },
+              ]}
+            >
+              <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>💡 Hint</Text>
+            </Pressable>
+          )}
           <Pressable
             onPress={onExit}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -1141,6 +1153,19 @@ const styles = StyleSheet.create({
   },
   exitLabel: {
     fontSize: 14,
+    fontWeight: '700',
+  },
+  hintButton: {
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hintButtonLabel: {
+    fontSize: 13,
     fontWeight: '700',
   },
   boardArea: {

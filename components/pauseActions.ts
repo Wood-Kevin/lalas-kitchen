@@ -47,15 +47,34 @@ export function canGrantBonusMoves(grantsUsed: number): boolean {
   return grantsUsed < MOVE_GRANTS_PER_ATTEMPT;
 }
 
-// The two things that move the per-attempt grant counter: taking a grant
-// ('grant', +1) and starting the attempt over ('restart', back to zero — Play
-// Again, or a re-entry that remounts Board). Pure so Board's cap wiring —
-// including the crucial "a fresh attempt resets the count" behaviour — is
-// testable without mounting the overlay, the same reason getPauseAction lives
-// out here. A brand-new mount trivially starts at zero and doesn't need this.
-export type GrantEvent = 'grant' | 'restart';
-export function nextBonusGrantsUsed(grantsUsed: number, event: GrantEvent): number {
-  return event === 'restart' ? 0 : grantsUsed + 1;
+// How many times a single level attempt may tap the player-initiated
+// stuck-hint button (see Board.tsx's handleRequestHint and
+// engine/DECISIONS.md's stuck-player-hint entry). A sibling cap to
+// MOVE_GRANTS_PER_ATTEMPT above, deliberately the same number today, but a
+// genuinely independent knob — nothing ties the two together, so either can
+// be retuned later without touching the other.
+export const HINT_USES_PER_ATTEMPT = 2;
+
+// Same shape as canGrantBonusMoves, applied to the hint button instead: once
+// this returns false, Board.tsx drops the button entirely rather than leaving
+// a dead tap target on screen.
+export function canUseHint(hintUsesUsed: number): boolean {
+  return hintUsesUsed < HINT_USES_PER_ATTEMPT;
+}
+
+// The two things that move a per-attempt use counter: taking a use ('use',
+// +1) and starting the attempt over ('restart', back to zero — Play Again, or
+// a re-entry that remounts Board). Generic over which resource it's counting
+// — the bonus-moves grant and the stuck-hint button both call this same
+// function against their own independent counters, rather than each growing
+// its own copy of "increment, or reset on restart." Pure so Board's cap
+// wiring — including the crucial "a fresh attempt resets the count" behaviour
+// — is testable without mounting anything, the same reason getPauseAction
+// lives out here. A brand-new mount trivially starts at zero and doesn't need
+// this.
+export type AttemptUseEvent = 'use' | 'restart';
+export function nextAttemptUseCount(used: number, event: AttemptUseEvent): number {
+  return event === 'restart' ? 0 : used + 1;
 }
 
 // Whether a moves-exhausted pause should show ContinueOffer (a rescue,

@@ -1,5 +1,9 @@
 # Retune: HINT_IDLE_MS raised from 8000ms to 18000ms — verification
 
+**Superseded notice:** the automatic idle timer this document verifies was
+later removed entirely in favor of a player-initiated hint button — see
+`docs/verification/stuck-player-hint-button/`. Kept as historical record.
+
 `before-idle-18s.png` / `hint-appears-18s.png` verify the retuned threshold
 (see `engine/DECISIONS.md`'s stuck-player-hint entry, retune addendum, and
 `CLAUDE.md`'s calm-not-frantic constraint): the original 8000ms read as
