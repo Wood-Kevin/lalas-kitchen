@@ -1881,6 +1881,26 @@ export function grantBonusMoves(state: GameState, n: number): GameState {
   };
 }
 
+// The free, player-invoked "fresh board" affordance (distinct from the
+// removed purchasable power-up tray — see DEFERRED_COMPLEXITY.md's tray
+// entry — and from applyMove's own silent stuck-board rescue above, which
+// only ever fires automatically when hasLegalMoves already fails). Reuses
+// the exact same shuffle() every rescue path already trusts rather than
+// building a second reshuffle, so "the board is playable after a shuffle" stays
+// one guarantee, not two. Only valid mid-play (status 'in_progress') — a
+// paused/won/lost state has no board a player should be able to reach in to
+// reshuffle. Costs nothing: movesRemaining, lives, objectives, denialSpread,
+// and layerCells are all left untouched, only board changes.
+export function requestManualShuffle(state: GameState): GameState {
+  if (state.status !== 'in_progress') {
+    return state;
+  }
+  return {
+    ...state,
+    board: shuffle(state.board),
+  };
+}
+
 export interface SaveData {
   skinId: string;
   currentLevel: number;

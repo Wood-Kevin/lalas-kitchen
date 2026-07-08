@@ -2,6 +2,7 @@ import {
   GameState,
   applyMove,
   grantBonusMoves,
+  requestManualShuffle,
   createGameState,
   SaveData,
   loadSave,
@@ -165,6 +166,65 @@ describe('applyMove — moves exhausted', () => {
 
     expect(grantBonusMoves(state, 5)).toEqual(state);
   });
+  test('reshuffles the board in place while leaving moves/lives/objectives untouched', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B', 'C', 'D'],
+      ['B', 'C', 'D', 'A', 'B'],
+      ['C', 'D', 'A', 'B', 'C'],
+      ['D', 'A', 'B', 'C', 'D'],
+      ['A', 'B', 'C', 'D', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 7,
+      lives: 4,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 2 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: { A: 2 },
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    const result = requestManualShuffle(state);
+
+    // Nothing but the board changed.
+    expect(result.movesRemaining).toBe(7);
+    expect(result.lives).toBe(4);
+    expect(result.objectives).toEqual(state.objectives);
+    expect(result.totalCleared).toEqual({ A: 2 });
+    expect(result.status).toBe('in_progress');
+
+    // The reshuffled board is a real permutation (same multiset of pieces),
+    // never in-place identical, and always match/square-free and playable —
+    // the same guarantee shuffle()'s own callers already rely on.
+    const before = board.flat().map((p) => p.matchType).sort();
+    const after = result.board.flat().map((p) => p.matchType).sort();
+    expect(after).toEqual(before);
+    expect(checkMatches(result.board)).toEqual([]);
+    expect(checkSquares(result.board)).toEqual([]);
+    expect(hasLegalMoves(result.board)).toBe(true);
+  });
+
+  test('is a no-op outside of in_progress (paused, won, or lost)', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+    const paused: GameState = {
+      board,
+      movesRemaining: 0,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 0 }],
+      status: 'paused_awaiting_input',
+      pauseReason: 'moves',
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    expect(requestManualShuffle(paused)).toEqual(paused);
+  });
 
   // Regression guard for this session's removal of the mid-level
   // pauseReason: 'lives' mechanism (see engine/DECISIONS.md) — `lives`
@@ -196,6 +256,68 @@ describe('applyMove — moves exhausted', () => {
     expect(result.state.status).toBe('paused_awaiting_input');
     expect(result.state.pauseReason).toBe('moves');
     expect(result.state.lives).toBe(0);
+  });
+});
+
+describe('requestManualShuffle', () => {
+  test('reshuffles the board in place while leaving moves/lives/objectives untouched', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B', 'C', 'D'],
+      ['B', 'C', 'D', 'A', 'B'],
+      ['C', 'D', 'A', 'B', 'C'],
+      ['D', 'A', 'B', 'C', 'D'],
+      ['A', 'B', 'C', 'D', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 7,
+      lives: 4,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 2 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: { A: 2 },
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    const result = requestManualShuffle(state);
+
+    // Nothing but the board changed.
+    expect(result.movesRemaining).toBe(7);
+    expect(result.lives).toBe(4);
+    expect(result.objectives).toEqual(state.objectives);
+    expect(result.totalCleared).toEqual({ A: 2 });
+    expect(result.status).toBe('in_progress');
+
+    // The reshuffled board is a real permutation (same multiset of pieces),
+    // never in-place identical, and always match/square-free and playable —
+    // the same guarantee shuffle()'s own callers already rely on.
+    const before = board.flat().map((p) => p.matchType).sort();
+    const after = result.board.flat().map((p) => p.matchType).sort();
+    expect(after).toEqual(before);
+    expect(checkMatches(result.board)).toEqual([]);
+    expect(checkSquares(result.board)).toEqual([]);
+    expect(hasLegalMoves(result.board)).toBe(true);
+  });
+
+  test('is a no-op outside of in_progress (paused, won, or lost)', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+    const paused: GameState = {
+      board,
+      movesRemaining: 0,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 10, currentCount: 0 }],
+      status: 'paused_awaiting_input',
+      pauseReason: 'moves',
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    expect(requestManualShuffle(paused)).toEqual(paused);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   applyMove,
   createGameState,
   grantBonusMoves,
+  requestManualShuffle,
 } from '../engine/gameState';
 import {
   canStartLevel,
@@ -824,6 +825,25 @@ export function Board({
     setHintPair(findAnyLegalMove(gameState.board));
   }
 
+  // The free, always-available "fresh board" button — distinct from the
+  // removed purchasable power-up tray (nothing to buy here) and from the
+  // hint above (this doesn't reveal a move, it just rearranges the board).
+  // Reuses engine/gameState.ts's requestManualShuffle, which itself reuses
+  // the exact shuffle() the stuck-board rescue already trusts, so "the
+  // board is always playable after a shuffle" stays one guarantee. Gated
+  // by canAcceptMove for the same reason the hint is — no point reshuffling
+  // mid-cascade or while paused — but uncapped otherwise: a reshuffle only
+  // permutes the existing piece multiset, so repeated taps can't manufacture
+  // any advantage a single tap couldn't, and this player's calm/no-pressure
+  // design brief (CLAUDE.md) argues against inventing a use-limit nobody
+  // asked for. Clears any hint currently showing — a hinted pair is a
+  // position pair on the pre-shuffle board, meaningless after one.
+  function handleRequestShuffle() {
+    if (!canAcceptMove()) return;
+    setHintPair(null);
+    setGameState((current) => requestManualShuffle(current));
+  }
+
   // ContinueOffer's two decline paths — restarting or leaving instead of
   // accepting the rescue. Both spend the life this attempt owes before
   // running the underlying action (see the runStep comment above on why
@@ -944,6 +964,21 @@ export function Board({
         // never shifts position once the hint cap is reached and it drops
         // away (see canUseHint below).
         <View style={styles.topBar}>
+          <Pressable
+            onPress={handleRequestShuffle}
+            disabled={!canAcceptMove()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={[
+              styles.hintButton,
+              {
+                borderColor: skinConfig.palette.accent,
+                backgroundColor: skinConfig.palette.panel,
+                opacity: canAcceptMove() ? 1 : 0.5,
+              },
+            ]}
+          >
+            <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>🔀 Shuffle</Text>
+          </Pressable>
           {canUseHint(hintUsesUsed) && (
             <Pressable
               onPress={handleRequestHint}
