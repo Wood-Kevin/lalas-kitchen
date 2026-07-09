@@ -324,6 +324,11 @@ function AppRoot() {
   // so Board re-renders with the fresh value after a decrement, since it's
   // passed down as a prop for Board's own internal restart to read.
   const [lives, setLives] = useState<number>(skinConfig.lives.max);
+  // Reactive mirror of grantLifeInFlightRef (declared below with the rest of
+  // this file's refs) — purely for OutOfLives' disabled/opacity styling; the
+  // ref is the real guard against a double-tap firing two concurrent ad
+  // requests.
+  const [grantingLife, setGrantingLife] = useState(false);
   // Mirrors `lives` for the same reason levelIndexRef/completedLevelsRef
   // exist below — callbacks below are stable (empty dep arrays) and must
   // read the current value, not whatever was current when the closure was
@@ -333,6 +338,14 @@ function AppRoot() {
   // The regen anchor backing applyLivesRegen — ref-only since nothing ever
   // renders off this value directly, only off `lives` itself.
   const livesLastRegenAtRef = useRef(Date.now());
+  // Same synchronous re-entrancy guard as Board.tsx's grantInFlightRef, for
+  // the identical concern: a rapid double-tap on OutOfLives' "watch a video"
+  // button could fire handleGrantLife twice before either the real ad SDK
+  // responds or React re-renders, requesting two concurrent rewarded ads. A
+  // ref so handleGrantLife sees the in-flight request the instant it's set;
+  // grantingLife (state, declared with the rest of this file's useState
+  // calls) exists purely to drive OutOfLives' disabled/opacity styling.
+  const grantLifeInFlightRef = useRef(false);
   // The difficulty-breather streak (see appPersistence.ts's
   // shouldApplyBreather/consecutiveLossesAfterLoss) — ref-only, same
   // reasoning as livesLastRegenAtRef above, since nothing in the UI ever
@@ -752,32 +765,44 @@ function AppRoot() {
   // life would show correctly on screen and then silently vanish if the
   // player backgrounds the app before starting a level.
   const handleGrantLife = useCallback(async () => {
-    // Watch the rewarded ad first — services/adService.ts resolves to
-    // whichever real provider (or, today, stub) this platform uses. A
-    // dismissed-early ad (false) leaves lives untouched, nothing saved.
-    const completed = await adService.requestRewardedAd('lives');
-    if (!completed) return;
-    const newLives = grantInstantLife(skinConfig.lives.max);
-    livesRef.current = newLives;
-    setLives(newLives);
-    saveProgress(
-      skinConfig.skinId,
-      buildSaveData(
+    // Synchronous re-entrancy guard — see grantLifeInFlightRef's own
+    // comment. Without this, a rapid double-tap could fire two concurrent
+    // adService.requestRewardedAd() calls before either the real ad SDK
+    // responds or the disabled prop below ever gets a chance to render.
+    if (grantLifeInFlightRef.current) return;
+    grantLifeInFlightRef.current = true;
+    setGrantingLife(true);
+    try {
+      // Watch the rewarded ad first — services/adService.ts resolves to
+      // whichever real provider (or, today, stub) this platform uses. A
+      // dismissed-early ad (false) leaves lives untouched, nothing saved.
+      const completed = await adService.requestRewardedAd('lives');
+      if (!completed) return;
+      const newLives = grantInstantLife(skinConfig.lives.max);
+      livesRef.current = newLives;
+      setLives(newLives);
+      saveProgress(
         skinConfig.skinId,
-        levelIndexRef.current,
-        completedLevelsRef.current,
-        levelStarsRef.current,
-        seenTutorialsRef.current,
-        unlockedRecipeCardsRef.current,
-        soundEnabledRef.current,
-        hapticsEnabledRef.current,
-        { lives: newLives },
-        livesLastRegenAtRef.current,
-        undefined,
-        consecutiveLossesRef.current,
-        lastCrashRef.current
-      )
-    );
+        buildSaveData(
+          skinConfig.skinId,
+          levelIndexRef.current,
+          completedLevelsRef.current,
+          levelStarsRef.current,
+          seenTutorialsRef.current,
+          unlockedRecipeCardsRef.current,
+          soundEnabledRef.current,
+          hapticsEnabledRef.current,
+          { lives: newLives },
+          livesLastRegenAtRef.current,
+          undefined,
+          consecutiveLossesRef.current,
+          lastCrashRef.current
+        )
+      );
+    } finally {
+      grantLifeInFlightRef.current = false;
+      setGrantingLife(false);
+    }
   }, []);
 
   // Board's blocker tutorial dismiss action — persists immediately for the
@@ -977,6 +1002,7 @@ function AppRoot() {
             lives={lives}
             livesLastRegenAt={livesLastRegenAtRef.current}
             onGrantLife={handleGrantLife}
+            grantPending={grantingLife}
             adAvailable={adService.isRewardedAdAvailable()}
             onBack={handleGoHome}
           />

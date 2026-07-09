@@ -18,6 +18,14 @@ export interface ContinueOfferProps {
   // during CrazyGames' Basic Launch gap, when the grant is given for free
   // instead. Only changes the CTA's copy; the tap handler is identical.
   adAvailable: boolean;
+  // True from the instant the button is tapped until Board.tsx's handleGrant
+  // settles one way or another (ad watched, dismissed early, or failed) —
+  // Board.tsx's grantInFlightRef is the real synchronous guard against a
+  // double-tap firing two concurrent ad requests; this is its reactive
+  // mirror, purely to disable and dim the button for as long as that guard
+  // is up, the same disabled+opacity treatment Board.tsx's own Hint/Shuffle
+  // buttons already use for "busy" states.
+  grantPending: boolean;
   // Accepting the rescue: Board.tsx's handleGrant (ad, then +5 moves via
   // grantBonusMoves). Never spends a life — that's the entire point of this
   // screen existing separately from PausedOverlay.
@@ -43,7 +51,7 @@ const FLAME = '#F2793A';
 // no longer does. Shown instead of PausedOverlay while
 // pauseActions.ts's shouldOfferContinue is true; PausedOverlay takes over
 // once it's false (grants exhausted, or this offer was just declined).
-export function ContinueOffer({ movesRemaining, levelIndex, config, adAvailable, onContinue, onPlayAgain, onExit }: ContinueOfferProps) {
+export function ContinueOffer({ movesRemaining, levelIndex, config, adAvailable, grantPending, onContinue, onPlayAgain, onExit }: ContinueOfferProps) {
   const action = getPauseAction('moves')!;
   const flameScale = useSharedValue(1);
 
@@ -85,7 +93,11 @@ export function ContinueOffer({ movesRemaining, levelIndex, config, adAvailable,
           Out of moves for this round — keep it going with a few more, no life spent.
         </Text>
 
-        <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={() => onContinue(action.bonusAmount)}>
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: FLAME, opacity: grantPending ? 0.5 : 1 }]}
+          disabled={grantPending}
+          onPress={() => onContinue(action.bonusAmount)}
+        >
           <Text style={styles.primaryButtonLabel}>
             {adAvailable ? `Watch a video for ${action.bonusAmount} more moves` : `Get ${action.bonusAmount} more moves`}
           </Text>

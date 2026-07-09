@@ -382,6 +382,16 @@ export function Board({
   // stale pre-move state. A ref, not state, because handleTilePress must see
   // the current value the instant it's set, not on the next render.
   const animatingRef = useRef(false);
+  // Same reasoning as animatingRef above, for the same class of problem: a
+  // rapid double-tap on ContinueOffer's "watch a video" button could fire
+  // handleGrant twice before either the real ad SDK responds or React
+  // re-renders, requesting two concurrent rewarded ads. A ref (not state)
+  // so the very first line of handleGrant sees the in-flight request
+  // instantly, before any re-render; grantInFlight (state, right below)
+  // exists purely to drive ContinueOffer's disabled/opacity styling, which
+  // needs an actual reactive value to render, unlike this ref.
+  const grantInFlightRef = useRef(false);
+  const [grantInFlight, setGrantInFlight] = useState(false);
   // Pending step/cleanup timers, cleared on unmount and on "play again" so a
   // cascade animation from an abandoned attempt can't fire into a fresh one.
   const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -822,19 +832,31 @@ export function Board({
   }
 
   async function handleGrant(amount: number) {
-    // Watch the rewarded ad first — services/adService.ts resolves to
-    // whichever real provider (or, today, stub) this platform uses, and the
-    // grant only proceeds if it resolves true (reward earned). A dismissed-
-    // early ad (false) leaves ContinueOffer exactly as it was: no grant,
-    // no cap spent, no life spent.
-    const completed = await adService.requestRewardedAd('moves');
-    if (!completed) return;
-    // Count the grant before applying it. ContinueOffer only ever renders
-    // while canGrantBonusMoves is true, but incrementing here (not relying on
-    // the screen being hidden) keeps the cap honest even if it's re-entered
-    // before this render settles.
-    setBonusGrantsUsed((used) => nextAttemptUseCount(used, 'use'));
-    setGameState((current) => grantBonusMoves(current, amount));
+    // Synchronous re-entrancy guard — see grantInFlightRef's own comment.
+    // Without this, a rapid double-tap could fire two concurrent
+    // adService.requestRewardedAd() calls before either the real ad SDK
+    // responds or the disabled prop below ever gets a chance to render.
+    if (grantInFlightRef.current) return;
+    grantInFlightRef.current = true;
+    setGrantInFlight(true);
+    try {
+      // Watch the rewarded ad first — services/adService.ts resolves to
+      // whichever real provider (or, today, stub) this platform uses, and the
+      // grant only proceeds if it resolves true (reward earned). A dismissed-
+      // early ad (false) leaves ContinueOffer exactly as it was: no grant,
+      // no cap spent, no life spent.
+      const completed = await adService.requestRewardedAd('moves');
+      if (!completed) return;
+      // Count the grant before applying it. ContinueOffer only ever renders
+      // while canGrantBonusMoves is true, but incrementing here (not relying on
+      // the screen being hidden) keeps the cap honest even if it's re-entered
+      // before this render settles.
+      setBonusGrantsUsed((used) => nextAttemptUseCount(used, 'use'));
+      setGameState((current) => grantBonusMoves(current, amount));
+    } finally {
+      grantInFlightRef.current = false;
+      setGrantInFlight(false);
+    }
   }
 
   // The hint button's own tap handler (see the hintPair/hintUsesUsed
@@ -1239,6 +1261,7 @@ export function Board({
             levelIndex={levelIndex}
             config={skinConfig}
             adAvailable={adService.isRewardedAdAvailable()}
+            grantPending={grantInFlight}
             onContinue={handleGrant}
             onPlayAgain={handleContinueDeclinePlayAgain}
             onExit={handleContinueDeclineExit}

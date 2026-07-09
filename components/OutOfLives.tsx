@@ -27,6 +27,13 @@ export interface OutOfLivesProps {
   // still renders correctly with the button omitted if that ever changes
   // back, without a crash.
   onGrantLife?: () => void;
+  // True from the instant the button is tapped until App.tsx's
+  // handleGrantLife settles one way or another — App.tsx's
+  // grantLifeInFlightRef is the real synchronous guard against a double-tap
+  // firing two concurrent ad requests; this is its reactive mirror, purely
+  // to disable and dim the button for as long as that guard is up. Only
+  // meaningful while onGrantLife is present.
+  grantPending: boolean;
   // Whether tapping onGrantLife will actually show a real rewarded ad right
   // now (services/adService.ts's isRewardedAdAvailable()) — false during
   // CrazyGames' Basic Launch gap, when the refill is given for free instead.
@@ -42,7 +49,7 @@ export interface OutOfLivesProps {
 // them by context, not tone: this blocks a brand new level from starting
 // at all (account-level lives, not a mid-level pause), so there is no
 // objective chip and no "Play Again" (there is nothing yet to replay).
-export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGrantLife, adAvailable, onBack }: OutOfLivesProps) {
+export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGrantLife, grantPending, adAvailable, onBack }: OutOfLivesProps) {
   const { max, regenMinutes, icon } = config.lives;
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
   const flameSprite = resolveSpriteAsset(icon, spriteAssets);
@@ -95,7 +102,11 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
         </View>
 
         {onGrantLife && (
-          <Pressable style={[styles.primaryButton, { backgroundColor: FLAME }]} onPress={onGrantLife}>
+          <Pressable
+            style={[styles.primaryButton, { backgroundColor: FLAME, opacity: grantPending ? 0.5 : 1 }]}
+            disabled={grantPending}
+            onPress={onGrantLife}
+          >
             <Text style={styles.primaryButtonLabel}>{adAvailable ? 'Watch a video to refill your lives' : 'Refill your lives'}</Text>
           </Pressable>
         )}
