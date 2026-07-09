@@ -269,6 +269,14 @@ export interface LevelConfig {
   blockerCount?: number;
   blockerMatchType?: string;
   blockerHitsToClear?: number;
+  // "Blocker depth" (see engine/DECISIONS.md's blocker-depth entry) — when
+  // true, this level's blockers only take adjacent damage from a special
+  // effect (a striped sweep, an area-bomb blast, a color-bomb detonation,
+  // or a chain any of those trigger), never a plain ordinary match.
+  // Omitted/false means an ordinary blocker, identical to every level built
+  // before this variant existed. Hand-authored today — generator
+  // integration is a separate, later step (see DEFERRED_COMPLEXITY.md).
+  blockerSpecialOnly?: boolean;
   // When true, this level's denial zone spreads if left unaddressed — the
   // dynamic layer, gated past a difficulty threshold in appPersistence.ts
   // (buildGeneratedLevelConfig). Omitted/false means blockers are purely
@@ -329,6 +337,7 @@ export function createGameState(config: LevelConfig): GameState {
     blockerCount: config.blockerCount,
     blockerMatchType: config.blockerMatchType,
     blockerHitsToClear: config.blockerHitsToClear,
+    blockerSpecialOnly: config.blockerSpecialOnly,
     voidCells: config.voidCells,
     // A denial-spread-eligible level's zone should already read as one
     // contiguous region the moment it loads, not rely on several spread
@@ -1154,7 +1163,19 @@ function resolveCascades(
     // next to them (see matrix.ts's applyAdjacentDamage and DECISIONS.md),
     // now including a striped piece's line sweep. Any blocker that reaches
     // zero this pass clears alongside and joins the same cascade/refill.
-    const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(currentBoard, clearedPositions);
+    // specialClearedKeys (tierByKey minus the 'ordinary' entries) is what a
+    // "blocker depth" specialOnly blocker (see the Piece interface's own
+    // comment) actually cares about — a plain ordinary blocker ignores this
+    // entirely. A dropdown arrival is never in tierByKey at all (it's not a
+    // scored event), so it's correctly treated as non-special here too.
+    const specialClearedKeys = new Set(
+      [...tierByKey.entries()].filter(([, tier]) => tier !== 'ordinary').map(([key]) => key)
+    );
+    const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(
+      currentBoard,
+      clearedPositions,
+      specialClearedKeys
+    );
     allClearedPositions.push(...clearedPositions, ...newlyClearedBlockers);
 
     // Count every cell that actually clears, by its matchType. The anchor
@@ -1354,7 +1375,17 @@ function resolveClearSet(
   // is a genuine chain reaction on top of that.
   const specialsFired = countFiredSpecials(board, expanded);
 
-  const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, expanded);
+  // Every position here is inherently special — this whole function only
+  // ever handles a bomb/combo detonation and whatever it chains into, never
+  // a plain ordinary match — so a specialOnly blocker (see matrix.ts's
+  // Piece comment) should take damage from any of it. Derived from
+  // tierByKey the same way resolveCascades' own call site does, rather than
+  // just treating all of `expanded` as special outright, so the two stay
+  // provably consistent with each other.
+  const specialClearedKeys = new Set(
+    [...tierByKey.entries()].filter(([, tier]) => tier !== 'ordinary').map(([key]) => key)
+  );
+  const { board: damagedBoard, newlyClearedBlockers } = applyAdjacentDamage(board, expanded, specialClearedKeys);
 
   const clearedByMatchType: Record<string, number> = {};
   for (const pos of expanded) {

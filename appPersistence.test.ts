@@ -879,6 +879,55 @@ describe('buildGeneratedLevelConfig', () => {
     }
   });
 
+  // "Blocker depth" (see engine/DECISIONS.md's blocker-depth entry):
+  // sealed_jar is gated even later than pot_lid (12 vs. 7).
+  const ALL_BLOCKERS_WITH_SEALED_JAR = [
+    ...ALL_BLOCKERS,
+    { id: 'sealed_jar', hitsToClear: 1, specialOnly: true },
+  ];
+
+  test('never places sealed_jar below its difficulty threshold (level 12), even once pot_lid is already eligible', () => {
+    // levelIndex 14..20 -> generated level number 11..17? No — HAND_BUILT_COUNT
+    // is 3, so levelIndex 14 -> level 11 (below 12), levelIndex 15 -> level 12
+    // would already be eligible, so scan strictly below: levelIndex 4..16 ->
+    // level 1..13. Restrict to levels 1..11 (levelIndex 4..14).
+    for (let levelIndex = 4; levelIndex <= 14; levelIndex++) {
+      const config = buildGeneratedLevelConfig(
+        levelIndex,
+        HAND_BUILT_COUNT,
+        PIECE_TYPES,
+        8,
+        6,
+        ALL_BLOCKERS_WITH_SEALED_JAR
+      );
+      expect(config.blockerMatchType).not.toBe('sealed_jar');
+      expect(config.blockerSpecialOnly).toBeUndefined();
+    }
+  });
+
+  test('can place sealed_jar once past its difficulty threshold, and it carries blockerSpecialOnly', () => {
+    let foundSealedJar = false;
+    for (let levelIndex = 15; levelIndex <= 30; levelIndex++) {
+      const config = buildGeneratedLevelConfig(
+        levelIndex,
+        HAND_BUILT_COUNT,
+        PIECE_TYPES,
+        8,
+        6,
+        ALL_BLOCKERS_WITH_SEALED_JAR
+      );
+      if (config.blockerMatchType === 'sealed_jar') {
+        foundSealedJar = true;
+        expect(config.blockerSpecialOnly).toBe(true);
+      } else if (config.blockerMatchType !== undefined) {
+        // Every OTHER blocker id must never carry the flag — it's specific
+        // to sealed_jar's own skin-config entry, not a generic default.
+        expect(config.blockerSpecialOnly).toBeUndefined();
+      }
+    }
+    expect(foundSealedJar).toBe(true);
+  });
+
   test('enables dynamic denial-zone spread only past its threshold (generated level number 10)', () => {
     // generatedLevelNumber = levelIndex - HAND_BUILT_COUNT (3).
     // Level number 9 (levelIndex 12): blockers present, but below

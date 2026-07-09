@@ -15,6 +15,15 @@ export interface Piece {
   // Only meaningful when type === 'blocker'. How many adjacent-match hits
   // this cell has left before it clears — see applyAdjacentDamage.
   hitsRemaining?: number;
+  // Only meaningful when type === 'blocker' — the "blocker depth" variant
+  // (see engine/DECISIONS.md's blocker-depth entry). A plain blocker takes
+  // adjacent damage from ANY clear next to it, ordinary match or special
+  // effect alike. A specialOnly blocker only takes damage when the adjacent
+  // clear was itself caused by a special effect (a striped sweep, an
+  // area-bomb blast, a color-bomb detonation, or a chain any of those
+  // trigger) — an ordinary 3-match next to it does nothing at all. See
+  // applyAdjacentDamage's own `specialClearedKeys` param.
+  specialOnly?: boolean;
   // Only meaningful when type === 'striped'. Which line this piece clears
   // the next time it's matched. Same optional-field-by-type pattern as
   // hitsRemaining above.
@@ -457,7 +466,24 @@ const ADJACENT_OFFSETS: Position[] = [
 // clear and the positions about to be cleared, returns a new board with
 // damaged blockers' hitsRemaining decremented, plus the positions of any
 // blocker that reached zero and should clear alongside the triggering match.
-export function applyAdjacentDamage(board: Board, clearedPositions: Position[]): AdjacentDamageResult {
+// `specialClearedKeys` identifies which of THIS call's `clearedPositions`
+// were caused by a special effect (a striped sweep, an area-bomb blast, a
+// color-bomb detonation, or a chain any of those trigger) rather than a
+// plain ordinary match — the one thing a "blocker depth" specialOnly
+// blocker (see the Piece interface's own comment) cares about. Deliberately
+// a plain `Set<string>` of "row,col" keys, not gameState.ts's own (private,
+// unexported) ScoreTier type — matrix.ts has no import from gameState.ts
+// anywhere else, and this keeps that layering intact; the caller (which
+// already has real tier data) just tells this function which keys count.
+// Omitted/undefined means "nothing is special" — a specialOnly blocker
+// simply never takes damage from that call, while an ordinary blocker is
+// completely unaffected either way (it never consults this set at all),
+// so every pre-existing 2-argument call site keeps its exact prior behavior.
+export function applyAdjacentDamage(
+  board: Board,
+  clearedPositions: Position[],
+  specialClearedKeys?: Set<string>
+): AdjacentDamageResult {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const newBoard = board.map((row) => row.slice());
@@ -476,6 +502,9 @@ export function applyAdjacentDamage(board: Board, clearedPositions: Position[]):
 
       const cell = newBoard[row][col];
       if (cell.type !== 'blocker') continue;
+      // A specialOnly blocker ignores this particular clear if it wasn't
+      // itself special — an ordinary 3-match next to it does nothing.
+      if (cell.specialOnly && !specialClearedKeys?.has(`${pos.row},${pos.col}`)) continue;
 
       alreadyDamaged.add(key);
       const hitsRemaining = (cell.hitsRemaining ?? 1) - 1;

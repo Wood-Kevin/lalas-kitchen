@@ -1524,6 +1524,79 @@ describe('applyMove — blockers', () => {
     expect(result.state).toEqual(state);
     expect(result.events).toEqual([]);
   });
+
+  // "Blocker depth" (see engine/DECISIONS.md's blocker-depth entry): a
+  // specialOnly blocker ignores an ordinary match entirely, but still takes
+  // damage from a special effect (here, a striped sweep) passing adjacent
+  // to it — the real, end-to-end version of matrix.test.ts's more granular
+  // applyAdjacentDamage unit tests.
+  test('a specialOnly blocker is untouched by an ordinary match adjacent to it', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B'],
+      ['X', 'PLACEHOLDER', 'A'],
+      ['P', 'Q', 'R'],
+    ]);
+    board[1][1] = { ...blocker('K', 1), specialOnly: true };
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'K', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+
+    // The ordinary A,A,A match still fires (confirming the move was real)...
+    expect(checkMatches(result.state.board)).toEqual([]);
+    // ...but the specialOnly blocker took zero damage from it.
+    expect(result.state.board[1][1]).toEqual(
+      expect.objectContaining({ type: 'blocker', specialOnly: true, hitsRemaining: 1 })
+    );
+    expect(result.state.objectives[0].currentCount).toBe(0);
+  });
+
+  test('a specialOnly blocker IS damaged by a striped sweep passing adjacent to it', () => {
+    // Same striped-sweep setup as the dropdown-immunity test: swapping the
+    // striped piece at (2,0) up into (1,0) lines up row 1 as A,A,A and fires
+    // the sweep, which clears the WHOLE row — including (1,4), a cell no
+    // ordinary match ever touched. The specialOnly blocker at (2,4) is
+    // adjacent only to (1,4), so it can only take damage if that cell's
+    // clear is correctly identified as special.
+    const board = buildBoard([
+      ['P', 'Q', 'R', 'S', 'T'],
+      ['X', 'A', 'A', 'U', 'W'],
+      ['A', 'D', 'V', 'E', 'PLACEHOLDER'],
+    ]);
+    board[2][0] = { ...board[2][0], type: 'striped', direction: 'row' };
+    board[2][4] = { ...blocker('K', 1), specialOnly: true };
+
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'K', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6']),
+    };
+
+    const result = applyMove(state, { row: 2, col: 0 }, { row: 1, col: 0 });
+
+    // The sweep genuinely cleared (1,4), the off-match cell.
+    expect(result.state.board.flat().some((p) => p.id === '1-4')).toBe(false);
+    // The specialOnly blocker took its one hit and cleared, crediting the
+    // objective exactly like any other blocker clear.
+    expect(result.state.board.flat().some((p) => p.type === 'blocker')).toBe(false);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+  });
 });
 
 describe('applyMove — multiple objectives', () => {

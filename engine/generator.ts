@@ -21,6 +21,12 @@ export interface GeneratorConfig {
   blockerCount?: number;
   blockerMatchType?: string;
   blockerHitsToClear?: number;
+  // "Blocker depth" — see matrix.ts's Piece.specialOnly and
+  // engine/DECISIONS.md's blocker-depth entry. This generator has no
+  // opinion on WHY a caller wants this (same as blockerMatchType/
+  // blockerHitsToClear above) — it just stamps the flag onto every placed
+  // blocker Piece. Omitted/false means an ordinary blocker, unchanged.
+  blockerSpecialOnly?: boolean;
   // When true, blockerCount cells are grown as one contiguous region (a
   // random start cell plus adjacent-cell growth) instead of scattered
   // independently at random. Purely a placement-geometry switch — the
@@ -235,7 +241,8 @@ function placeBlockers(
   blockerMatchType: string | undefined,
   blockerHitsToClear: number | undefined,
   rng: () => number,
-  clustered: boolean
+  clustered: boolean,
+  specialOnly: boolean
 ): void {
   if (blockerMatchType === undefined) {
     throw new Error('generateLevel: blockerCount > 0 requires blockerMatchType.');
@@ -257,13 +264,23 @@ function placeBlockers(
       type: 'blocker',
       matchType: blockerMatchType,
       hitsRemaining: hitsToClear,
+      ...(specialOnly ? { specialOnly: true } : {}),
     };
   }
 }
 
 export function generateLevel(seed: number, config: GeneratorConfig): Board {
-  const { rows, cols, pieceTypeIds, blockerCount, blockerMatchType, blockerHitsToClear, voidCells, clusterBlockers } =
-    config;
+  const {
+    rows,
+    cols,
+    pieceTypeIds,
+    blockerCount,
+    blockerMatchType,
+    blockerHitsToClear,
+    blockerSpecialOnly,
+    voidCells,
+    clusterBlockers,
+  } = config;
 
   if (pieceTypeIds.length < 2) {
     throw new Error('generateLevel: pieceTypeIds must contain at least 2 distinct types.');
@@ -301,7 +318,15 @@ export function generateLevel(seed: number, config: GeneratorConfig): Board {
   repairAccidentalMatches(board, pieceTypeIds, rng);
 
   if (blockerCount) {
-    placeBlockers(board, blockerCount, blockerMatchType, blockerHitsToClear, rng, !!clusterBlockers);
+    placeBlockers(
+      board,
+      blockerCount,
+      blockerMatchType,
+      blockerHitsToClear,
+      rng,
+      !!clusterBlockers,
+      !!blockerSpecialOnly
+    );
   }
 
   if (!hasLegalMoves(board)) {

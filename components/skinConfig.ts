@@ -11,6 +11,12 @@ export interface SkinBlocker {
   id: string;
   sprite: string;
   hitsToClear: number;
+  // "Blocker depth" (see engine/DECISIONS.md's blocker-depth entry) — when
+  // true, this blocker only takes adjacent damage from a special effect
+  // (a sweep/blast/detonation/chain), never a plain ordinary match. Omitted
+  // means an ordinary blocker, identical to every blocker before this
+  // variant existed.
+  specialOnly?: boolean;
 }
 
 // A fixed, curated collectible tied to one specific level number — not one

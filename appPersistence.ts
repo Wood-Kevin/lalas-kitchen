@@ -837,8 +837,17 @@ export function generatedBlockerCount(levelNumber: number): number {
 // point generatedBlockerCount has already ramped past its first step (2
 // blockers/board, see the level-5 case) and a player has had a real chance
 // to learn the easier 1-hit blockers before a tougher one enters the mix.
+// sealed_jar (specialOnly: true — see skins/lalas-kitchen/config.json and
+// engine/DECISIONS.md's blocker-depth entry) is a genuinely different idea
+// from a tougher hit-count, not just "harder pot_lid": it teaches "ordinary
+// matches don't work here at all, you need a special piece." Gated later
+// than every other blocker gate below (pot_lid at 7, denial-spread at 10),
+// so a player has already met the base blocker concept, the tougher 2-hit
+// variant, and a full-cap 4-blocker board before meeting one that outright
+// ignores ordinary matches.
 const BLOCKER_MIN_LEVEL_NUMBER: Record<string, number> = {
   pot_lid: 7,
+  sealed_jar: 12,
 };
 
 // The dynamic denial-zone spread mechanic (a blocker zone that grows into an
@@ -1056,7 +1065,7 @@ export function buildGeneratedLevelConfig(
   allPieceTypeIds: string[],
   rows: number,
   cols: number,
-  blockers: Array<{ id: string; hitsToClear: number }> = [],
+  blockers: Array<{ id: string; hitsToClear: number; specialOnly?: boolean }> = [],
   breather: boolean = false
 ): Omit<LevelConfig, 'lives'> {
   const levelNumber = generatedLevelNumber(levelIndex, handBuiltLevelCount);
@@ -1146,7 +1155,12 @@ export function buildGeneratedLevelConfig(
     movesLimit: generatedMovesLimit(levelNumber, playableRatio, breather),
     objectives,
     ...(blockerCount > 0 && chosenBlocker
-      ? { blockerCount, blockerMatchType: chosenBlocker.id, blockerHitsToClear: chosenBlocker.hitsToClear }
+      ? {
+          blockerCount,
+          blockerMatchType: chosenBlocker.id,
+          blockerHitsToClear: chosenBlocker.hitsToClear,
+          ...(chosenBlocker.specialOnly ? { blockerSpecialOnly: true as const } : {}),
+        }
       : {}),
     ...(denialSpread ? { denialSpread: true } : {}),
     ...(voidCells ? { voidCells } : {}),

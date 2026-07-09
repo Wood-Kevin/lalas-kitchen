@@ -11,7 +11,8 @@
   "blockers": [
     { "id": "cling", "sprite": "cling.webp", "hitsToClear": 1 },
     { "id": "dish_stack", "sprite": "dish_stack.webp", "hitsToClear": 1 },
-    { "id": "pot_lid", "sprite": "pot_lid.webp", "hitsToClear": 2 }
+    { "id": "pot_lid", "sprite": "pot_lid.webp", "hitsToClear": 2 },
+    { "id": "sealed_jar", "sprite": "sealed_jar.webp", "hitsToClear": 1, "specialOnly": true }
   ],
   "lives": { "max": 5, "regenMinutes": 20, "icon": "flame.webp" },
   "animationProfile": {

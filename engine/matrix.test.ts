@@ -592,6 +592,64 @@ describe('applyAdjacentDamage', () => {
     );
     expect(secondHit.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
   });
+
+  // "Blocker depth" (see engine/DECISIONS.md's blocker-depth entry): a
+  // specialOnly blocker ignores an adjacent clear entirely unless that
+  // specific clear is identified as special via specialClearedKeys.
+  describe('specialOnly blockers', () => {
+    function boardWithSpecialOnlyBlockerAt(hitsRemaining: number): Board {
+      const board = boardWithBlockerAt(hitsRemaining);
+      board[1][1] = { ...board[1][1], specialOnly: true };
+      return board;
+    }
+
+    test('an ordinary clear next to it (no specialClearedKeys) does nothing at all', () => {
+      const board = boardWithSpecialOnlyBlockerAt(1);
+      const result = applyAdjacentDamage(board, [{ row: 0, col: 1 }]);
+
+      expect(result.board[1][1]).toEqual(
+        expect.objectContaining({ type: 'blocker', specialOnly: true, hitsRemaining: 1 })
+      );
+      expect(result.newlyClearedBlockers).toEqual([]);
+    });
+
+    test('a clear identified as special via specialClearedKeys damages it normally', () => {
+      const board = boardWithSpecialOnlyBlockerAt(1);
+      const result = applyAdjacentDamage(
+        board,
+        [{ row: 0, col: 1 }],
+        new Set(['0,1'])
+      );
+
+      expect(result.board[1][1]).toEqual(
+        expect.objectContaining({ type: 'blocker', specialOnly: true, hitsRemaining: 0 })
+      );
+      expect(result.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
+    });
+
+    test('when several cells clear together, only the special-tagged ones count toward it', () => {
+      const board = boardWithSpecialOnlyBlockerAt(2);
+      // Two adjacent cells clear this pass; only (2,1) is special-tagged.
+      const result = applyAdjacentDamage(
+        board,
+        [{ row: 0, col: 1 }, { row: 2, col: 1 }],
+        new Set(['2,1'])
+      );
+
+      // Exactly one hit landed (from the special one), not two.
+      expect(result.board[1][1]).toEqual(
+        expect.objectContaining({ type: 'blocker', specialOnly: true, hitsRemaining: 1 })
+      );
+      expect(result.newlyClearedBlockers).toEqual([]);
+    });
+
+    test('an ordinary (non-specialOnly) blocker on the same board is unaffected by specialClearedKeys being absent', () => {
+      const board = boardWithBlockerAt(1);
+      const result = applyAdjacentDamage(board, [{ row: 0, col: 1 }]);
+
+      expect(result.newlyClearedBlockers).toEqual([{ row: 1, col: 1 }]);
+    });
+  });
 });
 
 describe('checkSquares — 2x2 block detection', () => {
