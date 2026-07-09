@@ -755,7 +755,7 @@ function AppRoot() {
     // Watch the rewarded ad first — services/adService.ts resolves to
     // whichever real provider (or, today, stub) this platform uses. A
     // dismissed-early ad (false) leaves lives untouched, nothing saved.
-    const completed = await adService.requestRewardedAd();
+    const completed = await adService.requestRewardedAd('lives');
     if (!completed) return;
     const newLives = grantInstantLife(skinConfig.lives.max);
     livesRef.current = newLives;

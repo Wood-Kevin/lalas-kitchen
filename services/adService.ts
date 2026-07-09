@@ -8,8 +8,12 @@
 export interface AdService {
   // true = the player watched to completion and earned the reward; false =
   // dismissed early / failed to load. Every current caller only ever grants
-  // on true.
-  requestRewardedAd(): Promise<boolean>;
+  // on true. `purpose` identifies which grant flow is asking (moves mid-
+  // level, or a full lives refill) — the two flows use distinct AdMob ad
+  // units in production (see expoGoogleMobileAdsService.ts), so the caller
+  // must say which one it wants; CrazyGames/stub adapters accept and ignore
+  // it, having no per-purpose ad units of their own.
+  requestRewardedAd(purpose: 'moves' | 'lives'): Promise<boolean>;
   // true = a banner was shown. Stubbed and unwired today — no banner-ad UI
   // exists in the game yet — kept alongside requestRewardedAd so the
   // interface is ready the moment one is built, not bolted on later.

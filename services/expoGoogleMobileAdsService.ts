@@ -1,4 +1,4 @@
-import { AdEventType, RewardedAd, RewardedAdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { AdEventType, RewardedAd, RewardedAdEventType } from 'react-native-google-mobile-ads';
 import { AdService } from './adService';
 
 // The real mobile (AdMob) adapter, replacing adMobAdService.ts's old instant-
@@ -11,14 +11,17 @@ import { AdService } from './adService';
 // selectAdService takes this as an injected param rather than importing it
 // directly, so that factory logic stays testable with fakes.
 //
-// TestIds.REWARDED resolves to Google's own publicly documented demo ad
-// unit id per platform (developers.google.com/admob/android/test-ads,
-// developers.google.com/admob/ios/test-ads) — genuinely usable without a
-// real AdMob developer account, not tied to any specific person. Swap for a
-// real ad unit id once a real AdMob account exists (see app.json's
-// androidAppId/iosAppId for the matching test App IDs, which need the same
-// swap).
-const REWARDED_AD_UNIT_ID = TestIds.REWARDED;
+// Real ad unit ids from this project's real AdMob account (App ID
+// ca-app-pub-1884558565604210~2303142978, configured in app.json's
+// androidAppId — see that file for why iosAppId is still Google's demo App
+// ID) — replacing the old TestIds.REWARDED demo unit, which resolved the
+// same test id regardless of which grant flow asked. Two distinct real ad
+// units exist because the two grant flows are genuinely separate placements
+// in the AdMob console, not because the code needs them to differ.
+const REWARDED_AD_UNIT_ID_BY_PURPOSE = {
+  moves: 'ca-app-pub-1884558565604210/8073545649',
+  lives: 'ca-app-pub-1884558565604210/1915331401',
+} as const;
 
 // Loads a fresh RewardedAd and shows it the instant it's ready, resolving
 // true only if the player actually watched to completion and earned the
@@ -26,9 +29,9 @@ const REWARDED_AD_UNIT_ID = TestIds.REWARDED;
 // or if the ad closes without that event firing (dismissed early). Listeners
 // are torn down on whichever terminal event fires first so a single
 // requestRewardedAd() call never double-resolves or leaks a subscription.
-function loadAndShowRewarded(): Promise<boolean> {
+function loadAndShowRewarded(purpose: 'moves' | 'lives'): Promise<boolean> {
   return new Promise((resolve) => {
-    const rewarded = RewardedAd.createForAdRequest(REWARDED_AD_UNIT_ID);
+    const rewarded = RewardedAd.createForAdRequest(REWARDED_AD_UNIT_ID_BY_PURPOSE[purpose]);
     let earnedReward = false;
 
     const unsubscribeLoaded = rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {

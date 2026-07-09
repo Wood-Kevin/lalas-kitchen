@@ -9,9 +9,12 @@ function fakeSdk(onRequestAd: CrazyGamesSdk['ad']['requestAd']): CrazyGamesSdk {
 
 describe('CrazyGames Basic Launch (monetization disabled)', () => {
   test('grants the rewarded-ad reward for free instead of gating on a request that cannot succeed', async () => {
+    // 'moves' is an arbitrary placeholder here — CrazyGames has no per-
+    // purpose ad units, unlike the real AdMob adapter, so requestRewardedAd
+    // ignores its argument entirely.
     const loadSdk = jest.fn();
     const service = createCrazyGamesAdService(false, loadSdk);
-    await expect(service.requestRewardedAd()).resolves.toBe(true);
+    await expect(service.requestRewardedAd('moves')).resolves.toBe(true);
     // The whole point of the Basic Launch gate: never even attempt to load
     // the real SDK for a request that's doomed to fail.
     expect(loadSdk).not.toHaveBeenCalled();
@@ -35,7 +38,7 @@ describe('CrazyGames Full Launch (monetization enabled) — real SDK request/res
       callbacks.adFinished?.();
     });
     const service = createCrazyGamesAdService(true, async () => sdk);
-    await expect(service.requestRewardedAd()).resolves.toBe(true);
+    await expect(service.requestRewardedAd('moves')).resolves.toBe(true);
   });
 
   test('resolves false when the real SDK reports adError (unfilled, adblock, cooldown, or any other failure)', async () => {
@@ -44,7 +47,7 @@ describe('CrazyGames Full Launch (monetization enabled) — real SDK request/res
       callbacks.adError?.({ code: 'unfilled', message: 'no ad inventory' });
     });
     const service = createCrazyGamesAdService(true, async () => sdk);
-    await expect(service.requestRewardedAd()).resolves.toBe(false);
+    await expect(service.requestRewardedAd('moves')).resolves.toBe(false);
     expect(consoleErrorSpy).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
@@ -54,7 +57,7 @@ describe('CrazyGames Full Launch (monetization enabled) — real SDK request/res
     const service = createCrazyGamesAdService(true, async () => {
       throw new Error('script failed to load');
     });
-    await expect(service.requestRewardedAd()).resolves.toBe(true);
+    await expect(service.requestRewardedAd('moves')).resolves.toBe(true);
     expect(consoleErrorSpy).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });

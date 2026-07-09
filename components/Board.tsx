@@ -827,7 +827,7 @@ export function Board({
     // grant only proceeds if it resolves true (reward earned). A dismissed-
     // early ad (false) leaves ContinueOffer exactly as it was: no grant,
     // no cap spent, no life spent.
-    const completed = await adService.requestRewardedAd();
+    const completed = await adService.requestRewardedAd('moves');
     if (!completed) return;
     // Count the grant before applying it. ContinueOffer only ever renders
     // while canGrantBonusMoves is true, but incrementing here (not relying on
