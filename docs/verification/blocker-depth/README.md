@@ -30,10 +30,27 @@ Windows Chrome.
    coordinates (read from `getBoundingClientRect()`, not guessed).
 5. `02-ordinary-match-blockers-untouched.png` — the match genuinely fired:
    Moves ticked 19→18, the spoon-collection objective went 0/13→3/13. The
-   DOM query afterward showed all four blockers **still at their exact
-   original positions**: `tile-blocker-1-1`, `tile-blocker-1-2`,
-   `tile-blocker-2-2`, `tile-blocker-2-3` — unchanged, confirming the
-   ordinary match did nothing to any of them.
+   DOM query afterward showed the same four blocker ids still present —
+   `tile-blocker-1-1`, `tile-blocker-1-2`, `tile-blocker-2-2`,
+   `tile-blocker-2-3` — none cleared. For a `hitsToClear: 1` blocker this
+   fully proves zero damage occurred (there's no partial-damage state to
+   miss for a 1-hit blocker: it's either untouched or cleared, nothing
+   between), which is the actual thing this check needed to confirm.
+
+   **Correction, added during the session's later cross-feature sanity
+   pass**: this originally also claimed the blockers stayed at their exact
+   original *positions*. That wasn't actually verified — a tile's
+   `data-testid` is keyed by the piece's stable id (assigned once at
+   placement), not recomputed from its current board position, and a
+   blocker isn't anchored like a void: `calculateCascades` compacts it
+   toward the bottom of its column segment exactly like any surviving
+   ordinary piece whenever cells clear in that segment (it's excluded only
+   from matching/swapping/being force-cleared, not from gravity). The
+   blocker originally reported at (1,1) shared a column with the cleared
+   match, so it most likely did physically shift down — a separate,
+   ordinary, correct behavior unrelated to the specialOnly damage question
+   this test actually answers. See `engine/DECISIONS.md`'s blocker-depth
+   entry for the full correction.
 
 ## What was confirmed
 
