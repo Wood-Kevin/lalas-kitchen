@@ -1,9 +1,24 @@
 import React from 'react';
-import { Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
 import { Text } from './AppText';
 import { CrashRecord } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
+
+const PRIVACY_POLICY_URL = 'https://lalas-kitchen.vercel.app/';
+
+// Opens in the device's default browser, never an in-app webview — matches
+// this project's existing "leave the app to do platform things" convention
+// (e.g. the AdMob rewarded-ad flow hands off to the OS/SDK rather than
+// rendering its own player chrome). A failed open is a real, if rare,
+// system-boundary error (no browser available, malformed URL) worth
+// surfacing per CLAUDE.md's no-silent-failures rule, not something that
+// can be validated away in advance.
+function openPrivacyPolicy() {
+  Linking.openURL(PRIVACY_POLICY_URL).catch((error) => {
+    console.error('[Settings] failed to open the privacy policy URL:', error);
+  });
+}
 
 export interface SettingsProps {
   config: SkinConfig;
@@ -81,6 +96,22 @@ export function Settings({
         </View>
       </View>
 
+      <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
+        <Pressable
+          style={styles.cardPadding}
+          onPress={openPrivacyPolicy}
+          accessibilityRole="link"
+          accessibilityLabel="Privacy Policy — opens in your browser"
+        >
+          <View style={styles.toggleRow}>
+            <Text style={[styles.rowTitle, { color: text }]}>Privacy Policy</Text>
+            <Text style={[styles.linkArrow, { color: mutedText }]} allowFontScaling={false}>
+              ›
+            </Text>
+          </View>
+        </Pressable>
+      </View>
+
       {/* Only ever rendered if a crash actually happened — the common case
           is this section simply doesn't exist. Worded calmly (per CLAUDE.md's
           Design Constraints) rather than as an alarming error dialog, since
@@ -152,6 +183,10 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     fontSize: 19,
+    fontWeight: '700',
+  },
+  linkArrow: {
+    fontSize: 22,
     fontWeight: '700',
   },
   crashNote: {
