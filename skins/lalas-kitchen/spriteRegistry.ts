@@ -69,6 +69,14 @@ export const spriteRegistry: SpriteAssetMap = {
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),
   'pot_lid.webp': require('./sprites/pot_lid.webp'),
+  // sealed_jar (the specialOnly blocker variant — see engine/DECISIONS.md's
+  // blocker-depth entry) resolves like every other blocker, by its real
+  // config.json filename. Declared there from the start but never actually
+  // registered until now — disclosed at build/verification time (the "SE"
+  // text-label placeholder is even named directly in
+  // docs/verification/blocker-depth/), just never itemized in
+  // DEFERRED_COMPLEXITY.md the way dropdown's equivalent gap was.
+  'sealed_jar.webp': require('./sprites/sealed_jar.webp'),
   'home-hero-500h-crop.webp': require('./sprites/home-hero-500h-crop.webp'),
   'splash-full-1024h.webp': require('./sprites/splash-full-1024h.webp'),
   // Recipe card illustrations — one per config.json recipeCards entry, keyed
