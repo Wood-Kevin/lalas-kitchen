@@ -56,6 +56,15 @@ export const spriteRegistry: SpriteAssetMap = {
   // six per-type lines like striped_. Before this entry an area bomb fell
   // through to resolveSpriteAsset's "AR" text-label placeholder.
   'area_bomb.webp': require('./sprites/area_bomb.webp'),
+  // Dropdown (escort) piece art. Like area_bomb, resolves by the real
+  // filename 'dropdown.webp' (see components/spriteMap.ts's
+  // getSpriteForPiece), one fixed sprite regardless of level or position —
+  // not color_bomb's extensionless-key special case. Before this entry a
+  // dropdown piece fell through to resolveSpriteAsset's "DR" text-label
+  // placeholder, disclosed but un-arted since the escort mechanic first
+  // shipped (see engine/DECISIONS.md's dropdown-ingredients entry and
+  // docs/verification/dropdown-escort-mechanic/).
+  'dropdown.webp': require('./sprites/dropdown.webp'),
   'flame.webp': require('./sprites/flame.webp'),
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),
