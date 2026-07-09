@@ -3393,7 +3393,7 @@ describe('applyMove — dynamic denial-zone spread', () => {
   const countWarnings = (board: Board): number =>
     board.flat().filter((p) => p.spreadWarning === true).length;
 
-  const makeSpreadState = (spreadInterval: number | null): GameState => ({
+  const makeSpreadState = (spreadInterval: number | null, blockerSpecialOnly = false): GameState => ({
     board: freshZoneBoard(),
     movesRemaining: 50,
     lives: 5,
@@ -3408,7 +3408,12 @@ describe('applyMove — dynamic denial-zone spread', () => {
     denialSpread:
       spreadInterval === null
         ? undefined
-        : { movesUnaddressed: 0, spreadInterval, blockerHitsToClear: 1 },
+        : {
+            movesUnaddressed: 0,
+            spreadInterval,
+            blockerHitsToClear: 1,
+            ...(blockerSpecialOnly ? { blockerSpecialOnly: true } : {}),
+          },
   });
 
   // One unaddressed move: reset board + spawn queue so the same legal top-row
@@ -3502,6 +3507,27 @@ describe('applyMove — dynamic denial-zone spread', () => {
     // the pressure genuinely scales with level length rather than being fixed.
   });
 
+  test('createGameState threads blockerSpecialOnly into denialSpread state', () => {
+    const base = {
+      seed: 1,
+      rows: 8,
+      cols: 8,
+      pieceTypeIds: ['a', 'b', 'c', 'd', 'e', 'f'],
+      lives: 5,
+      objectives: [{ targetMatchType: 'a', targetCount: 10 }],
+      movesLimit: 18,
+      denialSpread: true,
+      blockerCount: 2,
+      blockerMatchType: 'sealed_jar',
+      blockerHitsToClear: 1,
+    };
+    const withoutFlag = createGameState(base);
+    const withFlag = createGameState({ ...base, blockerSpecialOnly: true });
+
+    expect(withoutFlag.denialSpread?.blockerSpecialOnly).toBeUndefined();
+    expect(withFlag.denialSpread?.blockerSpecialOnly).toBe(true);
+  });
+
   test('the warning state is distinguishable from the pre-warning board before any spread occurs', () => {
     let state = makeSpreadState(5);
     let preWarning: Board = state.board;
@@ -3557,6 +3583,28 @@ describe('applyMove — dynamic denial-zone spread', () => {
     expect(result.state.denialSpread?.movesUnaddressed).toBe(0);
     expect(countBlockers(result.state.board)).toBe(1);
     expect(countWarnings(result.state.board)).toBe(0);
+  });
+
+  // Regression guard for a real gap the tuning-constant review caught: a
+  // freshly spread blocker used to always be an ordinary blocker, even on a
+  // sealed_jar-gated level (specialOnly, generated levelNumber >= 12) whose
+  // zone is ALSO spread-eligible (levelNumber >= 10) — both conditions are
+  // simultaneously satisfiable, so a real level could have a zone whose
+  // static blockers are specialOnly but whose newly-spread cells were
+  // silently vulnerable to an ordinary match. See engine/DECISIONS.md's
+  // blocker-depth entry's spread-interaction fix.
+  test('a freshly spread blocker inherits blockerSpecialOnly from the level, not just blockerHitsToClear', () => {
+    let state = makeSpreadState(5, true);
+    for (let i = 0; i < 5; i++) {
+      state = unaddressedMove(state);
+    }
+
+    // The zone spread (a second blocker now exists), into (2,0) — the one
+    // open frontier cell directly above the original blocker at (3,0).
+    expect(countBlockers(state.board)).toBe(2);
+    expect(state.board[2][0]).toEqual(
+      expect.objectContaining({ type: 'blocker', specialOnly: true })
+    );
   });
 });
 

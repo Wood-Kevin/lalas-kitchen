@@ -125,8 +125,12 @@ export interface CascadeAnimationSchedule {
 // realises this schedule via chained setTimeouts (per-pass) plus one final
 // hold timer (the overlay); this function is the single source of truth for the
 // ordering, so a test can assert "every pass plays before the overlay" directly
-// rather than driving React timers. stepCount is clamped at 0 for safety,
-// though applyMove never returns an empty `steps` for a committed move.
+// rather than driving React timers. stepCount is clamped at 0 for safety —
+// applyMove CAN genuinely return an empty `steps` for a committed move now
+// (a dropdown/escort swap that neither matches nor arrives — see
+// engine/gameState.ts's ApplyMoveResult.steps comment); Board.tsx's real
+// animateCascade special-cases that scenario with its own early
+// commitFinalState() return rather than calling into this model at all.
 export function planCascadeAnimation(
   stepCount: number,
   cascadeStepIntervalMs: number

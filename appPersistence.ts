@@ -921,8 +921,12 @@ const SHAPE_CADENCE = 2;
 // to a disclosed, deliberately-accepted coincidence (see engine/DECISIONS.md's
 // "A disclosed, accepted cosmetic overlap" entry): SHAPE_MIN_LEVEL_NUMBER = 1
 // always starts the rotation at BOARD_SHAPE_ROTATION[0] (cut_corners) on the
-// generator's very first shaped level (raw level 8, generatedLevelNumber 1) —
-// and hand-built level 7 "Pantry Corners" (App.tsx's LEVEL_QUEUE) was
+// generator's very first shaped level (generatedLevelNumber 1 — raw level 8
+// at the time this was written, when LEVEL_QUEUE had 7 hand-built entries;
+// now raw level 9, since "Delivery Day" was added as an 8th — the fix itself
+// is unaffected, since generatedLevelNumber is what actually drives the
+// rotation, not the raw level number) — and hand-built level 7 "Pantry
+// Corners" (App.tsx's LEVEL_QUEUE) was
 // independently, deliberately given cut_corners too, as the gentlest template
 // for a guaranteed early level. Those two independent choices collided,
 // producing the same shape silhouette on two consecutive levels. Pantry
@@ -999,11 +1003,20 @@ export function isClearanceObjectiveLevel(levelNumber: number): boolean {
 // result), matching every other generated-level lever's own guarantee.
 const CLEARANCE_CELL_RATIO = 6 / 40;
 const CLEARANCE_DOUBLE_LAYER_FRACTION = 2 / 6;
+// Matches BREATHER_TARGET_RATIO/BREATHER_SCORE_RATIO's own -30% magnitude —
+// a real asymmetry the tuning-constant review caught: this function had no
+// breather parameter at all, so a breather granted on a clearance-gated
+// level only ever loosened movesLimit, never the clearance workload itself
+// (unlike collect/score, whose targets both shrink under a breather). Same
+// ratio as those two, for the same "one coherent easier level" reasoning.
+const CLEARANCE_BREATHER_RATIO = 0.7;
+
 export function generatedLayerCells(
   levelNumber: number,
   rows: number,
   cols: number,
-  voidCells: Position[] = []
+  voidCells: Position[] = [],
+  breather: boolean = false
 ): Array<{ position: Position; layers: number }> {
   const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
   const playable: Position[] = [];
@@ -1014,7 +1027,8 @@ export function generatedLayerCells(
   }
   if (playable.length === 0) return [];
 
-  const targetCount = Math.max(1, Math.round(playable.length * CLEARANCE_CELL_RATIO));
+  const rawTargetCount = playable.length * CLEARANCE_CELL_RATIO * (breather ? CLEARANCE_BREATHER_RATIO : 1);
+  const targetCount = Math.max(1, Math.round(rawTargetCount));
   const stride = Math.max(1, Math.floor(playable.length / targetCount));
   const offset = levelNumber % stride;
 
@@ -1126,7 +1140,9 @@ export function buildGeneratedLevelConfig(
           targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
           targetCount: perObjectiveTarget,
         }));
-  const layerCells = useClearanceObjective ? generatedLayerCells(levelNumber, rows, cols, voidCells) : undefined;
+  const layerCells = useClearanceObjective
+    ? generatedLayerCells(levelNumber, rows, cols, voidCells, breather)
+    : undefined;
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
   const chosenBlocker =

@@ -81,6 +81,15 @@ export interface DenialSpreadState {
   // blockerHitsToClear, so a spread-in cell is exactly as tough to clear as a
   // generator-placed one.
   blockerHitsToClear: number;
+  // Whether a freshly spread blocker is specialOnly (see matrix.ts's Piece
+  // comment and engine/DECISIONS.md's blocker-depth entry) — the level's own
+  // blockerSpecialOnly, so a spread-in cell shares the exact same damage rule
+  // as a generator-placed one. A real gap this field closes: without it, a
+  // sealed_jar-gated level's zone would spread ordinary (vulnerable)
+  // blockers into new cells, silently inconsistent with the rest of the
+  // zone — every generated level only ever places one blocker type, so this
+  // is a single flag, not a per-cell lookup.
+  blockerSpecialOnly?: boolean;
 }
 
 export type GameStatus = 'in_progress' | 'paused_awaiting_input' | 'won';
@@ -410,6 +419,7 @@ export function createGameState(config: LevelConfig): GameState {
           movesUnaddressed: 0,
           spreadInterval: Math.max(2, Math.round(config.movesLimit * SPREAD_MOVE_FRACTION)),
           blockerHitsToClear: config.blockerHitsToClear ?? 1,
+          ...(config.blockerSpecialOnly ? { blockerSpecialOnly: true as const } : {}),
         }
       : undefined,
   };
@@ -1703,6 +1713,7 @@ function stepDenialZone(
       type: 'blocker',
       matchType: source.matchType,
       hitsRemaining: denial.blockerHitsToClear,
+      ...(denial.blockerSpecialOnly ? { specialOnly: true as const } : {}),
     };
     return { board: nextBoard, denial: { ...denial, movesUnaddressed: 0 } };
   }

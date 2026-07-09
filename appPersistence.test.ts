@@ -597,6 +597,23 @@ describe('generatedLayerCells', () => {
   test('different levelNumbers yield different cell selections (offset shifts, not identical every time)', () => {
     expect(generatedLayerCells(5, 8, 5)).not.toEqual(generatedLayerCells(9, 8, 5));
   });
+
+  // Regression guard for a real asymmetry the tuning-constant review caught:
+  // generatedTargetCount/generatedScoreTarget both shrink under a breather,
+  // but generatedLayerCells had no breather awareness at all — a breather
+  // granted on a clearance-gated level only ever loosened movesLimit, never
+  // the actual clearance workload. 6 cells * 0.7 = 4.2 -> rounds to 4.
+  test('a breather shrinks the layer-cell count, matching collect/score targets\' own -30% relief', () => {
+    const normal = generatedLayerCells(5, 8, 5);
+    const withBreather = generatedLayerCells(5, 8, 5, [], true);
+    expect(normal).toHaveLength(6);
+    expect(withBreather).toHaveLength(4);
+  });
+
+  test('a breather never drops the layer-cell count below 1, even on a tiny board', () => {
+    const cells = generatedLayerCells(5, 2, 2, [], true);
+    expect(cells.length).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe('generatedShapeId', () => {
