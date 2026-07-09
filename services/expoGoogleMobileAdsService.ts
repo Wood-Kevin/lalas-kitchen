@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { AdEventType, RewardedAd, RewardedAdEventType } from 'react-native-google-mobile-ads';
 import { AdService } from './adService';
 
@@ -9,19 +10,38 @@ import { AdService } from './adService';
 // under this repo's plain ts-jest config (confirmed directly — the same
 // limitation those two files already document). adService.ts's
 // selectAdService takes this as an injected param rather than importing it
-// directly, so that factory logic stays testable with fakes.
+// directly, so that factory logic stays testable with fakes. Since this
+// file is already untestable for that reason, importing `Platform` directly
+// here (rather than threading Platform.OS in as a param, the way the
+// testable selectAdService/selectHapticsService factories do) adds no new
+// constraint.
 //
-// Real ad unit ids from this project's real AdMob account (App ID
-// ca-app-pub-1884558565604210~2303142978, configured in app.json's
-// androidAppId — see that file for why iosAppId is still Google's demo App
-// ID) — replacing the old TestIds.REWARDED demo unit, which resolved the
-// same test id regardless of which grant flow asked. Two distinct real ad
-// units exist because the two grant flows are genuinely separate placements
-// in the AdMob console, not because the code needs them to differ.
-const REWARDED_AD_UNIT_ID_BY_PURPOSE = {
-  moves: 'ca-app-pub-1884558565604210/8073545649',
-  lives: 'ca-app-pub-1884558565604210/1915331401',
+// Real ad unit ids from this project's real AdMob account — Android (App ID
+// ca-app-pub-1884558565604210~2303142978) and iOS (App ID
+// ca-app-pub-1884558565604210~6252784828), both configured in app.json's
+// androidAppId/iosAppId — replacing the old TestIds.REWARDED demo unit,
+// which resolved its own per-platform demo id internally regardless of
+// which grant flow asked. Two distinct real ad units per platform exist
+// because the two grant flows are genuinely separate placements in the
+// AdMob console, not because the code needs them to differ; the
+// platform split exists because AdMob issues distinct ad units (and App
+// IDs) per registered platform app, the same reason app.json needs both
+// androidAppId and iosAppId rather than one shared value.
+const REWARDED_AD_UNIT_ID_BY_PLATFORM = {
+  android: {
+    moves: 'ca-app-pub-1884558565604210/8073545649',
+    lives: 'ca-app-pub-1884558565604210/1915331401',
+  },
+  ios: {
+    moves: 'ca-app-pub-1884558565604210/4939703150',
+    lives: 'ca-app-pub-1884558565604210/7954924906',
+  },
 } as const;
+
+function rewardedAdUnitId(purpose: 'moves' | 'lives'): string {
+  const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+  return REWARDED_AD_UNIT_ID_BY_PLATFORM[platform][purpose];
+}
 
 // Loads a fresh RewardedAd and shows it the instant it's ready, resolving
 // true only if the player actually watched to completion and earned the
@@ -31,7 +51,7 @@ const REWARDED_AD_UNIT_ID_BY_PURPOSE = {
 // requestRewardedAd() call never double-resolves or leaks a subscription.
 function loadAndShowRewarded(purpose: 'moves' | 'lives'): Promise<boolean> {
   return new Promise((resolve) => {
-    const rewarded = RewardedAd.createForAdRequest(REWARDED_AD_UNIT_ID_BY_PURPOSE[purpose]);
+    const rewarded = RewardedAd.createForAdRequest(rewardedAdUnitId(purpose));
     let earnedReward = false;
 
     const unsubscribeLoaded = rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => {
