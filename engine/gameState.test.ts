@@ -2078,11 +2078,15 @@ describe('applyMove — clearance layers', () => {
 
 describe('applyMove — escort (dropdown) mechanic', () => {
   test('a dropdown piece that falls to the bottom via an ordinary cascade is collected and wins an escort objective', () => {
-    // Swapping (3,0)/(3,1) turns col0's row3 into 'A', lining up rows 1-3 of
-    // col0 as A,A,A — a real match that clears col0's rows 1-3, leaving only
-    // the dropdown piece at (0,0) surviving in that column's segment.
-    // calculateCascades then settles it at the BOTTOM of that segment
-    // (row3) — its very first arrival, one move after the swap.
+    // Swapping (3,0)/(3,1) is itself a SIDEWAYS swap (still legal — the
+    // player is nudging an ordinary piece, not the dropdown itself), and it
+    // turns col0's row3 into 'A', lining up rows 1-3 of col0 as A,A,A — a
+    // real match that clears col0's rows 1-3, leaving only the dropdown
+    // piece at (0,0) surviving in that column's segment. calculateCascades
+    // then settles it at the BOTTOM of that segment (row3) via genuine
+    // gravity — its very first arrival, one move after the swap. This is the
+    // only route to collection left once vertical dropdown swaps are
+    // rejected (see the direction tests below).
     const board: Board = [
       [{ id: 'd0', type: 'dropdown' }, piece('F', 'f0')],
       [piece('A', 'a1'), piece('F', 'f1')],
@@ -2110,7 +2114,14 @@ describe('applyMove — escort (dropdown) mechanic', () => {
     expect(result.state.board.flat().some((p) => p.type === 'dropdown')).toBe(false);
   });
 
-  test('swapping a dropdown piece is always legal, even with no match, and collects it immediately if the swap lands it at the bottom', () => {
+  // Reversed from "always legal" to "sideways only" after a real playtest
+  // report flagged unrestricted dropdown swapping as feeling like a bug —
+  // investigation confirmed the original design intent (matrix.ts's Piece
+  // comment, findAnyLegalMove's own comment) only ever justified the
+  // always-legal rule in terms of sideways navigation, never a direct
+  // vertical shortcut to collection. See engine/DECISIONS.md's
+  // dropdown-swap-direction entry.
+  test('swapping a dropdown piece downward is illegal and snaps back, even though the swap would otherwise land it at the bottom', () => {
     const board: Board = [[{ id: 'd0', type: 'dropdown' }], [piece('X', 'x0')]];
     const state: GameState = {
       board,
@@ -2126,11 +2137,70 @@ describe('applyMove — escort (dropdown) mechanic', () => {
 
     const result = applyMove(state, { row: 0, col: 0 }, { row: 1, col: 0 });
 
+    // Snap-back: no move spent, no state change, nothing collected — the
+    // same shape an ordinary no-match swap gets, not a silent success.
+    expect(result.state.movesRemaining).toBe(5);
+    expect(result.state.objectives[0].currentCount).toBe(0);
+    expect(result.state.status).toBe('in_progress');
+    expect(result.state.board[0][0].type).toBe('dropdown');
+    expect(result.state.board[1][0].id).toBe('x0');
+    expect(result.steps).toEqual([]);
+  });
+
+  test('swapping a dropdown piece upward is illegal and snaps back', () => {
+    const board: Board = [[piece('X', 'x0')], [{ id: 'd0', type: 'dropdown' }]];
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'escort', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['S1']),
+    };
+
+    const result = applyMove(state, { row: 1, col: 0 }, { row: 0, col: 0 });
+
+    expect(result.state.movesRemaining).toBe(5);
+    expect(result.state.objectives[0].currentCount).toBe(0);
+    expect(result.state.status).toBe('in_progress');
+    expect(result.state.board[1][0].type).toBe('dropdown');
+    expect(result.state.board[0][0].id).toBe('x0');
+    expect(result.steps).toEqual([]);
+  });
+
+  test('swapping a dropdown piece sideways is still legal, even with no match', () => {
+    // Two rows, so the dropdown landing in row 0 sideways is NOT the bottom
+    // of its new column's segment — isolates plain sideways legality from
+    // an incidental arrival/collection (a single-row board would trivially
+    // collect it, since row 0 is always "the bottom" there).
+    const board: Board = [
+      [{ id: 'd0', type: 'dropdown' }, piece('X', 'x0')],
+      [piece('Y', 'y0'), piece('Z', 'z0')],
+    ];
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'escort', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
     // A real, committed move (not a snap-back) despite forming no match —
-    // proving the dropdown-always-legal branch, not an incidental run.
+    // the one legitimate way a player engages with the mechanic.
     expect(result.state.movesRemaining).toBe(4);
-    expect(result.state.objectives[0].currentCount).toBe(1);
-    expect(result.state.status).toBe('won');
+    expect(result.state.board[0][0].id).toBe('x0');
+    expect(result.state.board[0][1].type).toBe('dropdown');
+    // Not at the bottom of its column, so not yet collected.
+    expect(result.state.objectives[0].currentCount).toBe(0);
   });
 
   // Regression guard for a real bug this feature caught live: a dropdown

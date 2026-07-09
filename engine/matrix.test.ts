@@ -483,7 +483,7 @@ describe('color bombs — excluded from runs, always a legal move', () => {
   });
 });
 
-describe('dropdown (escort) pieces — always a legal swap', () => {
+describe('dropdown (escort) pieces — legal only sideways', () => {
   test('a dropdown piece makes an otherwise-stuck board report a legal move', () => {
     // Same stuck 3x3 Latin square as the color-bomb test above.
     const board = buildBoard([
@@ -494,9 +494,9 @@ describe('dropdown (escort) pieces — always a legal swap', () => {
     expect(hasLegalMoves(board)).toBe(false);
 
     // Swapping the center for a dropdown piece changes only one thing: a
-    // dropdown swap is always legal (it never needs to form a match — the
-    // player must be able to freely nudge it sideways), so the board is no
-    // longer stuck.
+    // SIDEWAYS dropdown swap is always legal (it never needs to form a
+    // match — the player can freely nudge it toward a clearer column), so
+    // the board is no longer stuck — (1,0)-(1,1) is one such sideways pair.
     board[1][1] = dropdownPiece('dd');
     expect(hasLegalMoves(board)).toBe(true);
   });
@@ -512,6 +512,42 @@ describe('dropdown (escort) pieces — always a legal swap', () => {
     expect(move).not.toBeNull();
     const involvesDropdown = (pos: Position) => board[pos.row][pos.col].type === 'dropdown';
     expect(involvesDropdown(move!.a) || involvesDropdown(move!.b)).toBe(true);
+  });
+
+  // Reversed from "any direction is always legal" after a real playtest
+  // report flagged unrestricted swapping as feeling like a bug — see
+  // engine/DECISIONS.md's dropdown-swap-direction entry. The two tests
+  // above both happen to have a sideways option available before the scan
+  // ever reaches a vertical dropdown pair, so they don't by themselves prove
+  // vertical rejection actually works — these two isolate it directly, with
+  // no sideways neighbour available at all.
+  test('a board whose only dropdown-involving move is vertical is NOT reported as having a legal move via that pair', () => {
+    // A single column: the dropdown at row 0 has no sideways neighbour at
+    // all, only a down-neighbour. No match exists anywhere (each row is its
+    // own single-cell "run" of length 1).
+    const board: Board = [[dropdownPiece('dd')], [piece('X', 'x0')], [piece('Y', 'y1')]];
+    expect(hasLegalMoves(board)).toBe(false);
+    expect(findAnyLegalMove(board)).toBeNull();
+  });
+
+  test('a vertical dropdown swap does not count as legal even when the displaced ordinary piece would incidentally form a match', () => {
+    // Single column, so the dropdown has no sideways neighbour at all —
+    // isolates the vertical case cleanly (a wider board would let the
+    // dropdown's own always-legal sideways pair mask this). Swapping
+    // (2,0)<->(3,0) would move 'A' (a2) up into row 2, lining up rows 0-2 as
+    // A,A,A — a real match for the DISPLACED piece, if this were still
+    // evaluated. It must still read as illegal: gameState.ts's applyMove
+    // rejects a vertical dropdown swap unconditionally, so findAnyLegalMove
+    // must never suggest one, matched or not, or a Hint-suggested move could
+    // fail when actually attempted.
+    const board: Board = [
+      [piece('A', 'a0')],
+      [piece('A', 'a1')],
+      [dropdownPiece('dd')],
+      [piece('A', 'a2')],
+    ];
+    expect(findAnyLegalMove(board)).toBeNull();
+    expect(hasLegalMoves(board)).toBe(false);
   });
 });
 

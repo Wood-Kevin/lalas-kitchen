@@ -1812,10 +1812,25 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // matrix.ts's Piece comment and this file's isClearable) — it's never a
     // valid detonation partner, so this branch runs FIRST, before the area/
     // striped/bomb branches below, so swapping one directly into a bomb (or
-    // any other special) never triggers that special's effect. Always
-    // committed, never snapped back (matching findAnyLegalMove's own
-    // dropdown clause) — just a plain position swap; the normal cascade loop
-    // then checks for both an ordinary match AND a dropdown arrival.
+    // any other special) never triggers that special's effect.
+    //
+    // Restricted to sideways (same-row) movement only — the player nudges it
+    // toward a clearer column, the one legitimate way to engage with the
+    // mechanic; it must still reach the bottom through genuine gravity, not
+    // direct vertical repositioning. A vertical swap is rejected the same
+    // way an ordinary illegal swap is: snap back, no move spent, no state
+    // change — unconditionally, even if the displaced ordinary piece would
+    // have incidentally formed a match, matching matrix.ts's
+    // findAnyLegalMove exactly (a Hint-suggested vertical swap must never
+    // fail when actually attempted). This reverses the original
+    // unconditional-legal implementation — see engine/DECISIONS.md's
+    // dropdown-swap-direction entry.
+    if (posA.row !== posB.row) {
+      return { state, events: [], steps: [], multiSpecialFired: false };
+    }
+    // Committed, never snapped back — just a plain position swap; the
+    // normal cascade loop then checks for both an ordinary match AND a
+    // dropdown arrival.
     const swapped = swapPieces(state.board, posA, posB);
     resolved = resolveCascades(swapped, state.spawnPiece);
   } else if (aArea || bArea) {

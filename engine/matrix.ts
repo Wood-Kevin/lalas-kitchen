@@ -56,9 +56,13 @@ export interface Piece {
   // isClearable predicate) since being swept away before reaching the bottom
   // would defeat the whole point of an escort objective (a real, confirmed
   // design fork — see engine/DECISIONS.md's dropdown-ingredients entry). It IS
-  // freely swappable, and any swap involving one is always legal (like a
-  // bomb), since a player needs to be able to nudge it sideways without also
-  // needing to form a match.
+  // swappable, and a SIDEWAYS swap involving one is always legal (like a
+  // bomb) without needing to form a match, since a player needs to be able to
+  // nudge it toward a clearer column — but a vertical (up or down) swap is
+  // rejected outright, the same as an ordinary illegal swap, so the piece can
+  // only ever reach the bottom through genuine gravity, not direct
+  // repositioning (see engine/DECISIONS.md's dropdown-swap-direction entry —
+  // this reverses the original unconditional-legal implementation).
   //
   // Only meaningful when type === 'normal' AND the level has the dynamic
   // denial-zone spread mechanic enabled (see gameState.ts's DenialSpreadState).
@@ -905,7 +909,7 @@ export function findAnyLegalMove(board: Board): { a: Position; b: Position } | n
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
 
-  const legalPair = (a: Piece, b: Piece, swapped: Board): boolean => {
+  const legalPair = (a: Piece, b: Piece, swapped: Board, sameRow: boolean): boolean => {
     // area + anything is always legal now: area + ordinary fires the 3x3
     // blast, and area + special (color bomb / striped / another area bomb)
     // fires one of the three real combos above.
@@ -915,9 +919,13 @@ export function findAnyLegalMove(board: Board): { a: Position; b: Position } | n
     // A dropdown (escort) swap never needs to form a match — the player
     // must be able to freely nudge it sideways to navigate it toward a
     // clearer column (see the Piece interface's own comment on the escort
-    // mechanic), so any swap involving one is always legal, the same shape
-    // the bomb clauses above already use.
-    if (a.type === 'dropdown' || b.type === 'dropdown') return true;
+    // mechanic) — but ONLY sideways; legality here is purely direction, not
+    // a fallthrough to the match check below, since gameState.ts's applyMove
+    // rejects a vertical dropdown swap unconditionally, even one that would
+    // incidentally form a match for the displaced ordinary piece. Must agree
+    // with applyMove exactly, or a Hint-suggested vertical swap could fail
+    // when actually attempted.
+    if (a.type === 'dropdown' || b.type === 'dropdown') return sameRow;
     // No checkCrossShapes clause is needed here, deliberately — unlike a pure
     // 2x2 square, a crossing point's two arms are themselves already ordinary
     // 3-runs that checkMatches independently reports, so checkMatches(swapped)
@@ -936,13 +944,13 @@ export function findAnyLegalMove(board: Board): { a: Position; b: Position } | n
       if (!swappable(board[r][c])) continue;
       if (c + 1 < cols && swappable(board[r][c + 1])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r, col: c + 1 });
-        if (legalPair(board[r][c], board[r][c + 1], swapped)) {
+        if (legalPair(board[r][c], board[r][c + 1], swapped, true)) {
           return { a: { row: r, col: c }, b: { row: r, col: c + 1 } };
         }
       }
       if (r + 1 < rows && swappable(board[r + 1][c])) {
         const swapped = swapPieces(board, { row: r, col: c }, { row: r + 1, col: c });
-        if (legalPair(board[r][c], board[r + 1][c], swapped)) {
+        if (legalPair(board[r][c], board[r + 1][c], swapped, false)) {
           return { a: { row: r, col: c }, b: { row: r + 1, col: c } };
         }
       }
