@@ -663,6 +663,94 @@ export function Board({
     const moveId = moveCounterRef.current++;
     let previous = fromBoard;
 
+    // Final pass: commit the real game state (its board is this exact last
+    // snapshot, or — for the zero-pass case below — fromBoard itself, since
+    // applyMove already confirmed nothing changed it) and drop the
+    // intermediate display board in the same render, so nothing jumps. Fire
+    // the combo ack here, on the settled chain. Extracted out of runStep so
+    // the genuinely-nothing-cleared case (see steps.length === 0 below) can
+    // reach this same commit logic without diffing/animating a step that
+    // doesn't exist.
+    const commitFinalState = () => {
+      if (hasCombo) setComboKey(`combo-${moveId}`);
+      setGameState(finalState);
+      // Life-spend timing lives here now, not in App.tsx's generic state-
+      // transition check (see appPersistence.ts's now-removed
+      // shouldSpendLifeOnLoss): a fresh moves-exhausted pause only costs a
+      // life immediately if no rescue is left to offer (shouldOfferContinue
+      // false — see pauseActions.ts). When a rescue IS still available,
+      // ContinueOffer renders instead of PausedOverlay below and the life
+      // is spent only if the player explicitly declines it (see
+      // handleContinueDeclinePlayAgain/handleContinueDeclineExit) — never
+      // here, and never twice for the same pause.
+      if (
+        finalState.status === 'paused_awaiting_input' &&
+        !shouldOfferContinue(finalState.pauseReason, bonusGrantsUsed)
+      ) {
+        onLifeLost();
+      }
+      // The chain_reaction tutorial's trigger (unlike the three per-piece
+      // ones) isn't a board scan — the specials that fired are already
+      // cleared by the time the chain settles, so there's no piece left on
+      // the board to find. It's a plain boolean carried straight from this
+      // move's applyMove result (see gameState.ts's ApplyMoveResult.
+      // multiSpecialFired), checked here, on the same settled chain the
+      // combo ack above fires on. Skipped once the level has ended, same as
+      // the per-piece post-move effect below, so it never pops over the
+      // Won/Paused overlay. Setting specialTutorial HERE, synchronously
+      // alongside setGameState, gives this natural priority over that
+      // effect's own board-scan candidate: React batches both updates from
+      // this same tick, so by the time the effect runs (after render) it
+      // sees specialTutorial already set and defers to next move — the
+      // existing "two tutorials never stack" guarantee, with no new
+      // priority logic needed.
+      if (
+        finalState.status === 'in_progress' &&
+        shouldShowChainReactionTutorial(multiSpecialFired, [
+          ...seenTutorials,
+          ...dismissedSpecialTutorialsRef.current,
+        ])
+      ) {
+        setSpecialTutorial({ id: CHAIN_REACTION_TUTORIAL_ID, piece: null });
+      }
+      setDisplayBoard(null);
+      animatingRef.current = false;
+      // A won/paused move commits its terminal status right here, but this
+      // final pass's clears are only just *starting* to animate. Hold the
+      // overlay one more beat so the player watches this last pass resolve
+      // before it appears — the overlay is driven by animation completion,
+      // not by the data landing. Non-terminal moves never schedule this, so
+      // the flag simply stays false and gates nothing (status is in_progress).
+      if (finalState.status === 'won' || finalState.status === 'paused_awaiting_input') {
+        stepTimersRef.current.push(
+          setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold)
+        );
+      }
+      stepTimersRef.current.push(
+        setTimeout(() => {
+          setSwapDurationIds(new Set());
+          setSpawnedIds(new Set());
+        }, transitionWindowMs)
+      );
+    };
+
+    // A real, committed move that cleared nothing at all this pass —
+    // reachable only via a dropdown (escort) swap that neither forms a match
+    // nor lands the piece at its column's bottom (engine/gameState.ts's
+    // applyMove dropdown branch is the one path that can commit with zero
+    // cascade passes — every other committed move guarantees at least one,
+    // since an ordinary swap that clears nothing is rejected as illegal
+    // before ever reaching here). Caught live: steps[0] is undefined in this
+    // case, and diffBoards(previous, undefined) threw. Nothing to
+    // diff/animate — skip straight to the commit, matching a plain
+    // relocation with no visual effect beyond the two tiles swapping (the
+    // Tile components' own swap-position animation already handles that
+    // part, driven by the board data itself, not this step pipeline).
+    if (steps.length === 0) {
+      commitFinalState();
+      return;
+    }
+
     const runStep = (i: number) => {
       const next = steps[i];
       const diff = diffBoards(previous, next);
@@ -726,70 +814,7 @@ export function Board({
         setDisplayBoard(next);
         stepTimersRef.current.push(setTimeout(() => runStep(i + 1), cascadeStepIntervalMs));
       } else {
-        // Final pass: commit the real game state (its board is this exact
-        // last snapshot) and drop the intermediate display board in the same
-        // render, so nothing jumps. Fire the combo ack here, on the settled
-        // chain.
-        if (hasCombo) setComboKey(`combo-${moveId}`);
-        setGameState(finalState);
-        // Life-spend timing lives here now, not in App.tsx's generic state-
-        // transition check (see appPersistence.ts's now-removed
-        // shouldSpendLifeOnLoss): a fresh moves-exhausted pause only costs a
-        // life immediately if no rescue is left to offer (shouldOfferContinue
-        // false — see pauseActions.ts). When a rescue IS still available,
-        // ContinueOffer renders instead of PausedOverlay below and the life
-        // is spent only if the player explicitly declines it (see
-        // handleContinueDeclinePlayAgain/handleContinueDeclineExit) — never
-        // here, and never twice for the same pause.
-        if (
-          finalState.status === 'paused_awaiting_input' &&
-          !shouldOfferContinue(finalState.pauseReason, bonusGrantsUsed)
-        ) {
-          onLifeLost();
-        }
-        // The chain_reaction tutorial's trigger (unlike the three per-piece
-        // ones) isn't a board scan — the specials that fired are already
-        // cleared by the time the chain settles, so there's no piece left on
-        // the board to find. It's a plain boolean carried straight from this
-        // move's applyMove result (see gameState.ts's ApplyMoveResult.
-        // multiSpecialFired), checked here, on the same settled chain the
-        // combo ack above fires on. Skipped once the level has ended, same as
-        // the per-piece post-move effect below, so it never pops over the
-        // Won/Paused overlay. Setting specialTutorial HERE, synchronously
-        // alongside setGameState, gives this natural priority over that
-        // effect's own board-scan candidate: React batches both updates from
-        // this same tick, so by the time the effect runs (after render) it
-        // sees specialTutorial already set and defers to next move — the
-        // existing "two tutorials never stack" guarantee, with no new
-        // priority logic needed.
-        if (
-          finalState.status === 'in_progress' &&
-          shouldShowChainReactionTutorial(multiSpecialFired, [
-            ...seenTutorials,
-            ...dismissedSpecialTutorialsRef.current,
-          ])
-        ) {
-          setSpecialTutorial({ id: CHAIN_REACTION_TUTORIAL_ID, piece: null });
-        }
-        setDisplayBoard(null);
-        animatingRef.current = false;
-        // A won/paused move commits its terminal status right here, but this
-        // final pass's clears are only just *starting* to animate. Hold the
-        // overlay one more beat so the player watches this last pass resolve
-        // before it appears — the overlay is driven by animation completion,
-        // not by the data landing. Non-terminal moves never schedule this, so
-        // the flag simply stays false and gates nothing (status is in_progress).
-        if (finalState.status === 'won' || finalState.status === 'paused_awaiting_input') {
-          stepTimersRef.current.push(
-            setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold)
-          );
-        }
-        stepTimersRef.current.push(
-          setTimeout(() => {
-            setSwapDurationIds(new Set());
-            setSpawnedIds(new Set());
-          }, transitionWindowMs)
-        );
+        commitFinalState();
       }
     };
 

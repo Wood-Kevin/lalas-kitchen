@@ -16,6 +16,7 @@ import {
   shuffle,
   applyAdjacentDamage,
   findSpreadTarget,
+  dropdownArrivals,
 } from './matrix';
 import { generateLevel } from './generator';
 
@@ -37,14 +38,21 @@ export type { Position, Board };
 // time, not hand-authored (see LevelConfig.layerCells below), so there's no
 // way for a level author's objective targetCount to drift out of sync with
 // the actual layered cells placed.
-export type ObjectiveType = 'collect' | 'score' | 'clearance';
+// 'escort' is the fourth objective type (see the dropdown-ingredients entry
+// in engine/DECISIONS.md): it tracks how many 'dropdown' pieces (matrix.ts's
+// Piece.type) have reached the bottom of their column, like 'clearance' its
+// targetCount is derived — from LevelConfig.dropdownPositions' length at
+// createGameState time, never hand-authored — so a level author can't let
+// the two numbers drift out of sync.
+export type ObjectiveType = 'collect' | 'score' | 'clearance' | 'escort';
 
 export interface Objective {
   type: ObjectiveType;
   // Only meaningful for 'collect' — the matchType this objective counts
   // toward targetCount. undefined for 'score' (currentCount is the level's
-  // running score instead) and for 'clearance' (currentCount is the running
-  // total of layers cleared instead).
+  // running score instead), 'clearance' (currentCount is the running total
+  // of layers cleared instead), and 'escort' (currentCount is the running
+  // total of dropdown pieces collected instead).
   targetMatchType?: string;
   targetCount: number;
   currentCount: number;
@@ -170,6 +178,18 @@ export interface ApplyMoveResult {
   // yields exactly one step — the settled board — so simple cases are
   // unchanged, just expressed as a length-1 sequence. See DECISIONS.md's
   // cascade-steps entry.
+  //
+  // Also empty for a genuinely COMMITTED move that clears nothing at all —
+  // only reachable via a dropdown (escort) swap that neither forms a match
+  // nor lands the piece at its column's bottom (matrix.ts's Piece comment):
+  // every other committed move guarantees at least one step, since an
+  // ordinary swap that clears nothing is rejected before ever reaching
+  // resolveCascades. This is NOT the same as a rejected move — `state` here
+  // is genuinely different from the input state (the swap really happened),
+  // just with zero passes to animate. Callers must not assume steps[0]
+  // exists just because a move committed — see components/Board.tsx's
+  // animateCascade, which special-cases this (a real bug, caught live: it
+  // used to read steps[0] unconditionally and crash on undefined).
   steps: Board[];
   // True when this move's resolution had 2+ already-special pieces (striped,
   // color bomb, area bomb) fire their own clear effect together WITHIN THE
@@ -227,10 +247,16 @@ export interface LevelConfig {
   // its targetCount from summing this same config's layerCells, so a level
   // author can never let the two numbers drift out of sync (see the
   // clearance-layers entry in engine/DECISIONS.md).
+  // An 'escort' entry, like 'clearance', has neither targetMatchType NOR a
+  // hand-authored targetCount — createGameState derives its targetCount from
+  // this same config's dropdownPositions length, so a level author can never
+  // let the two numbers drift out of sync (see the dropdown-ingredients
+  // entry in engine/DECISIONS.md).
   objectives: Array<
     | { type?: 'collect'; targetMatchType: string; targetCount: number }
     | { type: 'score'; targetCount: number }
     | { type: 'clearance' }
+    | { type: 'escort' }
   >;
   // Optional so generator-driven levels (appPersistence.ts's
   // buildGeneratedLevelConfig) can leave it unset rather than fabricate a
@@ -269,6 +295,19 @@ export interface LevelConfig {
   // Hand-authored today, like voidCells — generator integration is a
   // separate, later step (see DEFERRED_COMPLEXITY.md).
   layerCells?: Array<{ position: Position; layers: number }>;
+  // The escort mechanic's starting positions — each becomes a colorless
+  // `type: 'dropdown'` piece at createGameState time (converted in place
+  // from whatever generateLevel put there; safe because dropping a
+  // matchType can only eliminate a potential match, never create one, so
+  // generateLevel's own match-free guarantee still holds). Omitted/empty
+  // means no dropdown pieces, the default for every level built before this
+  // mechanic. Hand-authored today, like voidCells/layerCells — generator
+  // integration is a separate, later step (see DEFERRED_COMPLEXITY.md). Not
+  // designed to coexist with a blocker or void on the SAME cell (mirroring
+  // layerCells' own confirmed scope line) — a level author's responsibility,
+  // not runtime-validated, the same as every other hand-authored placement
+  // in this file.
+  dropdownPositions?: Position[];
 }
 
 // What fraction of a level's move budget an untouched denial zone is allowed to
@@ -301,6 +340,16 @@ export function createGameState(config: LevelConfig): GameState {
     clusterBlockers: config.denialSpread,
   });
 
+  // Converts each configured position into a colorless 'dropdown' piece,
+  // in place — safe after generateLevel because dropping a matchType can
+  // only eliminate a potential match, never create one, so the board's
+  // match-free guarantee still holds. Keeps its original id so the
+  // presentation diff sees a piece that was already there, not a new spawn.
+  for (const pos of config.dropdownPositions ?? []) {
+    const cell = board[pos.row][pos.col];
+    board[pos.row][pos.col] = { id: cell.id, type: 'dropdown' };
+  }
+
   // Keyed by "row,col" — see GameState.layerCells's doc comment for why this
   // can't live on the Piece/Board the way blocker hitsRemaining does.
   const layerCells: Record<string, number> = {};
@@ -309,8 +358,11 @@ export function createGameState(config: LevelConfig): GameState {
   }
   // A 'clearance' objective's targetCount is ALWAYS derived from the level's
   // own layerCells total, never hand-authored — see LevelConfig.objectives'
-  // doc comment on why (no way for the two numbers to drift out of sync).
+  // doc comment on why (no way for the two numbers to drift out of sync). An
+  // 'escort' objective's targetCount is derived the same way, from
+  // dropdownPositions' length.
   const totalLayers = Object.values(layerCells).reduce((sum, n) => sum + n, 0);
+  const totalDropdowns = config.dropdownPositions?.length ?? 0;
 
   return {
     board,
@@ -321,12 +373,14 @@ export function createGameState(config: LevelConfig): GameState {
         ? { type: 'score', targetCount: objective.targetCount, currentCount: 0 }
         : objective.type === 'clearance'
           ? { type: 'clearance', targetCount: totalLayers, currentCount: 0 }
-          : {
-              type: 'collect',
-              targetMatchType: objective.targetMatchType,
-              targetCount: objective.targetCount,
-              currentCount: 0,
-            }
+          : objective.type === 'escort'
+            ? { type: 'escort', targetCount: totalDropdowns, currentCount: 0 }
+            : {
+                type: 'collect',
+                targetMatchType: objective.targetMatchType,
+                targetCount: objective.targetCount,
+                currentCount: 0,
+              }
     ),
     status: 'in_progress',
     pauseReason: null,
@@ -379,8 +433,16 @@ function cloneBoardWithGaps(board: Board, positions: Position[]): Array<Array<Pi
 // that could drift independently again the next time a non-content type is
 // added (see matrix.ts's parallel `swappable` guard in hasLegalMoves, which
 // already excludes both for the same reason).
+// A dropdown (escort) piece is excluded here too — it's immune to every
+// clearing effect (a striped sweep, a blast, a detonation, a chain), only
+// ever removed by reaching the bottom of its column via ordinary gravity
+// (matrix.ts's dropdownArrivals). Being swept away before arriving would
+// defeat the whole point of an escort objective — a real, confirmed design
+// fork (see engine/DECISIONS.md's dropdown-ingredients entry), not an
+// oversight. Folding it into this ONE shared predicate (rather than a sixth
+// ad hoc check) protects it at all five existing call sites automatically.
 function isClearable(piece: Piece): boolean {
-  return piece.type !== 'blocker' && piece.type !== 'void';
+  return piece.type !== 'blocker' && piece.type !== 'void' && piece.type !== 'dropdown';
 }
 
 // Decrements GameState.layerCells by one at every position in `positions`
@@ -699,6 +761,14 @@ interface CascadeResolution {
   // this session's layered cells never coincide with a blocker in practice
   // (see engine/DECISIONS.md's clearance-layers entry).
   clearedPositions: Position[];
+  // How many dropdown (escort) pieces reached the bottom of their column and
+  // were collected across every pass this resolution ran — summed straight
+  // into an 'escort'-type Objective's currentCount by applyMove, the same
+  // shape `score` feeds a 'score' objective. Never derived from
+  // clearedPositions/clearedByMatchType (a dropdown piece is colorless, so
+  // it would only ever bucket into the generic 'unknown' key there, which no
+  // objective reads) — this is its own dedicated count.
+  dropdownCollected: number;
 }
 
 // The special piece an anchor cell is converted into this pass. A striped
@@ -1038,6 +1108,8 @@ function resolveCascades(
   // Every position cleared across every pass — see CascadeResolution's
   // clearedPositions doc comment.
   const allClearedPositions: Position[] = [];
+  // See CascadeResolution's dropdownCollected doc comment.
+  let dropdownCollected = 0;
 
   while (true) {
     const matches = checkMatches(currentBoard);
@@ -1050,18 +1122,33 @@ function resolveCascades(
     // already-counted ordinary Matches, so `matches.length === 0` can never
     // coincide with a cross existing.
     const crosses = checkCrossShapes(currentBoard);
-    if (matches.length === 0 && squares.length === 0) break;
+    // Dropdown (escort) arrivals are a THIRD reason to keep cascading, distinct
+    // from matches/squares: a settled board with no match at all can still
+    // have a dropdown piece sitting at the bottom of its column, waiting to be
+    // collected — see matrix.ts's dropdownArrivals.
+    const arrivals = dropdownArrivals(currentBoard);
+    if (matches.length === 0 && squares.length === 0 && arrivals.length === 0) break;
 
     const passIndex = startPassIndex + cascadeCount;
     cascadeCount += 1;
 
-    const { clearedPositions, anchors, specialsFired, tierByKey } = resolveMatchEffects(
+    const { clearedPositions: matchClearedPositions, anchors, specialsFired, tierByKey } = resolveMatchEffects(
       currentBoard,
       matches,
       squares,
       crosses
     );
     maxSpecialsFired = Math.max(maxSpecialsFired, specialsFired);
+
+    // Folded into this pass's own clear set alongside whatever match effects
+    // also fired, rather than run as a wholly separate pipeline — an arrival
+    // is collected exactly like any other clear (gapped, refilled, deals
+    // adjacent blocker damage), just reached by position instead of a match.
+    // Tracked in its own dropdownCollected count, never through
+    // clearedByMatchType/sumTierPoints — a dropdown piece is colorless, so
+    // it isn't a scored or matchType-keyed event.
+    dropdownCollected += arrivals.length;
+    const clearedPositions = [...matchClearedPositions, ...arrivals];
 
     // Blockers don't match directly — they take damage from whatever clears
     // next to them (see matrix.ts's applyAdjacentDamage and DECISIONS.md),
@@ -1085,8 +1172,10 @@ function resolveCascades(
 
     // This pass's own points (tiered per cleared cell, blockers always at the
     // 'ordinary' tier — see sumTierPoints), scaled by how deep into the move's
-    // cascade chain this pass sits (see passScoreMultiplier).
-    const passPoints = sumTierPoints(clearedPositions, tierByKey) + newlyClearedBlockers.length * SCORE_TIER_POINTS.ordinary;
+    // cascade chain this pass sits (see passScoreMultiplier). Uses
+    // matchClearedPositions, not the merged clearedPositions — a dropdown
+    // arrival isn't a tiered match effect, so it earns no score points.
+    const passPoints = sumTierPoints(matchClearedPositions, tierByKey) + newlyClearedBlockers.length * SCORE_TIER_POINTS.ordinary;
     score += Math.round(passPoints * passScoreMultiplier(passIndex));
 
     const withGaps = cloneBoardWithGaps(damagedBoard, [...clearedPositions, ...newlyClearedBlockers]);
@@ -1123,6 +1212,7 @@ function resolveCascades(
     maxSpecialsFired,
     score,
     clearedPositions: allClearedPositions,
+    dropdownCollected,
   };
 }
 
@@ -1305,6 +1395,13 @@ function resolveClearSet(
     maxSpecialsFired: Math.max(specialsFired, chained.maxSpecialsFired),
     score: detonationScore + chained.score,
     clearedPositions: [...expanded, ...newlyClearedBlockers, ...chained.clearedPositions],
+    // A dropdown piece is never itself part of `expanded` (isClearable
+    // excludes it from every clear-set builder, including expandChainClears
+    // above), but this detonation's own refill can still cause one to
+    // arrive — chained's own resolveCascades call already checks for that
+    // on every pass of its loop, so this is never lost, just not double-
+    // counted here.
+    dropdownCollected: chained.dropdownCollected,
   };
 }
 
@@ -1665,8 +1762,21 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const bStriped = pieceB.type === 'striped';
   const aBomb = pieceA.type === 'color_bomb';
   const bBomb = pieceB.type === 'color_bomb';
+  const aDropdown = pieceA.type === 'dropdown';
+  const bDropdown = pieceB.type === 'dropdown';
   let resolved: CascadeResolution;
-  if (aArea || bArea) {
+  if (aDropdown || bDropdown) {
+    // A dropdown (escort) piece is immune to every special effect (see
+    // matrix.ts's Piece comment and this file's isClearable) — it's never a
+    // valid detonation partner, so this branch runs FIRST, before the area/
+    // striped/bomb branches below, so swapping one directly into a bomb (or
+    // any other special) never triggers that special's effect. Always
+    // committed, never snapped back (matching findAnyLegalMove's own
+    // dropdown clause) — just a plain position swap; the normal cascade loop
+    // then checks for both an ordinary match AND a dropdown arrival.
+    const swapped = swapPieces(state.board, posA, posB);
+    resolved = resolveCascades(swapped, state.spawnPiece);
+  } else if (aArea || bArea) {
     const areaPos = aArea ? posA : posB;
     const partnerPos = aArea ? posB : posA;
     const partner = aArea ? pieceB : pieceA;
@@ -1719,6 +1829,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     maxSpecialsFired,
     score: scoreGained,
     clearedPositions,
+    dropdownCollected,
   } = resolved;
 
   // Clearance-layers: every position this move actually cleared (any
@@ -1787,7 +1898,9 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // A 'score' objective's currentCount tracks cumulative move-score instead
   // of any single matchType's clear count — see scoreGained above. A
   // 'clearance' objective's currentCount tracks cumulative layers cleared,
-  // the same shape — see layersCleared above.
+  // the same shape — see layersCleared above. An 'escort' objective's
+  // currentCount tracks cumulative dropdown pieces collected, the same
+  // shape again — see dropdownCollected above.
   const objectives: Objective[] = state.objectives.map((objective) => ({
     ...objective,
     currentCount:
@@ -1795,7 +1908,9 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
         ? objective.currentCount + scoreGained
         : objective.type === 'clearance'
           ? objective.currentCount + layersCleared
-          : objective.currentCount + (clearedByMatchType[objective.targetMatchType ?? ''] ?? 0),
+          : objective.type === 'escort'
+            ? objective.currentCount + dropdownCollected
+            : objective.currentCount + (clearedByMatchType[objective.targetMatchType ?? ''] ?? 0),
   }));
 
   const movesRemaining = state.movesRemaining - 1;

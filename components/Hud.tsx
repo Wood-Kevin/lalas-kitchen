@@ -6,6 +6,7 @@ import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import {
   CLEARANCE_OBJECTIVE_SPRITE,
+  ESCORT_OBJECTIVE_SPRITE,
   resolveSpriteAsset,
   ResolvedSprite,
   SCORE_OBJECTIVE_SPRITE,
@@ -52,10 +53,16 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
                 ? SCORE_OBJECTIVE_SPRITE
                 : objective.type === 'clearance'
                   ? CLEARANCE_OBJECTIVE_SPRITE
-                  : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
+                  : objective.type === 'escort'
+                    ? ESCORT_OBJECTIVE_SPRITE
+                    : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
             return (
               <View
-                key={objective.type === 'score' || objective.type === 'clearance' ? objective.type : objective.targetMatchType}
+                key={
+                  objective.type === 'score' || objective.type === 'clearance' || objective.type === 'escort'
+                    ? objective.type
+                    : objective.targetMatchType
+                }
                 style={[styles.glyphRow, index > 0 && styles.glyphRowSpacing]}
               >
                 <Glyph sprite={targetSprite} color={config.palette.accent} />

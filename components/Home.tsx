@@ -3,7 +3,13 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SkinConfig } from './skinConfig';
-import { CLEARANCE_OBJECTIVE_SPRITE, SCORE_OBJECTIVE_SPRITE, SpriteAssetMap, resolveSpriteAsset } from './spriteAsset';
+import {
+  CLEARANCE_OBJECTIVE_SPRITE,
+  ESCORT_OBJECTIVE_SPRITE,
+  SCORE_OBJECTIVE_SPRITE,
+  SpriteAssetMap,
+  resolveSpriteAsset,
+} from './spriteAsset';
 import { getSpriteForMatchType } from './spriteMap';
 import { GinghamTrim } from './GinghamTrim';
 import { LivesBadge } from './LivesBadge';
@@ -78,7 +84,9 @@ export function Home({
       ? SCORE_OBJECTIVE_SPRITE
       : nextLevel.objectiveType === 'clearance'
         ? CLEARANCE_OBJECTIVE_SPRITE
-        : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
+        : nextLevel.objectiveType === 'escort'
+          ? ESCORT_OBJECTIVE_SPRITE
+          : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
 
   return (
     <View style={[styles.container, { backgroundColor: config.palette.background[0] }]}>

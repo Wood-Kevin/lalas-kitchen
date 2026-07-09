@@ -179,8 +179,8 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     displayName: 'Dusty Counter',
   },
   {
-    // Second hand-built shaped level (see CORNER_SHOWCASE_VOIDS above) — the
-    // last hand-built level, immediately before the generator takes over, so
+    // Second hand-built shaped level (see CORNER_SHOWCASE_VOIDS above), and
+    // now the second-to-last hand-built level (see "Delivery Day" below) —
     // every new player has now seen two distinct shape templates (plus, then
     // this cut-corners) from purely curated content alone, before shapes
     // become a much more frequent generator-driven occurrence.
@@ -192,6 +192,27 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     movesLimit: 26,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[4].id, targetCount: 18 }],
     displayName: 'Pantry Corners',
+  },
+  {
+    // First 'escort'-type objective level (see engine/gameState.ts's
+    // ObjectiveType and the dropdown-ingredients entry in
+    // engine/DECISIONS.md): ride two dropdown pieces down to the bottom of
+    // their columns instead of collecting a target count of one piece type.
+    // Placed near the top row so there's real room to work them down across
+    // a generous 24-move budget; the shared Board.tsx cascade/gravity path
+    // handles the actual falling, no special animation needed. The last
+    // hand-built level, immediately before the generator takes over.
+    seed: 701,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 24,
+    objectives: [{ type: 'escort' }],
+    dropdownPositions: [
+      { row: 0, col: 1 },
+      { row: 0, col: 3 },
+    ],
+    displayName: 'Delivery Day',
   },
 ];
 

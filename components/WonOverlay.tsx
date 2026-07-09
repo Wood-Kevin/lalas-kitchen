@@ -7,6 +7,7 @@ import { RecipeCard, SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import {
   CLEARANCE_OBJECTIVE_SPRITE,
+  ESCORT_OBJECTIVE_SPRITE,
   ResolvedSprite,
   resolveSpriteAsset,
   SCORE_OBJECTIVE_SPRITE,
@@ -123,7 +124,9 @@ export function WonOverlay({
       ? SCORE_OBJECTIVE_SPRITE
       : objectives[0].type === 'clearance'
         ? CLEARANCE_OBJECTIVE_SPRITE
-        : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
+        : objectives[0].type === 'escort'
+          ? ESCORT_OBJECTIVE_SPRITE
+          : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
 
@@ -171,11 +174,13 @@ export function WonOverlay({
                   ? SCORE_OBJECTIVE_SPRITE
                   : objective.type === 'clearance'
                     ? CLEARANCE_OBJECTIVE_SPRITE
-                    : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
+                    : objective.type === 'escort'
+                      ? ESCORT_OBJECTIVE_SPRITE
+                      : resolveSpriteAsset(getSpriteForMatchType(objective.targetMatchType, config), spriteAssets);
               return (
                 <View
                   key={
-                    objective.type === 'score' || objective.type === 'clearance'
+                    objective.type === 'score' || objective.type === 'clearance' || objective.type === 'escort'
                       ? objective.type
                       : objective.targetMatchType
                   }
@@ -192,7 +197,13 @@ export function WonOverlay({
                       {objective.currentCount} / {objective.targetCount}
                     </Text>
                     <Text style={[styles.chipLabel, { color: secondaryAccent }]}>
-                      {objective.type === 'score' ? 'SCORE' : objective.type === 'clearance' ? 'CLEARED' : 'COLLECTED'}
+                      {objective.type === 'score'
+                        ? 'SCORE'
+                        : objective.type === 'clearance'
+                          ? 'CLEARED'
+                          : objective.type === 'escort'
+                            ? 'ESCORTED'
+                            : 'COLLECTED'}
                     </Text>
                   </View>
                 </View>

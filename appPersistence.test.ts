@@ -708,10 +708,12 @@ describe('buildGeneratedLevelConfig', () => {
       if (config.objectives.length === 1 && (config.objectives[0].type === 'score' || config.objectives[0].type === 'clearance')) continue;
       const targetTypes = config.objectives.map((o) => {
         // Only reachable for a level NOT skipped above — i.e. objectiveCount
-        // 2 or a single 'collect' entry — so a 'score'/'clearance' entry
-        // here would itself be the bug (see isScoreObjectiveLevel's own
-        // "only ever alone" invariant).
-        if (o.type === 'clearance' || o.type === 'score') {
+        // 2 or a single 'collect' entry — so a 'score'/'clearance'/'escort'
+        // entry here would itself be the bug (see isScoreObjectiveLevel's
+        // own "only ever alone" invariant). buildGeneratedLevelConfig never
+        // produces 'escort' at all today (see DEFERRED_COMPLEXITY.md), but
+        // the check is here defensively, matching the other two.
+        if (o.type === 'clearance' || o.type === 'score' || o.type === 'escort') {
           throw new Error(`unexpected ${o.type}-type objective in a multi-objective scan`);
         }
         return o.targetMatchType;
@@ -830,7 +832,7 @@ describe('buildGeneratedLevelConfig', () => {
     expect(config.pieceTypeIds).toEqual(['tomato', 'lemon', 'herb', 'garlic', 'chili']);
     expect(config.pieceTypeIds.length).toBeGreaterThan(config.objectives.length);
     for (const objective of config.objectives) {
-      if (objective.type === 'score' || objective.type === 'clearance') {
+      if (objective.type === 'score' || objective.type === 'clearance' || objective.type === 'escort') {
         throw new Error(`generated objective should never be ${objective.type}-type`);
       }
       expect(config.pieceTypeIds).toContain(objective.targetMatchType);
@@ -951,12 +953,12 @@ describe('buildGeneratedLevelConfig', () => {
     const unscaledMoves = generatedMovesLimit(1);
     const unscaledTarget = generatedTargetCount(1);
     expect(shaped.movesLimit).toBeLessThan(unscaledMoves);
-    // buildGeneratedLevelConfig never produces a 'clearance' objective today
-    // (see DEFERRED_COMPLEXITY.md), which has no hand-authored targetCount —
-    // this guard documents that invariant rather than assuming targetCount
-    // exists on every union member.
+    // buildGeneratedLevelConfig never produces a 'clearance'/'escort'
+    // objective today (see DEFERRED_COMPLEXITY.md), neither of which has a
+    // hand-authored targetCount — this guard documents that invariant
+    // rather than assuming targetCount exists on every union member.
     const totalTarget = shaped.objectives.reduce(
-      (sum, o) => sum + (o.type === 'clearance' ? 0 : o.targetCount),
+      (sum, o) => sum + (o.type === 'clearance' || o.type === 'escort' ? 0 : o.targetCount),
       0
     );
     expect(totalTarget).toBeLessThan(unscaledTarget);

@@ -2003,6 +2003,137 @@ describe('applyMove — clearance layers', () => {
   });
 });
 
+describe('applyMove — escort (dropdown) mechanic', () => {
+  test('a dropdown piece that falls to the bottom via an ordinary cascade is collected and wins an escort objective', () => {
+    // Swapping (3,0)/(3,1) turns col0's row3 into 'A', lining up rows 1-3 of
+    // col0 as A,A,A — a real match that clears col0's rows 1-3, leaving only
+    // the dropdown piece at (0,0) surviving in that column's segment.
+    // calculateCascades then settles it at the BOTTOM of that segment
+    // (row3) — its very first arrival, one move after the swap.
+    const board: Board = [
+      [{ id: 'd0', type: 'dropdown' }, piece('F', 'f0')],
+      [piece('A', 'a1'), piece('F', 'f1')],
+      [piece('A', 'a2'), piece('G', 'g2')],
+      [piece('B', 'b3'), piece('A', 'a3')],
+    ];
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'escort', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['S1', 'S2', 'S3', 'S4']),
+    };
+
+    const result = applyMove(state, { row: 3, col: 0 }, { row: 3, col: 1 });
+
+    expect(result.state.movesRemaining).toBe(9);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.state.status).toBe('won');
+    // The dropdown piece itself is gone — collected, not just relocated.
+    expect(result.state.board.flat().some((p) => p.type === 'dropdown')).toBe(false);
+  });
+
+  test('swapping a dropdown piece is always legal, even with no match, and collects it immediately if the swap lands it at the bottom', () => {
+    const board: Board = [[{ id: 'd0', type: 'dropdown' }], [piece('X', 'x0')]];
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'escort', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['S1']),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 1, col: 0 });
+
+    // A real, committed move (not a snap-back) despite forming no match —
+    // proving the dropdown-always-legal branch, not an incidental run.
+    expect(result.state.movesRemaining).toBe(4);
+    expect(result.state.objectives[0].currentCount).toBe(1);
+    expect(result.state.status).toBe('won');
+  });
+
+  // Regression guard for a real bug this feature caught live: a dropdown
+  // swap is always legal (per the test above), but unlike every OTHER
+  // committed move, it can genuinely clear nothing at all — no match, no
+  // arrival — if it just relocates the piece somewhere in the middle of its
+  // column. This locks in that `steps` is genuinely empty in that case (not
+  // just conceptually), which is exactly the contract
+  // components/Board.tsx's animateCascade used to get wrong (it read
+  // steps[0] unconditionally and crashed on undefined — see
+  // docs/verification/dropdown-escort-mechanic/).
+  test('a dropdown swap that neither matches nor arrives commits with an empty steps array', () => {
+    const board: Board = [
+      [{ id: 'd0', type: 'dropdown' }, piece('A', 'a0')],
+      [piece('X', 'x1'), piece('B', 'b1')],
+      [piece('Y', 'y2'), piece('C', 'c2')],
+    ];
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'escort', targetCount: 1, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece([]),
+    };
+
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+
+    // A real, committed move (the swap genuinely happened)...
+    expect(result.state.movesRemaining).toBe(4);
+    expect(result.state.board[0][1].type).toBe('dropdown');
+    expect(result.state.board[0][0].matchType).toBe('A');
+    // ...yet with nothing to animate at all.
+    expect(result.steps.length).toBe(0);
+    expect(result.state.objectives[0].currentCount).toBe(0);
+  });
+
+  test('a dropdown piece is immune to a striped sweep passing directly through its cell', () => {
+    // Striped row-clearer at (2,0); swapping it up into (1,0) lines up row 1
+    // as A,A,A and fires the sweep. A dropdown piece sits at (1,4), squarely
+    // inside the swept row — if it were clearable, it would vanish; being
+    // immune, it survives untouched.
+    const board = buildBoard([
+      ['P', 'Q', 'R', 'S', 'T'],
+      ['X', 'A', 'A', 'U', 'W'],
+      ['A', 'D', 'V', 'E', 'F'],
+    ]);
+    board[2][0] = { ...board[2][0], type: 'striped', direction: 'row' };
+    board[1][4] = { id: '1-4', type: 'dropdown' };
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['Z1', 'Z2', 'Z3', 'Z4']),
+    };
+
+    const result = applyMove(state, { row: 2, col: 0 }, { row: 1, col: 0 });
+
+    // The sweep still cleared the rest of row 1 (U at (1,3), the other
+    // non-matched cell) — confirming the sweep genuinely fired — but the
+    // dropdown piece at (1,4) is still there, unchanged, never cleared.
+    expect(result.state.board.flat().some((p) => p.id === '1-3')).toBe(false);
+    const survivingDropdown = result.state.board.flat().find((p) => p.id === '1-4');
+    expect(survivingDropdown).toBeDefined();
+    expect(survivingDropdown?.type).toBe('dropdown');
+  });
+});
+
 describe('createGameState', () => {
   test('wires generateLevel into a fresh GameState with zero accidental matches', () => {
     const state = createGameState({

@@ -122,4 +122,17 @@ describe('getSpriteForPiece', () => {
     const areaSprite = getSpriteForPiece({ type: 'area_bomb', matchType: 'tomato' }, sampleConfig);
     expect(resolveSpriteAsset(areaSprite, emptyAssets)).toEqual({ kind: 'label', label: 'AR' });
   });
+
+  test('a dropdown (escort) piece resolves to the single fixed dropdown.webp regardless of matchType', () => {
+    // Same single-fixed-sprite shape as color_bomb/area_bomb — a dropdown
+    // piece is colorless, no per-type variant to derive.
+    expect(getSpriteForPiece({ type: 'dropdown' }, sampleConfig)).toBe('dropdown.webp');
+    expect(getSpriteForPiece({ type: 'dropdown', matchType: 'nonexistent' }, sampleConfig)).toBe('dropdown.webp');
+  });
+
+  test('a dropdown piece with no registered art falls back to the text-label placeholder', () => {
+    const emptyAssets = {} as unknown as Parameters<typeof resolveSpriteAsset>[1];
+    const dropdownSprite = getSpriteForPiece({ type: 'dropdown' }, sampleConfig);
+    expect(resolveSpriteAsset(dropdownSprite, emptyAssets)).toEqual({ kind: 'label', label: 'DR' });
+  });
 });

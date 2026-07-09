@@ -1,4 +1,4 @@
-export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb' | 'area_bomb' | 'void';
+export type PieceType = 'normal' | 'striped' | 'blocker' | 'color_bomb' | 'area_bomb' | 'void' | 'dropdown';
 
 // Which line a striped piece clears when it's matched (see gameState.ts's
 // resolveCascades). A separate 'row'/'col' field rather than two piece types
@@ -35,6 +35,21 @@ export interface Piece {
   // gave a player no way to see which color a passive bomb was, so making it
   // colorless makes that question moot (see engine/DECISIONS.md's area-bomb
   // reversal entry).
+  //
+  // A 'dropdown' piece (the escort mechanic — see LevelConfig.dropdownPositions
+  // and ObjectiveType's 'escort' variant) is colorless like a color/area bomb
+  // (piecesMatch excludes it, so it can never form or join a run), but its
+  // activation is neither swap-triggered nor match-triggered: it's collected
+  // purely by POSITION — reaching the bottom row of its column's playable
+  // segment via ordinary gravity (matrix.ts's dropdownArrivals,
+  // gameState.ts's resolveCascades). It's immune to every clearing effect
+  // (striped sweeps, blasts, detonations, chains — see gameState.ts's shared
+  // isClearable predicate) since being swept away before reaching the bottom
+  // would defeat the whole point of an escort objective (a real, confirmed
+  // design fork — see engine/DECISIONS.md's dropdown-ingredients entry). It IS
+  // freely swappable, and any swap involving one is always legal (like a
+  // bomb), since a player needs to be able to nudge it sideways without also
+  // needing to form a match.
   //
   // Only meaningful when type === 'normal' AND the level has the dynamic
   // denial-zone spread mechanic enabled (see gameState.ts's DenialSpreadState).
@@ -135,6 +150,10 @@ function piecesMatch(a: Piece, b: Piece): boolean {
   if (a.type === 'blocker' || b.type === 'blocker') return false;
   if (a.type === 'color_bomb' || b.type === 'color_bomb') return false;
   if (a.type === 'area_bomb' || b.type === 'area_bomb') return false;
+  // A dropdown (escort) piece is colorless like the two bombs above — it
+  // can never form or join a run, only ever collected by reaching the
+  // bottom of its column (see the Piece interface's own comment).
+  if (a.type === 'dropdown' || b.type === 'dropdown') return false;
   // A void is a hole, not a piece — it can never participate in a run, so it
   // breaks any line it sits in (a run scan stops at it and resumes after it).
   // It carries no matchType so the final check already rejects it, but the
@@ -375,6 +394,42 @@ export function calculateCascades(
   }
 
   return result;
+}
+
+// Which dropdown (escort) pieces have reached the very bottom of their
+// column's playable segment — the collection condition for the escort
+// mechanic (see the Piece interface's own comment and gameState.ts's
+// resolveCascades, which folds these into the same clear-and-refill pipeline
+// every ordinary match already runs through). Mirrors calculateCascades' own
+// segmentation exactly (a void or the board floor ends a segment) rather
+// than assuming a plain rectangle, so a dropdown piece on a shaped board
+// still collects at the bottom of ITS pocket, not the literal last row.
+// Pure: reads the board (which must already be gravity-settled — i.e. called
+// right after calculateCascades, never on a board with in-flight gaps),
+// returns the positions of every piece that has arrived.
+export function dropdownArrivals(board: Board): Position[] {
+  const rows = board.length;
+  const cols = rows > 0 ? board[0].length : 0;
+  const arrivals: Position[] = [];
+
+  for (let c = 0; c < cols; c++) {
+    let r = 0;
+    while (r < rows) {
+      if (board[r][c].type === 'void') {
+        r++;
+        continue;
+      }
+      const segStart = r;
+      while (r < rows && board[r][c].type !== 'void') r++;
+      const segEnd = r; // exclusive
+      const bottomRow = segEnd - 1;
+      if (board[bottomRow][c].type === 'dropdown') {
+        arrivals.push({ row: bottomRow, col: c });
+      }
+    }
+  }
+
+  return arrivals;
 }
 
 export interface AdjacentDamageResult {
@@ -828,6 +883,12 @@ export function findAnyLegalMove(board: Board): { a: Position; b: Position } | n
     if (a.type === 'area_bomb' || b.type === 'area_bomb') return true;
     if (a.type === 'color_bomb' || b.type === 'color_bomb') return true;
     if (a.type === 'striped' && b.type === 'striped') return true;
+    // A dropdown (escort) swap never needs to form a match — the player
+    // must be able to freely nudge it sideways to navigate it toward a
+    // clearer column (see the Piece interface's own comment on the escort
+    // mechanic), so any swap involving one is always legal, the same shape
+    // the bomb clauses above already use.
+    if (a.type === 'dropdown' || b.type === 'dropdown') return true;
     // No checkCrossShapes clause is needed here, deliberately — unlike a pure
     // 2x2 square, a crossing point's two arms are themselves already ordinary
     // 3-runs that checkMatches independently reports, so checkMatches(swapped)

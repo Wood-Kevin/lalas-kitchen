@@ -9,6 +9,7 @@ import {
   findAnyLegalMove,
   applyAdjacentDamage,
   findSpreadTarget,
+  dropdownArrivals,
   Board,
   Piece,
   Position,
@@ -25,6 +26,10 @@ function blockerPiece(matchType: string, id: string, hitsRemaining: number): Pie
 
 function colorBombPiece(id: string): Piece {
   return { id, type: 'color_bomb' };
+}
+
+function dropdownPiece(id: string): Piece {
+  return { id, type: 'dropdown' };
 }
 
 function buildBoard(letters: string[][]): Board {
@@ -210,6 +215,91 @@ describe('checkMatches + calculateCascades cascade chain', () => {
   });
 });
 
+describe('dropdown (escort) pieces — matching exclusion', () => {
+  test('a row of dropdown pieces never itself forms a run, even directly below a real matching run', () => {
+    const board: Board = [
+      [piece('A', 'a0'), piece('A', 'a1'), piece('A', 'a2')],
+      [dropdownPiece('d0'), dropdownPiece('d1'), dropdownPiece('d2')],
+    ];
+    const matches = checkMatches(board);
+    // The top row's real 'A' run is still found (unrelated to the dropdown
+    // row) — the actual claim is that the dropdown row below it contributes
+    // no match of its own, despite being three "same type" dropdown pieces
+    // in a row.
+    expect(matches).toHaveLength(1);
+    expect(matches[0].matchType).toBe('A');
+    expect(sortPositions(matches[0]).map((p) => p.row)).toEqual([0, 0, 0]);
+  });
+
+  test('a dropdown piece never forms a 2x2 square', () => {
+    const board: Board = [
+      [dropdownPiece('d0'), dropdownPiece('d1')],
+      [dropdownPiece('d2'), dropdownPiece('d3')],
+    ];
+    expect(checkSquares(board)).toEqual([]);
+  });
+
+  test('a run on either side of a dropdown piece is still detected independently', () => {
+    const board: Board = [[piece('A', 'a0'), piece('A', 'a1'), piece('A', 'a2'), dropdownPiece('d0'), piece('B', 'b0')]];
+    const matches = checkMatches(board);
+    expect(matches).toHaveLength(1);
+    expect(sortPositions(matches[0]).map((p) => p.col)).toEqual([0, 1, 2]);
+  });
+});
+
+describe('dropdownArrivals', () => {
+  test('a dropdown piece at the bottom of a plain rectangular column has arrived', () => {
+    const board: Board = [[piece('A', 'a0')], [dropdownPiece('d0')]];
+    expect(dropdownArrivals(board)).toEqual([{ row: 1, col: 0 }]);
+  });
+
+  test('a dropdown piece NOT at the bottom of its column has not arrived', () => {
+    const board: Board = [[dropdownPiece('d0')], [piece('A', 'a0')]];
+    expect(dropdownArrivals(board)).toEqual([]);
+  });
+
+  test('on a shaped board, arrival is the bottom of the dropdown\'s own segment (above a void), not the literal board floor', () => {
+    const board: Board = [
+      [dropdownPiece('d0')],
+      [piece('A', 'a0')],
+      [{ id: 'v0', type: 'void' }],
+      [piece('B', 'b0')],
+    ];
+    // d0 sits above A, which sits above a void — d0's segment is rows 0-1,
+    // and it's at row 0, not the bottom of that segment (row 1) — no arrival.
+    expect(dropdownArrivals(board)).toEqual([]);
+
+    const arrivedBoard: Board = [
+      [piece('A', 'a0')],
+      [dropdownPiece('d0')],
+      [{ id: 'v0', type: 'void' }],
+      [piece('B', 'b0')],
+    ];
+    // Now d0 IS at the bottom of its segment (row 1, just above the void) —
+    // a real arrival, even though row 3 (below the void) is the literal
+    // board floor, not row 1.
+    expect(dropdownArrivals(arrivedBoard)).toEqual([{ row: 1, col: 0 }]);
+  });
+
+  test('multiple columns are scanned independently, returning only genuine arrivals', () => {
+    const board: Board = [
+      [piece('A', 'a0'), dropdownPiece('d0')],
+      [dropdownPiece('d1'), piece('B', 'b0')],
+    ];
+    // Column 0: dropdown at row 1 (bottom) — arrived. Column 1: dropdown at
+    // row 0, not the bottom — not arrived.
+    expect(dropdownArrivals(board)).toEqual([{ row: 1, col: 0 }]);
+  });
+
+  test('a board with no dropdown pieces at all reports no arrivals', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+    expect(dropdownArrivals(board)).toEqual([]);
+  });
+});
+
 describe('hasLegalMoves', () => {
   test('returns true when an adjacent swap would create a match', () => {
     const board = buildBoard([
@@ -390,6 +480,38 @@ describe('color bombs — excluded from runs, always a legal move', () => {
     // ordinary neighbour fires its 3x3 blast, always a legal move.
     board[1][1] = { id: 'ab', type: 'area_bomb' };
     expect(hasLegalMoves(board)).toBe(true);
+  });
+});
+
+describe('dropdown (escort) pieces — always a legal swap', () => {
+  test('a dropdown piece makes an otherwise-stuck board report a legal move', () => {
+    // Same stuck 3x3 Latin square as the color-bomb test above.
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['C', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+    expect(hasLegalMoves(board)).toBe(false);
+
+    // Swapping the center for a dropdown piece changes only one thing: a
+    // dropdown swap is always legal (it never needs to form a match — the
+    // player must be able to freely nudge it sideways), so the board is no
+    // longer stuck.
+    board[1][1] = dropdownPiece('dd');
+    expect(hasLegalMoves(board)).toBe(true);
+  });
+
+  test('findAnyLegalMove returns the actual dropdown pair, not just true', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['C', 'A', 'B'],
+      ['B', 'C', 'A'],
+    ]);
+    board[1][1] = dropdownPiece('dd');
+    const move = findAnyLegalMove(board);
+    expect(move).not.toBeNull();
+    const involvesDropdown = (pos: Position) => board[pos.row][pos.col].type === 'dropdown';
+    expect(involvesDropdown(move!.a) || involvesDropdown(move!.b)).toBe(true);
   });
 });
 

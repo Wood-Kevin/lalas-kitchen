@@ -53,6 +53,12 @@ export function getSpriteForPiece(
   // text-label placeholder ("AR"), the same graceful fallback every un-arted
   // piece gets.
   if (piece.type === 'area_bomb') return 'area_bomb.webp';
+  // A dropdown (escort) piece is colorless too (see matrix.ts's Piece
+  // comment) — same single-fixed-sprite shape as area_bomb, since there's
+  // no matchType to derive a per-type variant from. With no registry entry
+  // it falls through to resolveSpriteAsset's text-label placeholder ("DR"),
+  // the same graceful fallback every un-arted piece gets.
+  if (piece.type === 'dropdown') return 'dropdown.webp';
   const base = getSpriteForMatchType(piece.matchType, config);
   if (piece.type === 'striped' && base !== undefined) return `striped_${base}`;
   return base;

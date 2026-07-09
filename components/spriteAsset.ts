@@ -41,3 +41,8 @@ export const SCORE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '�
 // generic "no art yet" placeholder. A lid/cover glyph, since a clearance cell
 // is presented as something hidden underneath being uncovered.
 export const CLEARANCE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '▤' };
+
+// An 'escort' objective has no matchType either, for the same reason as the
+// two above — a fixed glyph, not spriteLabel's generic fallback. A down
+// arrow, evoking the dropdown piece's own ride-to-the-bottom mechanic.
+export const ESCORT_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '⬇' };
