@@ -9,10 +9,13 @@
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
+      "requireFullScreen": true,
       "icon": "./assets/icon.png",
       "infoPlist": {
-        "RCTAsyncStorageExcludeFromBackup": false
-      }
+        "RCTAsyncStorageExcludeFromBackup": false,
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.kevinw2284.lalaskitchen"
     },
     "android": {
       "package": "com.kevinw2284.lalaskitchen",
