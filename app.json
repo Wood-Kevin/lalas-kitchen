@@ -6,17 +6,24 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
+      "icon": "./assets/icon.png",
       "infoPlist": {
         "RCTAsyncStorageExcludeFromBackup": false
       }
     },
     "android": {
-      "package": "com.kevinw2284.lalaskitchen"
+      "package": "com.kevinw2284.lalaskitchen",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#F6D9A8"
+      }
     },
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/icon.png"
     },
     "plugins": [
       [
