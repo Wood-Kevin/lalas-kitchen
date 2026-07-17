@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SkinConfig } from './skinConfig';
@@ -92,6 +92,22 @@ export function Home({
     <View style={[styles.container, { backgroundColor: config.palette.background[0] }]}>
       <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={16} />
 
+      {/* Everything below the trim is scrollable — a fixed screen at a real
+          iPhone's shortest tested height (an SE) already sits within a few
+          points of this content's natural height, and a viewport shorter
+          than that (an iPadOS compatibility/windowed-mode instance of this
+          iPhone-only app, which can be resized well below any real iPhone's
+          dimensions) would push "Start cooking" itself off-screen with no
+          way to reach it — a real App Store rejection this fixed, non-
+          scrolling layout caused (see CLAUDE.md's iOS-device-family entry).
+          Matches the ScrollView convention LevelMap.tsx/RecipeBook.tsx
+          already use for their own variable-length content.
+          contentContainerStyle's flexGrow: 1 keeps the footer pinned to the
+          bottom via the existing flex spacer below on any screen tall
+          enough to fit everything without scrolling — unchanged from
+          before — and only yields to real scrolling once content
+          genuinely exceeds the viewport. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <View style={styles.hero}>
         {heroSprite.kind === 'image' ? (
           <Image source={heroSprite.source} style={styles.heroImage} resizeMode="cover" />
@@ -207,6 +223,7 @@ export function Home({
       >
         <Text style={[styles.footer, { color: config.palette.mutedText }]}>No timers. No rush. The kitchen keeps.</Text>
       </Pressable>
+      </ScrollView>
     </View>
   );
 }
@@ -214,6 +231,17 @@ export function Home({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  // flexGrow (not flex) is what makes the existing `<View style={{flex:1}}
+  // />` spacer below the browse button still pin the footer to the bottom
+  // on any screen tall enough to fit everything without scrolling — the
+  // content container only grows past the viewport, and real scrolling
+  // only kicks in, once its natural content height genuinely exceeds it.
+  scrollContent: {
+    flexGrow: 1,
   },
   hero: {
     height: HERO_HEIGHT,

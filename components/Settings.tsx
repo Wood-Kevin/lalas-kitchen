@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Text } from './AppText';
 import { CrashRecord } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
@@ -75,62 +75,73 @@ export function Settings({
         <Text style={[styles.title, { color: accent }]}>Settings</Text>
       </View>
 
-      <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
-        <View style={styles.cardPadding}>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.rowTitle, { color: text }]}>Sound</Text>
-            <Switch
-              value={soundEnabled}
-              onValueChange={onToggleSound}
-              trackColor={{ false: border, true: accent }}
-            />
-          </View>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.rowTitle, { color: text }]}>Haptics</Text>
-            <Switch
-              value={hapticsEnabled}
-              onValueChange={onToggleHaptics}
-              trackColor={{ false: border, true: accent }}
-            />
-          </View>
-        </View>
-      </View>
-
-      <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
-        <Pressable
-          style={styles.cardPadding}
-          onPress={openPrivacyPolicy}
-          accessibilityRole="link"
-          accessibilityLabel="Privacy Policy — opens in your browser"
-        >
-          <View style={styles.toggleRow}>
-            <Text style={[styles.rowTitle, { color: text }]}>Privacy Policy</Text>
-            <Text style={[styles.linkArrow, { color: mutedText }]} allowFontScaling={false}>
-              ›
-            </Text>
-          </View>
-        </Pressable>
-      </View>
-
-      {/* Only ever rendered if a crash actually happened — the common case
-          is this section simply doesn't exist. Worded calmly (per CLAUDE.md's
-          Design Constraints) rather than as an alarming error dialog, since
-          the one real player this screen is for isn't a developer; the raw
-          message/timestamp is still shown, in muted small text, so whoever
-          built this game can actually use it as a real signal if they check. */}
-      {lastCrash && (
+      {/* Scrollable below the fixed header, same reasoning and same
+          ScrollView convention as Home.tsx's own fix (see that file's
+          comment): a plain, non-scrolling column of cards can't be reached
+          past whatever a genuinely short viewport cuts off — an iPadOS
+          compatibility/windowed instance of this iPhone-only app can be far
+          shorter than any real iPhone this was tested against (see
+          CLAUDE.md's iOS-device-family entry). Settings isn't the
+          guaranteed first screen the way Home is, but the same structural
+          gap existed here, so it gets the same fix for the same reason. */}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
           <View style={styles.cardPadding}>
-            <Text style={[styles.rowTitle, { color: text }]}>A technical hiccup</Text>
-            <Text style={[styles.crashNote, { color: mutedText }]}>
-              Safe to ignore — this just helps with fixing things later.
-            </Text>
-            <Text style={[styles.crashDetail, { color: mutedText }]}>
-              {new Date(lastCrash.timestamp).toLocaleString()} — {lastCrash.message}
-            </Text>
+            <View style={styles.toggleRow}>
+              <Text style={[styles.rowTitle, { color: text }]}>Sound</Text>
+              <Switch
+                value={soundEnabled}
+                onValueChange={onToggleSound}
+                trackColor={{ false: border, true: accent }}
+              />
+            </View>
+            <View style={styles.toggleRow}>
+              <Text style={[styles.rowTitle, { color: text }]}>Haptics</Text>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={onToggleHaptics}
+                trackColor={{ false: border, true: accent }}
+              />
+            </View>
           </View>
         </View>
-      )}
+
+        <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
+          <Pressable
+            style={styles.cardPadding}
+            onPress={openPrivacyPolicy}
+            accessibilityRole="link"
+            accessibilityLabel="Privacy Policy — opens in your browser"
+          >
+            <View style={styles.toggleRow}>
+              <Text style={[styles.rowTitle, { color: text }]}>Privacy Policy</Text>
+              <Text style={[styles.linkArrow, { color: mutedText }]} allowFontScaling={false}>
+                ›
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+
+        {/* Only ever rendered if a crash actually happened — the common case
+            is this section simply doesn't exist. Worded calmly (per CLAUDE.md's
+            Design Constraints) rather than as an alarming error dialog, since
+            the one real player this screen is for isn't a developer; the raw
+            message/timestamp is still shown, in muted small text, so whoever
+            built this game can actually use it as a real signal if they check. */}
+        {lastCrash && (
+          <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
+            <View style={styles.cardPadding}>
+              <Text style={[styles.rowTitle, { color: text }]}>A technical hiccup</Text>
+              <Text style={[styles.crashNote, { color: mutedText }]}>
+                Safe to ignore — this just helps with fixing things later.
+              </Text>
+              <Text style={[styles.crashDetail, { color: mutedText }]}>
+                {new Date(lastCrash.timestamp).toLocaleString()} — {lastCrash.message}
+              </Text>
+            </View>
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
@@ -138,6 +149,12 @@ export function Settings({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     flexDirection: 'row',
