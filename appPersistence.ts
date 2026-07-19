@@ -684,8 +684,17 @@ export function generatedMovesLimit(
   const BREATHER_MOVES_RATIO = 1.3;
   const step = Math.floor((levelNumber - 1) / 2);
   const fullBoardMoves = Math.max(MIN_MOVES, BASE_MOVES - step);
-  const scaled = fullBoardMoves * playableRatio * (breather ? BREATHER_MOVES_RATIO : 1);
-  return Math.max(MIN_MOVES, Math.round(scaled));
+  // The breather multiplies AFTER the shape-scaling and its MIN_MOVES
+  // re-floor, not inside the same pre-floor product: on a heavily-voided
+  // board (ring at 55% playable, past the ramp's flatline) the old
+  // pre-floor placement let the floor absorb the +30% entirely
+  // (18 × 0.55 × 1.3 → floored to 18, identical with or without the
+  // breather — the concrete no-op case the tuning-constant review
+  // computed). Applied post-floor, a breather is always +30% over the
+  // moves the player would actually have gotten. On a plain board the two
+  // orderings are numerically identical, so only the absorbed case changes.
+  const shapeAdjusted = Math.max(MIN_MOVES, Math.round(fullBoardMoves * playableRatio));
+  return breather ? Math.round(shapeAdjusted * BREATHER_MOVES_RATIO) : shapeAdjusted;
 }
 
 // Mirrors LEVEL_QUEUE's own light per-level growth in target count, capped
@@ -716,8 +725,13 @@ export function generatedTargetCount(
   const MIN_TARGET = 10;
   const BREATHER_TARGET_RATIO = 0.7;
   const fullBoardTarget = Math.min(MAX_TARGET, BASE_TARGET + levelNumber);
-  const scaled = fullBoardTarget * playableRatio * (breather ? BREATHER_TARGET_RATIO : 1);
-  return Math.max(MIN_TARGET, Math.round(scaled));
+  // Same post-floor breather ordering as generatedMovesLimit above, for the
+  // same absorption reason. Unlike moves, the relief here is deliberately
+  // still bounded by MIN_TARGET afterward — a breather may ease a level,
+  // never push its objective below the not-trivial guarantee.
+  const shapeAdjusted = Math.max(MIN_TARGET, Math.round(fullBoardTarget * playableRatio));
+  if (!breather) return shapeAdjusted;
+  return Math.max(MIN_TARGET, Math.round(shapeAdjusted * BREATHER_TARGET_RATIO));
 }
 
 // Teaching the generator to occasionally place a 'score' objective instead

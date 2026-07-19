@@ -401,8 +401,15 @@ describe('generatedMovesLimit', () => {
     expect(breather).toBe(Math.round(normal * 1.3));
   });
 
-  test('breather composes with a shaped board\'s playableRatio scaling', () => {
-    expect(generatedMovesLimit(500, 0.55, true)).toBe(Math.max(18, Math.round(18 * 0.55 * 1.3)));
+  test('breather relief is never absorbed by the MIN_MOVES floor on a shaped board', () => {
+    // The exact no-op case the tuning-constant review computed: a ring-shaped
+    // level (55% playable) past the ramp's flatline used to compute
+    // 18 × 0.55 × 1.3 and re-floor to 18 — identical with or without the
+    // breather. The breather now applies AFTER the shape-scaling floor, so
+    // it's always +30% over the moves the player would actually have gotten.
+    const normal = generatedMovesLimit(500, 0.55);
+    expect(normal).toBe(18);
+    expect(generatedMovesLimit(500, 0.55, true)).toBe(Math.round(normal * 1.3));
   });
 
   test('breather defaults off — omitting it matches passing false explicitly', () => {
