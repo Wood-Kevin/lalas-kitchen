@@ -90,6 +90,21 @@ export const SUPERCOMBO_CONVERT_MS = 170;
 // even beats fit inside SUPERCOMBO_CONVERT_MS exactly.
 export const SUPERCOMBO_FLASH_PULSE_MS = SUPERCOMBO_CONVERT_MS / 4;
 
+// One chain LINK's worth of stagger: every cell a chain reaction cleared at
+// wave w (see engine/gameState.ts's ApplyMoveResult.chainWaveByPieceId) waits
+// w × this before its own clear animation begins, so a caught special visibly
+// fires AFTER the effect that caught it reached it — the per-link staging the
+// chaining work deferred (each link reads as its own beat) instead of the
+// whole chain vanishing as one flat clear. 260ms sits deliberately between
+// COLOR_BOMB_WAVE_MS (280, one board-spanning effect's full travel) and the
+// longest linear sweep (~385ms): late enough that link w's cells clearly
+// start after link w-1's wave is most of the way through its travel, short
+// enough that a 3-link chain (~780ms of stagger) still resolves inside the
+// same unhurried register as a 2-pass cascade (2 × 480ms beats) — sequential
+// and legible, never a drawn-out stall. Calm pacing per CLAUDE.md: this
+// SLOWS the chain's read into deliberate beats; it adds no flash or shake.
+export const CHAIN_LINK_STAGGER_MS = 260;
+
 // How long the terminal (Won / Paused) overlay is held back after the FINAL
 // cascade pass commits, before it's allowed to appear. Board.tsx's
 // animateCascade commits gameState — flipping status to 'won'/'paused' — at the

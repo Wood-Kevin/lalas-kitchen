@@ -47,6 +47,7 @@ import {
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
+  CHAIN_LINK_STAGGER_MS,
 } from './cascadeTiming';
 import { Hud } from './Hud';
 import { resolveLevelDisplayName } from './levelProgress';
@@ -584,7 +585,8 @@ export function Board({
       tappedIds,
       hasCombo,
       result.multiSpecialFired,
-      effectDescriptor
+      effectDescriptor,
+      result.chainWaveByPieceId
     );
   }
 
@@ -660,9 +662,16 @@ export function Board({
     tappedIds: Set<string>,
     hasCombo: boolean,
     multiSpecialFired: boolean,
-    effectDescriptor: SpecialEffectDescriptor | undefined
+    effectDescriptor: SpecialEffectDescriptor | undefined,
+    chainWaveByPieceId: Record<string, number>
   ) {
     animatingRef.current = true;
+    // The final pass's chain-staging hold (see PassAnimation.chainHoldMs) —
+    // set by runStep before it calls commitFinalState synchronously, so the
+    // terminal-overlay hold below can stretch to cover a chain's late links.
+    // Stays 0 for a chainless move (and the zero-steps dropdown case), so
+    // the overlay timing is byte-identical to before.
+    let finalPassChainHoldMs = 0;
     // Re-gate the terminal overlay for this move: even if a prior move left it
     // revealed, the win/pause for THIS move must wait for THIS move's final
     // pass to finish animating.
@@ -730,7 +739,7 @@ export function Board({
       // the flag simply stays false and gates nothing (status is in_progress).
       if (finalState.status === 'won' || finalState.status === 'paused_awaiting_input') {
         stepTimersRef.current.push(
-          setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold)
+          setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold + finalPassChainHoldMs)
         );
       }
       stepTimersRef.current.push(
@@ -770,11 +779,18 @@ export function Board({
       // ever applies to the first pass (i === 0) — every swap-triggered effect
       // activates on the swap itself; later passes are always ordinary
       // cascade refills.
-      const passAnimation = buildPassAnimation(diff.cleared, i, effectDescriptor, {
-        perTileStaggerMs: SWEEP_TILE_STAGGER_MS,
-        radialWaveMs: COLOR_BOMB_WAVE_MS,
-        supercomboConvertMs: SUPERCOMBO_CONVERT_MS,
-      });
+      const passAnimation = buildPassAnimation(
+        diff.cleared,
+        i,
+        effectDescriptor,
+        {
+          perTileStaggerMs: SWEEP_TILE_STAGGER_MS,
+          radialWaveMs: COLOR_BOMB_WAVE_MS,
+          supercomboConvertMs: SUPERCOMBO_CONVERT_MS,
+          chainLinkStaggerMs: CHAIN_LINK_STAGGER_MS,
+        },
+        chainWaveByPieceId
+      );
 
       // Sound/haptic cue for this pass, fired in the same tick the visual
       // pop begins (not deferred to the terminal-overlay timeout below,
@@ -817,10 +833,17 @@ export function Board({
 
       previous = next;
 
+      // A pass whose chain staged its clears out by chainHoldMs needs the
+      // next beat (or, on the final pass, the terminal overlay) pushed out by
+      // the same amount, so a late link is never cut off mid-fire. 0 for a
+      // chainless pass — the schedule is then exactly the pre-staging one.
       if (i + 1 < steps.length) {
         setDisplayBoard(next);
-        stepTimersRef.current.push(setTimeout(() => runStep(i + 1), cascadeStepIntervalMs));
+        stepTimersRef.current.push(
+          setTimeout(() => runStep(i + 1), cascadeStepIntervalMs + passAnimation.chainHoldMs)
+        );
       } else {
+        finalPassChainHoldMs = passAnimation.chainHoldMs;
         commitFinalState();
       }
     };

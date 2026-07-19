@@ -509,6 +509,9 @@ describe('applyMove — cascade steps', () => {
     // One pass → one step, and it is the settled board itself.
     expect(result.steps).toHaveLength(1);
     expect(result.steps[0]).toBe(result.state.board);
+    // A chainless move carries an empty wave map — the animation layer's
+    // no-offset default keeps its behavior byte-identical to pre-staging.
+    expect(result.chainWaveByPieceId).toEqual({});
     expect(result.steps[0].map((row) => row.map((p) => p.matchType))).toEqual([
       ['X', 'P', 'Q'],
       ['R', 'F', 'P'],
@@ -1112,6 +1115,15 @@ describe('applyMove — special piece chaining', () => {
     // (non-'A') types, not 'A'.
     expect(result.state.objectives[0].currentCount).toBe(3);
     expect(result.state.movesRemaining).toBe(9);
+    // Presentation staging metadata (see ApplyMoveResult.chainWaveByPieceId):
+    // the caught striped's swept column cells cleared at chain wave 1; the
+    // detonation's own seed cells — including the striped piece itself, which
+    // was CAUGHT at wave 0 even though its sweep fires at wave 1 — carry no
+    // entry at all (wave 0 is the no-offset default).
+    expect(result.chainWaveByPieceId['0-2']).toBe(1);
+    expect(result.chainWaveByPieceId['4-2']).toBe(1);
+    expect(result.chainWaveByPieceId['2-2']).toBeUndefined();
+    expect(result.chainWaveByPieceId['0-1']).toBeUndefined();
   });
 
   test('a single move drives a chain of three triggered effects in sequence', () => {
@@ -1154,6 +1166,18 @@ describe('applyMove — special piece chaining', () => {
     // The whole chain is one committed move — a chain is a free bonus, never an
     // extra move spent.
     expect(result.state.movesRemaining).toBe(9);
+    // The wave metadata mirrors the three links exactly (see
+    // ApplyMoveResult.chainWaveByPieceId): the sweep's cells and the second
+    // bomb it caught are wave 1, that bomb's blast cells and the color bomb
+    // it caught are wave 2, the final detonation's Q's are wave 3 — and the
+    // origin blast's own wave-0 cells carry no entry at all.
+    expect(result.chainWaveByPieceId['2-3']).toBe(1);
+    expect(result.chainWaveByPieceId['2-5']).toBe(1);
+    expect(result.chainWaveByPieceId['1-4']).toBe(2);
+    expect(result.chainWaveByPieceId['3-5']).toBe(2);
+    expect(result.chainWaveByPieceId['q0']).toBe(3);
+    expect(result.chainWaveByPieceId['q3']).toBe(3);
+    expect(result.chainWaveByPieceId['1-1']).toBeUndefined();
   });
 
   test('every effect in a chain credits its own cleared cells to the objective', () => {

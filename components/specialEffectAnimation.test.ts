@@ -151,7 +151,7 @@ describe('supercomboConvertedIds', () => {
 });
 
 describe('buildPassAnimation', () => {
-  const options = { perTileStaggerMs: 50, radialWaveMs: 300, supercomboConvertMs: 170 };
+  const options = { perTileStaggerMs: 50, radialWaveMs: 300, supercomboConvertMs: 170, chainLinkStaggerMs: 260 };
 
   test('later passes always fall back to the plain generic sweep, no effect applied', () => {
     const pass = [cleared(striped('s', 'A', 'row'), 1, 1), cleared(normal('c', 'A'), 1, 2)];
@@ -199,5 +199,87 @@ describe('buildPassAnimation', () => {
     expect(result.sweepDelays.get('b1')).toBe(170);
     // The unrelated chained striped piece keeps its own authentic sweep delay.
     expect(result.sweepDelays.get('other-mate')).toBe(1 * 50);
+  });
+
+  // Per-link chain staging (see applyChainStaging and engine/gameState.ts's
+  // ApplyMoveResult.chainWaveByPieceId): each chain wave's cells start one
+  // calm beat after the wave that caught them.
+  describe('chain staging', () => {
+    test('a chainless pass (no wave map) is byte-identical to before and holds nothing', () => {
+      const pass = [cleared(striped('s', 'A', 'row'), 1, 1), cleared(normal('c', 'A'), 1, 3)];
+      const result = buildPassAnimation(pass, 1, undefined, options);
+      expect(result.sweepDelays.get('c')).toBe(2 * 50);
+      expect(result.chainHoldMs).toBe(0);
+    });
+
+    test('wave offsets add to the existing sweep delay, preserving the link\'s own travel identity', () => {
+      // A chained striped piece (wave 1) whose swept cell also carries its own
+      // distance stagger: total delay = wave offset + within-link travel.
+      const pass = [
+        cleared(striped('caught', 'B', 'row'), 2, 2), // wave 1: the caught special itself
+        cleared(normal('swept', 'C'), 2, 5), // wave 2: a cell its sweep cleared, 3 tiles out
+      ];
+      const waves = { caught: 1, swept: 2 };
+      const result = buildPassAnimation(pass, 1, undefined, options, waves);
+      expect(result.sweepDelays.get('caught')).toBe(1 * 260); // the special pops when its wave arrives
+      expect(result.sweepDelays.get('swept')).toBe(2 * 260 + 3 * 50); // wave offset + its own beam travel
+      expect(result.chainHoldMs).toBe(2 * 260);
+    });
+
+    test('a color-bomb pass adds the wave offset to the radial channel for cells already riding the ripple', () => {
+      const pass = [
+        cleared(normal('seed', 'A'), 0, 3), // the detonation's own cell — wave 0, no entry
+        cleared(normal('link', 'D'), 0, 1), // cleared by a caught special at wave 1
+      ];
+      const result = buildPassAnimation(
+        pass,
+        0,
+        { kind: 'color_bomb', origin: { row: 0, col: 0 } },
+        options,
+        { link: 1 }
+      );
+      // seed keeps its pure radial delay (furthest cell = full wave = 300).
+      expect(result.radialDelays.get('seed')).toBe(300);
+      // link's radial delay (1/3 of max distance = 100) gains the wave offset.
+      expect(result.radialDelays.get('link')).toBe(100 + 260);
+      expect(result.chainHoldMs).toBe(260);
+    });
+
+    test('a dual-channel cell (both sweep and radial) stages the SWEEP entry — the channel ExitingTile actually plays', () => {
+      // The exact case the live capture caught: a color-bomb detonation whose
+      // chain catches a striped piece. The striped's swept cells carry BOTH a
+      // generic sweep delay (from the caught striped origin) and a radial
+      // delay (the ripple covers every cleared cell) — Tile.tsx's ExitingTile
+      // plays sweep first, so the wave offset must land there or the staging
+      // silently doesn't play.
+      const pass = [
+        cleared(striped('caught', 'A', 'col'), 4, 2), // wave 1, on the detonation
+        cleared(normal('swept', 'B'), 2, 2), // its swept cell, 2 tiles up: sweep 2*50, plus a radial entry
+      ];
+      const result = buildPassAnimation(
+        pass,
+        0,
+        { kind: 'color_bomb', origin: { row: 0, col: 0 } },
+        options,
+        { caught: 1, swept: 2 }
+      );
+      // Both cells have radial entries (the ripple covers all cleared cells)…
+      expect(result.radialDelays.has('caught')).toBe(true);
+      expect(result.radialDelays.has('swept')).toBe(true);
+      // …but the offsets landed on the sweep channel ExitingTile plays:
+      // 'swept' keeps its own beam travel (2 tiles × 50) plus its wave offset.
+      expect(result.sweepDelays.get('swept')).toBe(2 * 50 + 2 * 260);
+      // 'caught' (the striped origin itself, distance 0 on its own beam) gets
+      // its wave offset on the sweep channel too.
+      expect(result.sweepDelays.get('caught')).toBe(0 + 1 * 260);
+      expect(result.chainHoldMs).toBe(2 * 260);
+    });
+
+    test('waves belonging to a different pass\'s cells are ignored by this pass', () => {
+      const pass = [cleared(normal('mine', 'A'), 0, 0)];
+      const result = buildPassAnimation(pass, 1, undefined, options, { theirs: 3 });
+      expect(result.sweepDelays.has('theirs')).toBe(false);
+      expect(result.chainHoldMs).toBe(0);
+    });
   });
 });

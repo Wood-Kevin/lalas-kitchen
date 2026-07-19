@@ -180,6 +180,7 @@ export interface PassAnimationOptions {
   perTileStaggerMs: number;
   radialWaveMs: number;
   supercomboConvertMs: number;
+  chainLinkStaggerMs: number;
 }
 
 export interface PassAnimation {
@@ -188,6 +189,56 @@ export interface PassAnimation {
   sweepDelays: Map<string, number>;
   radialDelays: Map<string, number>;
   convertedFlashIds: Set<string>;
+  // How much longer than normal this pass's clears need to finish playing,
+  // because chain staging pushed its deepest wave's cells out by
+  // maxWave × chainLinkStaggerMs (see applyChainStaging below). 0 for a
+  // chainless pass. Board.tsx adds this to the between-pass interval (and,
+  // on the final pass, the terminal-overlay hold) so the next beat never
+  // starts while a late chain link is still firing.
+  chainHoldMs: number;
+}
+
+// The per-link chain staging (the long-deferred nicety, now built — see
+// engine/DECISIONS.md's chain-staging entry): every cleared cell the engine
+// tagged with a chain wave (see ApplyMoveResult.chainWaveByPieceId — wave 1
+// is the first caught special's own effect, wave 2 the next, ...) has
+// wave × chainLinkStaggerMs added to whichever delay channel it already
+// uses, so each link's cells begin clearing one calm beat after the link
+// that caught them — the chain visibly PROPAGATES instead of all its links
+// firing at once. Added to the existing channel rather than replacing it, so
+// within a link the effect's own travel identity (a chained striped's beam,
+// distance staggering) is preserved — the wave offset only shifts WHEN that
+// link starts, never how it moves. The channel choice MUST mirror Tile.tsx's
+// ExitingTile playback priority (sweep first, then radial): in a color-bomb
+// pass a chained striped's swept cells genuinely carry BOTH delays (the
+// generic sweep from the caught striped origin AND the ripple's
+// every-cleared-cell radial), and ExitingTile plays the sweep one — so the
+// offset goes to sweep whenever a sweep entry exists (or neither channel
+// does), and to radial only when radial is the sole channel. Caught live
+// during this feature's own verification, not hypothetically: the first cut
+// staged the radial entry for those dual-channel cells, which ExitingTile
+// then ignored — the staging silently didn't play.
+// Wave-0 cells (the triggering effect's own seed) have no entry, so a
+// chainless pass is byte-identical to pre-staging behavior. Blockers never
+// appear in the wave map (the engine's chain expansion excludes them), so
+// their own highlight beat is untouched, same as every other exclusion.
+function applyChainStaging(
+  animation: PassAnimation,
+  chainWaveByPieceId: Record<string, number>,
+  chainLinkStaggerMs: number
+): PassAnimation {
+  let maxWave = 0;
+  for (const [id, wave] of Object.entries(chainWaveByPieceId)) {
+    if (wave < 1) continue;
+    const offset = wave * chainLinkStaggerMs;
+    if (animation.sweepDelays.has(id) || !animation.radialDelays.has(id)) {
+      animation.sweepDelays.set(id, (animation.sweepDelays.get(id) ?? 0) + offset);
+    } else {
+      animation.radialDelays.set(id, (animation.radialDelays.get(id) ?? 0) + offset);
+    }
+    if (wave > maxWave) maxWave = wave;
+  }
+  return { ...animation, chainHoldMs: maxWave * chainLinkStaggerMs };
 }
 
 // The one call site Board.tsx uses per cascade pass. Only pass 0 ever carries
@@ -195,34 +246,48 @@ export interface PassAnimation {
 // resolveClearSet's chain-cascade refill lands in later passes as ordinary
 // matches — see engine/DECISIONS.md), so `passIndex` gates all of the
 // descriptor-driven logic below; every later pass falls back to exactly the
-// pre-existing generic sweep behavior, untouched.
+// pre-existing generic sweep behavior, untouched. `chainWaveByPieceId` is the
+// whole MOVE's wave map (piece ids are unique per move) — each pass simply
+// finds its own cleared ids in it, so no per-pass split is needed; chain
+// staging applies to every branch below via applyChainStaging, including
+// later cascade passes whose own in-match striped sweep chained.
 export function buildPassAnimation(
   cleared: ClearedPiece[],
   passIndex: number,
   effect: SpecialEffectDescriptor | undefined,
-  options: PassAnimationOptions
+  options: PassAnimationOptions,
+  chainWaveByPieceId: Record<string, number> = {}
 ): PassAnimation {
   const genericSweep = sweepDelaysForClears(cleared, options.perTileStaggerMs);
+  // Only this pass's own cleared ids stage here — the move-level map can
+  // carry entries for other passes' cells too.
+  const clearedIds = new Set(cleared.map((c) => c.piece.id));
+  const passWaves: Record<string, number> = {};
+  for (const [id, wave] of Object.entries(chainWaveByPieceId)) {
+    if (clearedIds.has(id)) passWaves[id] = wave;
+  }
+  const staged = (animation: Omit<PassAnimation, 'chainHoldMs'>): PassAnimation =>
+    applyChainStaging({ ...animation, chainHoldMs: 0 }, passWaves, options.chainLinkStaggerMs);
 
   if (passIndex !== 0 || !effect) {
-    return { sweepDelays: genericSweep, radialDelays: new Map(), convertedFlashIds: new Set() };
+    return staged({ sweepDelays: genericSweep, radialDelays: new Map(), convertedFlashIds: new Set() });
   }
 
   if (effect.kind === 'striped_cross') {
     const crossDelays = crossOriginDelays(cleared, effect.origin, options.perTileStaggerMs);
-    return {
+    return staged({
       sweepDelays: mergeMinDelays(genericSweep, crossDelays),
       radialDelays: new Map(),
       convertedFlashIds: new Set(),
-    };
+    });
   }
 
   if (effect.kind === 'color_bomb') {
-    return {
+    return staged({
       sweepDelays: genericSweep,
       radialDelays: radialDelaysForClears(cleared, effect.origin, options.radialWaveMs),
       convertedFlashIds: new Set(),
-    };
+    });
   }
 
   // Supercombo: every converted piece (plus the bomb cell) pops together in
@@ -240,5 +305,5 @@ export function buildPassAnimation(
     sweepDelays.set(id, options.supercomboConvertMs);
   }
 
-  return { sweepDelays, radialDelays: new Map(), convertedFlashIds };
+  return staged({ sweepDelays, radialDelays: new Map(), convertedFlashIds });
 }

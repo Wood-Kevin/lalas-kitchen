@@ -211,6 +211,18 @@ export interface ApplyMoveResult {
   // detection mechanism. It's the exact differentiator the chain_reaction
   // tutorial teaches — see appPersistence.ts's shouldShowChainReactionTutorial.
   multiSpecialFired: boolean;
+  // Presentation-only chain-staging metadata: for every cell a chain reaction
+  // cleared (never the triggering effect's own wave-0 seed), the chain wave
+  // (1, 2, ...) at which it cleared, keyed by the cleared piece's id — see
+  // CascadeResolution's own field of the same name for the full contract.
+  // Empty for a chainless or rejected move, so the animation layer's
+  // no-offset default reproduces pre-staging behavior exactly. The engine
+  // still computes and commits ONE settled clear per pass — this only tells
+  // the presentation layer the order the chain BFS already resolved in
+  // (components/specialEffectAnimation.ts stages each wave one calm beat
+  // apart). This resolves the long-deferred per-link animation flash — see
+  // engine/DECISIONS.md and DEFERRED_COMPLEXITY.md.
+  chainWaveByPieceId: Record<string, number>;
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -671,15 +683,24 @@ function expandChainClears(
   seed: Position[],
   originKeys: Set<string>,
   seedTiers: Map<string, ScoreTier>
-): { positions: Position[]; tierByKey: Map<string, ScoreTier> } {
+): { positions: Position[]; tierByKey: Map<string, ScoreTier>; waveByKey: Map<string, number> } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keyOf = (r: number, c: number): string => `${r},${c}`;
   const cleared = new Set<string>();
   const tierByKey = new Map<string, ScoreTier>();
-  const queue: Position[] = [];
+  // Which chain WAVE first cleared each cell: 0 for the calling effect's own
+  // seed, w+1 for cells cleared by a special that was itself caught at wave w.
+  // Recorded on first clear only (never overwritten by a later wave touching
+  // the same cell), so it's the earliest moment the cell visually clears —
+  // presentation-only metadata the animation layer uses to stage each chain
+  // link as its own beat (see ApplyMoveResult.chainWaveByPieceId). The BFS
+  // below already processed cells in exactly this wave order; this just
+  // records what it was already doing.
+  const waveByKey = new Map<string, number>();
+  const queue: Array<Position & { wave: number }> = [];
 
-  const add = (r: number, c: number, tier: ScoreTier): void => {
+  const add = (r: number, c: number, tier: ScoreTier, wave: number): void => {
     if (r < 0 || r >= rows || c < 0 || c >= cols) return;
     if (!isClearable(board[r][c])) return;
     const key = keyOf(r, c);
@@ -687,6 +708,7 @@ function expandChainClears(
     cleared.add(key);
     upgradeTier(tierByKey, key, tier);
     if (alreadyCleared) return;
+    waveByKey.set(key, wave);
     // A special the calling effect didn't already fire is a chain source. Origins
     // still clear (added above) but are never enqueued, so they don't re-fire.
     const type = board[r][c].type;
@@ -694,27 +716,30 @@ function expandChainClears(
       (type === 'striped' || type === 'area_bomb' || type === 'color_bomb') &&
       !originKeys.has(key)
     ) {
-      queue.push({ row: r, col: c });
+      queue.push({ row: r, col: c, wave });
     }
   };
 
-  for (const p of seed) add(p.row, p.col, seedTiers.get(keyOf(p.row, p.col)) ?? 'ordinary');
+  for (const p of seed) add(p.row, p.col, seedTiers.get(keyOf(p.row, p.col)) ?? 'ordinary', 0);
 
   while (queue.length > 0) {
-    const pos = queue.shift() as Position;
+    const entry = queue.shift() as Position & { wave: number };
+    const pos = { row: entry.row, col: entry.col };
+    // A special caught at wave w fires its own contribution one beat later.
+    const nextWave = entry.wave + 1;
     const piece = board[pos.row][pos.col];
     if (piece.type === 'striped') {
       const direction: StripeDirection = piece.direction === 'row' ? 'row' : 'col';
-      for (const q of sweepLinePositions(rows, cols, pos, direction)) add(q.row, q.col, 'special');
+      for (const q of sweepLinePositions(rows, cols, pos, direction)) add(q.row, q.col, 'special', nextWave);
     } else if (piece.type === 'area_bomb') {
-      for (const q of areaBlastPositions(rows, cols, pos)) add(q.row, q.col, 'special');
+      for (const q of areaBlastPositions(rows, cols, pos)) add(q.row, q.col, 'special', nextWave);
     } else if (piece.type === 'color_bomb') {
       const target = mostCommonMatchType(board);
       if (target !== undefined) {
         for (let r = 0; r < rows; r++) {
           for (let c = 0; c < cols; c++) {
             const cell = board[r][c];
-            if (cell.type !== 'blocker' && cell.matchType === target) add(r, c, 'bomb');
+            if (cell.type !== 'blocker' && cell.matchType === target) add(r, c, 'bomb', nextWave);
           }
         }
       }
@@ -727,7 +752,25 @@ function expandChainClears(
       return { row: r, col: c };
     }),
     tierByKey,
+    waveByKey,
   };
+}
+
+// Converts expandChainClears's position-keyed wave map into the piece-id-keyed
+// map the presentation layer consumes (see ApplyMoveResult.chainWaveByPieceId),
+// keeping only genuine chain waves (wave >= 1) — wave-0 seed cells carry no
+// entry, so a chainless move produces an empty map and the animation layer's
+// default (no offset) applies byte-identically to pre-chain-staging behavior.
+// Read against the pre-clear board, where each cleared position still holds
+// the actual piece the animation will show exiting.
+function chainWavesToPieceIds(board: Board, waveByKey: Map<string, number>): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [key, wave] of waveByKey) {
+    if (wave < 1) continue;
+    const [r, c] = key.split(',').map(Number);
+    result[board[r][c].id] = wave;
+  }
+  return result;
 }
 
 // How many of the given positions were already a special piece (striped,
@@ -788,6 +831,16 @@ interface CascadeResolution {
   // it would only ever bucket into the generic 'unknown' key there, which no
   // objective reads) — this is its own dedicated count.
   dropdownCollected: number;
+  // Presentation-only chain-staging metadata: for every cell cleared by a
+  // chain reaction (wave >= 1, see expandChainClears's waveByKey), the wave
+  // at which it cleared, keyed by the cleared piece's id. Merged across every
+  // pass of the move (a piece id clears at most once per move, so keys never
+  // collide). Empty for a chainless move. The engine's own clear-set
+  // computation is untouched — this only records the wave order the chain
+  // BFS already resolved in, so the animation layer can stage each link as
+  // its own beat instead of one flat clear (see components/
+  // specialEffectAnimation.ts). Not persisted, never read by any engine rule.
+  chainWaveByPieceId: Record<string, number>;
 }
 
 // The special piece an anchor cell is converted into this pass. A striped
@@ -856,6 +909,7 @@ function resolveMatchEffects(
   anchors: Array<{ pos: Position } & AnchorSpec>;
   specialsFired: number;
   tierByKey: Map<string, ScoreTier>;
+  chainWaveByPieceId: Record<string, number>;
 } {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
@@ -1098,6 +1152,10 @@ function resolveMatchEffects(
     anchors: [...anchorByKey.entries()].map(([k, spec]) => ({ pos: parseKey(k), ...spec })),
     specialsFired,
     tierByKey: expanded.tierByKey,
+    // An anchor cell a chain swept is restored to a special, not cleared, so
+    // its id may appear here without a matching cleared tile — harmless, the
+    // animation layer only looks up ids it actually saw clear.
+    chainWaveByPieceId: chainWavesToPieceIds(board, expanded.waveByKey),
   };
 }
 
@@ -1129,6 +1187,9 @@ function resolveCascades(
   const allClearedPositions: Position[] = [];
   // See CascadeResolution's dropdownCollected doc comment.
   let dropdownCollected = 0;
+  // Merged across passes — piece ids are unique per move, so plain
+  // assignment can never collide. See CascadeResolution's own doc comment.
+  const chainWaveByPieceId: Record<string, number> = {};
 
   while (true) {
     const matches = checkMatches(currentBoard);
@@ -1151,13 +1212,15 @@ function resolveCascades(
     const passIndex = startPassIndex + cascadeCount;
     cascadeCount += 1;
 
-    const { clearedPositions: matchClearedPositions, anchors, specialsFired, tierByKey } = resolveMatchEffects(
-      currentBoard,
-      matches,
-      squares,
-      crosses
-    );
+    const {
+      clearedPositions: matchClearedPositions,
+      anchors,
+      specialsFired,
+      tierByKey,
+      chainWaveByPieceId: passChainWaves,
+    } = resolveMatchEffects(currentBoard, matches, squares, crosses);
     maxSpecialsFired = Math.max(maxSpecialsFired, specialsFired);
+    Object.assign(chainWaveByPieceId, passChainWaves);
 
     // Folded into this pass's own clear set alongside whatever match effects
     // also fired, rather than run as a wholly separate pipeline — an arrival
@@ -1244,6 +1307,7 @@ function resolveCascades(
     score,
     clearedPositions: allClearedPositions,
     dropdownCollected,
+    chainWaveByPieceId,
   };
 }
 
@@ -1377,7 +1441,7 @@ function resolveClearSet(
   // pieces) — they clear but never re-fire. Everything below counts and gaps the
   // fully-expanded set, so a chained sweep/blast credits its own cells to
   // objectives exactly like a first-order clear does.
-  const { positions: expanded, tierByKey } = expandChainClears(board, clearedPositions, originKeys, seedTiers);
+  const { positions: expanded, tierByKey, waveByKey } = expandChainClears(board, clearedPositions, originKeys, seedTiers);
 
   // How many already-special pieces fired together in this one detonation —
   // a combo's own two swapped specials are always both origins here (so this
@@ -1443,6 +1507,9 @@ function resolveClearSet(
     // on every pass of its loop, so this is never lost, just not double-
     // counted here.
     dropdownCollected: chained.dropdownCollected,
+    // The detonation pass's own chain waves plus whatever the refill's
+    // ordinary cascades chained into — ids never collide across passes.
+    chainWaveByPieceId: { ...chainWavesToPieceIds(board, waveByKey), ...chained.chainWaveByPieceId },
   };
 }
 
@@ -1741,7 +1808,7 @@ const MULTI_SPECIAL_THRESHOLD = 2;
 
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [], steps: [], multiSpecialFired: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -1753,7 +1820,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [], steps: [], multiSpecialFired: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
   }
 
   // Void cells are holes in the board's shape, never pieces — a swap into or
@@ -1763,7 +1830,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
   // too, so a board is never wrongly judged stuck because of one.
   if (pieceA.type === 'void' || pieceB.type === 'void') {
-    return { state, events: [], steps: [], multiSpecialFired: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
   }
 
   // Special-piece swaps activate on the swap itself, NOT by forming a match, so
@@ -1826,7 +1893,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // unconditional-legal implementation — see engine/DECISIONS.md's
     // dropdown-swap-direction entry.
     if (posA.row !== posB.row) {
-      return { state, events: [], steps: [], multiSpecialFired: false };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
     }
     // Committed, never snapped back — just a plain position swap; the
     // normal cascade loop then checks for both an ordinary match AND a
@@ -1873,7 +1940,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // crossing-run entry.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
-      return { state, events: [], steps: [], multiSpecialFired: false };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
     }
     resolved = resolveCascades(swapped, state.spawnPiece);
   }
@@ -1887,6 +1954,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     score: scoreGained,
     clearedPositions,
     dropdownCollected,
+    chainWaveByPieceId,
   } = resolved;
 
   // Clearance-layers: every position this move actually cleared (any
@@ -2033,6 +2101,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     events,
     steps: finalSteps,
     multiSpecialFired: maxSpecialsFired >= MULTI_SPECIAL_THRESHOLD,
+    chainWaveByPieceId,
   };
 }
 
