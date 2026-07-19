@@ -2715,6 +2715,25 @@ describe('loadSave — corrupted or malformed saves fall back to fresh', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
+  test('a malformed consecutiveLosses (a string, not a number) falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 3,
+        lives: 3,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+        consecutiveLosses: 'two', // should be a number
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
   test('a malformed lastCrash (wrong field types) falls back to null', async () => {
     const storage = createInMemoryStorage();
     await storage.setItem(

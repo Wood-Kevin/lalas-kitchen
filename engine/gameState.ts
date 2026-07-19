@@ -2213,6 +2213,7 @@ function isValidSaveData(value: unknown): value is SaveData {
   if (value.levelStars !== undefined && !isValidLevelStars(value.levelStars)) return false;
   if (value.soundEnabled !== undefined && typeof value.soundEnabled !== 'boolean') return false;
   if (value.hapticsEnabled !== undefined && typeof value.hapticsEnabled !== 'boolean') return false;
+  if (value.consecutiveLosses !== undefined && typeof value.consecutiveLosses !== 'number') return false;
   if (value.lastCrash !== undefined && !isValidCrashRecord(value.lastCrash)) return false;
 
   return true;

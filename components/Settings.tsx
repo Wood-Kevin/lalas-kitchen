@@ -7,6 +7,14 @@ import { GinghamTrim } from './GinghamTrim';
 
 const PRIVACY_POLICY_URL = 'https://lalas-kitchen.vercel.app/';
 
+// The single source of truth for the app version is app.json's expo.version
+// (what EAS stamps into every store build) — read directly rather than
+// duplicated as a string literal here, so a release's version bump can never
+// drift from what this screen reports. This label exists for field support:
+// the one real player's phone is remote, and "what version is she on?" needs
+// to be answerable by glancing at Settings, not by connecting a debugger.
+const APP_VERSION: string = require('../app.json').expo.version;
+
 // Opens in the device's default browser, never an in-app webview — matches
 // this project's existing "leave the app to do platform things" convention
 // (e.g. the AdMob rewarded-ad flow hands off to the OS/SDK rather than
@@ -141,6 +149,8 @@ export function Settings({
             </View>
           </View>
         )}
+
+        <Text style={[styles.versionLabel, { color: mutedText }]}>Version {APP_VERSION}</Text>
       </ScrollView>
     </View>
   );
@@ -214,5 +224,10 @@ const styles = StyleSheet.create({
     // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
     fontSize: 12,
     marginTop: 8,
+  },
+  versionLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
