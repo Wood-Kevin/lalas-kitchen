@@ -282,7 +282,8 @@ const styles = StyleSheet.create({
   },
   levelLabel: {
     marginTop: 10,
-    fontSize: 11,
+    // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.4,
   },
@@ -325,7 +326,7 @@ const styles = StyleSheet.create({
   },
   chipLabel: {
     marginTop: 1,
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.8,
   },

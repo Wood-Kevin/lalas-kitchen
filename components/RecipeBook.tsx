@@ -207,7 +207,8 @@ const styles = StyleSheet.create({
   },
   cellTitle: {
     marginTop: 6,
-    fontSize: 11,
+    // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
+    fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',
   },

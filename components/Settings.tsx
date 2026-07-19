@@ -211,7 +211,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   crashDetail: {
-    fontSize: 11,
+    // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
+    fontSize: 12,
     marginTop: 8,
   },
 });

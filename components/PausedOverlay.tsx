@@ -189,7 +189,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   levelLabel: {
-    fontSize: 11,
+    // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1.4,
   },
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   statusPillText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   headline: {

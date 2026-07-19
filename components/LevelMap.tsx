@@ -389,7 +389,10 @@ const styles = StyleSheet.create({
   },
   captionText: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 10,
+    // 12 is the app-wide legibility floor for real text (1.0.1 pass): this
+    // uppercase caption was 10, genuinely small on a phone for the one real
+    // player this game is built for. Icon glyphs (lockGlyph below) are exempt.
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
