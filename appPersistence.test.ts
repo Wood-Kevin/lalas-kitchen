@@ -11,6 +11,8 @@ import {
   didLevelJustEnd,
   eligibleBlockerIds,
   findBlockerMatchType,
+  findSealedJarTutorial,
+  SPECIAL_ONLY_BLOCKER_TUTORIAL_ID,
   findSpecialPieceTutorial,
   findSpreadWarningTutorial,
   SPREAD_WARNING_TUTORIAL_ID,
@@ -1349,6 +1351,40 @@ describe('shouldShowBlockerTutorial', () => {
   test('false when the board has no blocker at all, regardless of seenTutorials', () => {
     const board = boardOf([[piece('a', 'tomato')]]);
     expect(shouldShowBlockerTutorial(board, [])).toBe(false);
+  });
+});
+
+describe('findSealedJarTutorial', () => {
+  // A blocker carrying the engine's specialOnly flag (skin id sealed_jar) —
+  // the mechanic the tutorial teaches. Detection keys on the flag, never the
+  // skin id string, so the matchType here is deliberately the real skin id
+  // only to mirror what generateLevel actually produces.
+  function sealedJarPiece(id: string): Piece {
+    return { id, type: 'blocker', matchType: 'sealed_jar', hitsRemaining: 1, specialOnly: true };
+  }
+
+  test('finds the first specialOnly blocker and returns the real piece', () => {
+    const jar = sealedJarPiece('j');
+    const board = boardOf([
+      [piece('a', 'tomato'), blockerPiece('b', 'cling')],
+      [jar, piece('c', 'lemon')],
+    ]);
+    expect(findSealedJarTutorial(board, [])).toEqual({ id: SPECIAL_ONLY_BLOCKER_TUTORIAL_ID, piece: jar });
+  });
+
+  test('an ordinary blocker (no specialOnly flag) never triggers it', () => {
+    const board = boardOf([[blockerPiece('a', 'cling'), piece('b', 'tomato')]]);
+    expect(findSealedJarTutorial(board, [])).toBeUndefined();
+  });
+
+  test('undefined once the tutorial has been seen, regardless of the board', () => {
+    const board = boardOf([[sealedJarPiece('j')]]);
+    expect(findSealedJarTutorial(board, [SPECIAL_ONLY_BLOCKER_TUTORIAL_ID])).toBeUndefined();
+  });
+
+  test('undefined on a board with no blockers at all', () => {
+    const board = boardOf([[piece('a', 'tomato'), piece('b', 'lemon')]]);
+    expect(findSealedJarTutorial(board, [])).toBeUndefined();
   });
 });
 

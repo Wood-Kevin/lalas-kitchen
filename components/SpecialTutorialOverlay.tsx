@@ -59,6 +59,16 @@ export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtex
     headline: 'A Warning Crack',
     subtext: 'That crack means a covered dish is about to spread here — match this spot first to stop it.',
   },
+  // Keyed by SPECIAL_ONLY_BLOCKER_TUTORIAL_ID (mechanic-named, per the leak
+  // test) while the copy names the jar the player actually sees — the same
+  // split BlockerTutorialOverlay's "A Covered Dish" already makes. The one
+  // thing this card must land is the negative: ordinary matches genuinely do
+  // nothing here, which is otherwise only discoverable by inferring from
+  // nothing happening.
+  special_only_blocker: {
+    headline: 'A Sealed Jar',
+    subtext: "This jar is sealed tight — ordinary matches beside it won't budge it. Set off a special piece next to it to pop the lid.",
+  },
 };
 
 // A soft low-alpha tint of config.palette.border (#D9C79E) behind the icon —

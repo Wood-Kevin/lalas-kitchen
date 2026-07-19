@@ -428,6 +428,43 @@ export function findSpreadWarningTutorial(
   return undefined;
 }
 
+// The one-time special-only-blocker tutorial's id in `SaveData.seenTutorials`
+// — shown the first time a level's starting board contains a blocker with the
+// engine's `specialOnly` flag (skin id `sealed_jar`; see engine/matrix.ts's
+// Piece and CLAUDE.md's blocker-depth entry). This closes a real disclosed
+// gap: every other genuinely new mechanic got a one-time card, but this
+// blocker's whole identity is NOT responding to ordinary matches — the one
+// behavior a player can't discover by seeing something happen, only by
+// inferring from nothing happening. The id is mechanic-named
+// ('special_only_blocker'), not the skin's 'sealed_jar', for the same
+// skin-agnostic reasoning every persisted key follows (the leak test): the
+// save format outlives any one skin's flavor names. Detection likewise keys
+// on the engine `specialOnly` flag, never the skin id string.
+export const SPECIAL_ONLY_BLOCKER_TUTORIAL_ID = 'special_only_blocker';
+
+// Mount-time check against the level's initial board, same reasoning as
+// shouldShowBlockerTutorial: a specialOnly blocker only ever enters a level
+// at generation (the denial-zone spread can mint one mid-level, but only by
+// inheriting the flag from a source blocker that was itself on the initial
+// board — see DenialSpreadState.blockerSpecialOnly — so a board that starts
+// without any can never gain one). Returns the real piece so the overlay
+// resolves the actual jar sprite via getSpriteForPiece, the same "show the
+// real thing being explained" convention every piece-anchored tutorial uses.
+export function findSealedJarTutorial(
+  board: Board,
+  seenTutorials: string[]
+): SpecialPieceTutorial | undefined {
+  if (seenTutorials.includes(SPECIAL_ONLY_BLOCKER_TUTORIAL_ID)) return undefined;
+  for (const row of board) {
+    for (const piece of row) {
+      if (piece.type === 'blocker' && piece.specialOnly) {
+        return { id: SPECIAL_ONLY_BLOCKER_TUTORIAL_ID, piece };
+      }
+    }
+  }
+  return undefined;
+}
+
 // The fourth tutorial's id — the actual differentiator of this whole game:
 // the moment more than one special piece fires TOGETHER from a single move
 // (a chain reaction catching another special, or a striped+striped/

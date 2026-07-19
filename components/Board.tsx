@@ -20,6 +20,8 @@ import {
   BOARD_SHAPE_TUTORIAL_ID,
   findSpecialPieceTutorial,
   findSpreadWarningTutorial,
+  findSealedJarTutorial,
+  SPECIAL_ONLY_BLOCKER_TUTORIAL_ID,
   SpecialPieceTutorial,
   shouldShowChainReactionTutorial,
   CHAIN_REACTION_TUTORIAL_ID,
@@ -239,6 +241,14 @@ export function Board({
   const [showBoardShapeTutorial, setShowBoardShapeTutorial] = useState(() =>
     shouldShowBoardShapeTutorial(gameState.board, seenTutorials)
   );
+  // Mount-time like showBlockerTutorial (a specialOnly blocker only ever
+  // enters a level at generation — see appPersistence.ts's
+  // findSealedJarTutorial for why the spread can't mint one on a board that
+  // started without any), but holding the found SpecialPieceTutorial rather
+  // than a boolean so the overlay can show the real jar piece's own sprite.
+  const [sealedJarTutorial, setSealedJarTutorial] = useState<SpecialPieceTutorial | null>(
+    () => findSealedJarTutorial(gameState.board, seenTutorials) ?? null
+  );
   // The special-piece tutorial currently showing (striped / color bomb / area
   // bomb / spread warning), or null. Unlike showBlockerTutorial this can't be
   // a mount-time check: a special piece never exists on a level's initial
@@ -279,6 +289,8 @@ export function Board({
     ? BOARD_SHAPE_TUTORIAL_ID
     : showBlockerTutorial
     ? BLOCKER_TUTORIAL_ID
+    : sealedJarTutorial
+    ? SPECIAL_ONLY_BLOCKER_TUTORIAL_ID
     : specialTutorial
     ? specialTutorial.id
     : null;
@@ -458,7 +470,7 @@ export function Board({
   // guarantee honest across the persist round-trip.
   useEffect(() => {
     if (gameState.status !== 'in_progress') return;
-    if (showOnboardingTutorial || showBoardShapeTutorial || showBlockerTutorial || specialTutorial) return;
+    if (showOnboardingTutorial || showBoardShapeTutorial || showBlockerTutorial || sealedJarTutorial || specialTutorial) return;
     const seen = [...seenTutorials, ...dismissedSpecialTutorialsRef.current];
     const match = findSpecialPieceTutorial(gameState.board, seen) ?? findSpreadWarningTutorial(gameState.board, seen);
     if (match) setSpecialTutorial(match);
@@ -916,6 +928,12 @@ export function Board({
     onTutorialSeen(BLOCKER_TUTORIAL_ID);
   }
 
+  function handleDismissSealedJarTutorial() {
+    setSealedJarTutorial(null);
+    setActiveTutorialId(null);
+    onTutorialSeen(SPECIAL_ONLY_BLOCKER_TUTORIAL_ID);
+  }
+
   function handleDismissSpecialTutorial() {
     if (specialTutorial) {
       // Record it locally first (the post-move effect reads this ref), then
@@ -1225,6 +1243,15 @@ export function Board({
           spriteAssets={spriteAssets}
           blockerMatchType={findBlockerMatchType(gameState.board)}
           onDismiss={handleDismissBlockerTutorial}
+        />
+      )}
+      {sealedJarTutorial && activeTutorialId === SPECIAL_ONLY_BLOCKER_TUTORIAL_ID && (
+        <SpecialTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          tutorialId={SPECIAL_ONLY_BLOCKER_TUTORIAL_ID}
+          piece={sealedJarTutorial.piece}
+          onDismiss={handleDismissSealedJarTutorial}
         />
       )}
       {specialTutorial && activeTutorialId === specialTutorial.id && (
