@@ -28,6 +28,7 @@ import {
   shouldShowOnboardingTutorial,
   HOW_TO_PLAY_TUTORIAL_ID,
   shouldActivateTutorial,
+  findObjectiveTutorialId,
 } from '../appPersistence';
 import { findAnyLegalMove } from '../engine/matrix';
 import { Fonts } from './fonts';
@@ -244,6 +245,16 @@ export function Board({
   const [showBoardShapeTutorial, setShowBoardShapeTutorial] = useState(() =>
     shouldShowBoardShapeTutorial(gameState.board, seenTutorials)
   );
+  // Same mount-time shape as showBoardShapeTutorial above: a level's
+  // objective types (score/clearance/escort) are fixed at level start and
+  // never change mid-level, so this is checked once against the level's
+  // starting objectives, not re-derived from gameState.objectives on every
+  // render. Holds the specific tutorial id (or null) rather than a plain
+  // boolean, since three different ids can result — see appPersistence.ts's
+  // findObjectiveTutorialId.
+  const [objectiveTutorialId, setObjectiveTutorialId] = useState<string | null>(
+    () => findObjectiveTutorialId(gameState.objectives, seenTutorials) ?? null
+  );
   // Mount-time like showBlockerTutorial (a specialOnly blocker only ever
   // enters a level at generation — see appPersistence.ts's
   // findSealedJarTutorial for why the spread can't mint one on a board that
@@ -275,19 +286,26 @@ export function Board({
   const lastTutorialShownAtRef = useRef<number | null>(lastTutorialShownAt);
   // Which tutorial (if any) is actually ON SCREEN right now, by id — the
   // single gate every render condition and input check below uses, replacing
-  // the raw showOnboardingTutorial/showBoardShapeTutorial/showBlockerTutorial/
-  // specialTutorial booleans for that purpose. Those four still track their
-  // own "eligible and not yet dismissed" condition exactly as before (see
-  // nextEligibleTutorialId below); this is the layer that decides whether the
-  // highest-priority eligible one is allowed to actually start showing yet.
+  // the raw showOnboardingTutorial/objectiveTutorialId/showBoardShapeTutorial/
+  // showBlockerTutorial/specialTutorial state for that purpose. Those five
+  // still track their own "eligible and not yet dismissed" condition exactly
+  // as before (see nextEligibleTutorialId below); this is the layer that
+  // decides whether the highest-priority eligible one is allowed to actually
+  // start showing yet.
   const [activeTutorialId, setActiveTutorialId] = useState<string | null>(null);
   // The highest-priority tutorial that WANTS to show right now, ignoring the
   // cooldown entirely — the same priority order the render JSX has always
-  // used (onboarding > board shape > blocker > special-piece/spread/chain-
-  // reaction). Recomputed every render, since it's a cheap read of state
-  // that's already up to date.
+  // used (onboarding > objective type > board shape > blocker >
+  // special-piece/spread/chain-reaction). Objective type slots in right
+  // after onboarding: what a level is even asking for is more foundational
+  // than any one board detail, and score/clearance/escort levels are
+  // otherwise indistinguishable from an ordinary collect level until the
+  // player's first match behaves unexpectedly. Recomputed every render,
+  // since it's a cheap read of state that's already up to date.
   const nextEligibleTutorialId = showOnboardingTutorial
     ? HOW_TO_PLAY_TUTORIAL_ID
+    : objectiveTutorialId
+    ? objectiveTutorialId
     : showBoardShapeTutorial
     ? BOARD_SHAPE_TUTORIAL_ID
     : showBlockerTutorial
@@ -947,6 +965,14 @@ export function Board({
     onTutorialSeen(BOARD_SHAPE_TUTORIAL_ID);
   }
 
+  function handleDismissObjectiveTutorial() {
+    if (objectiveTutorialId) {
+      onTutorialSeen(objectiveTutorialId);
+    }
+    setObjectiveTutorialId(null);
+    setActiveTutorialId(null);
+  }
+
   function handleDismissBlockerTutorial() {
     setShowBlockerTutorial(false);
     setActiveTutorialId(null);
@@ -1244,13 +1270,13 @@ export function Board({
           </View>
         )}
       </View>
-      {/* Each of the four branches below renders only when it's the one
+      {/* Each of the five branches below renders only when it's the one
           active, throttle-cleared tutorial (see activeTutorialId above) —
-          priority among simultaneously-eligible ones (onboarding > board
-          shape > blocker > special-piece/spread/chain-reaction) is already
-          baked into nextEligibleTutorialId's own priority chain, so at most
-          one of these conditions is ever true at once with no extra nesting
-          needed here. */}
+          priority among simultaneously-eligible ones (onboarding > objective
+          type > board shape > blocker > special-piece/spread/chain-reaction)
+          is already baked into nextEligibleTutorialId's own priority chain,
+          so at most one of these conditions is ever true at once with no
+          extra nesting needed here. */}
       {activeTutorialId === HOW_TO_PLAY_TUTORIAL_ID && (
         <SpecialTutorialOverlay
           config={skinConfig}
@@ -1258,6 +1284,15 @@ export function Board({
           tutorialId={HOW_TO_PLAY_TUTORIAL_ID}
           piece={null}
           onDismiss={handleDismissOnboardingTutorial}
+        />
+      )}
+      {objectiveTutorialId && activeTutorialId === objectiveTutorialId && (
+        <SpecialTutorialOverlay
+          config={skinConfig}
+          spriteAssets={spriteAssets}
+          tutorialId={objectiveTutorialId}
+          piece={null}
+          onDismiss={handleDismissObjectiveTutorial}
         />
       )}
       {activeTutorialId === BOARD_SHAPE_TUTORIAL_ID && (

@@ -1,5 +1,5 @@
 import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, BoardShapeId, playableCellRatio } from './engine/boardShapes';
-import { Board, CrashRecord, GameState, GameStatus, LevelConfig, SaveData } from './engine/gameState';
+import { Board, CrashRecord, GameState, GameStatus, LevelConfig, Objective, SaveData } from './engine/gameState';
 import { Piece, Position } from './engine/matrix';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -325,6 +325,45 @@ function boardHasVoidCell(board: Board): boolean {
 // not a re-derived post-move scan.
 export function shouldShowBoardShapeTutorial(board: Board, seenTutorials: string[]): boolean {
   return boardHasVoidCell(board) && !seenTutorials.includes(BOARD_SHAPE_TUTORIAL_ID);
+}
+
+// One-time tutorial ids for the three non-'collect' objective types (see
+// engine/gameState.ts's ObjectiveType) — each explains what the level is
+// actually asking for, since none of them can be inferred from watching an
+// ordinary match the way a 'collect' objective's icon+count can. Named by
+// objective type, not by the one hand-built level that currently exercises
+// each ("score_objective", not "score_rush") — matching the mechanic-named,
+// never skin/content-named convention SPECIAL_ONLY_BLOCKER_TUTORIAL_ID
+// already set (see that constant's own comment).
+export const SCORE_OBJECTIVE_TUTORIAL_ID = 'score_objective';
+export const CLEARANCE_OBJECTIVE_TUTORIAL_ID = 'clearance_objective';
+export const ESCORT_OBJECTIVE_TUTORIAL_ID = 'escort_objective';
+
+const OBJECTIVE_TUTORIAL_ID_BY_TYPE: Partial<Record<Objective['type'], string>> = {
+  score: SCORE_OBJECTIVE_TUTORIAL_ID,
+  clearance: CLEARANCE_OBJECTIVE_TUTORIAL_ID,
+  escort: ESCORT_OBJECTIVE_TUTORIAL_ID,
+};
+
+// A level's objective types are fixed at level start (LevelConfig.objectives)
+// and never change mid-level (only each objective's own currentCount moves),
+// so — same reasoning and shape as shouldShowBlockerTutorial/
+// shouldShowBoardShapeTutorial above — this is a mount-time check against the
+// level's starting objectives, not a re-derived post-move scan. Returns the
+// specific tutorial id to show, or undefined if this level's objectives need
+// no explanation (every objective is 'collect', or the one non-'collect'
+// objective present has already been seen). Scans in array order and returns
+// the first unseen match: a generated level's score/clearance objective
+// always replaces the level's one objective rather than adding a second
+// alongside a 'collect' target (see CLAUDE.md's Data Model Notes), so at most
+// one of these three tutorials is ever actually relevant on a single level —
+// this never has to choose between two genuine candidates.
+export function findObjectiveTutorialId(objectives: Objective[], seenTutorials: string[]): string | undefined {
+  for (const objective of objectives) {
+    const id = OBJECTIVE_TUTORIAL_ID_BY_TYPE[objective.type];
+    if (id && !seenTutorials.includes(id)) return id;
+  }
+  return undefined;
 }
 
 // Adds a tutorial id to the seen list if it isn't already there — same

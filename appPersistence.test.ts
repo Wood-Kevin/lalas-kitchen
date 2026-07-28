@@ -1,5 +1,5 @@
 import { BOARD_SHAPE_ROTATION, BOARD_SHAPE_TEMPLATES, playableCellRatio } from './engine/boardShapes';
-import { createGameState, applyMove, createInMemoryStorage, loadSave, saveProgress } from './engine/gameState';
+import { createGameState, applyMove, createInMemoryStorage, loadSave, Objective, saveProgress } from './engine/gameState';
 import { Board, Piece, Position } from './engine/matrix';
 import {
   applyLivesRegen,
@@ -22,6 +22,10 @@ import {
   AREA_BOMB_TUTORIAL_ID,
   BOARD_SHAPE_TUTORIAL_ID,
   shouldShowBoardShapeTutorial,
+  findObjectiveTutorialId,
+  SCORE_OBJECTIVE_TUTORIAL_ID,
+  CLEARANCE_OBJECTIVE_TUTORIAL_ID,
+  ESCORT_OBJECTIVE_TUTORIAL_ID,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
@@ -1412,6 +1416,43 @@ describe('shouldShowBoardShapeTutorial', () => {
   test('dismissing the blocker tutorial does not suppress this one — distinct id', () => {
     const board = boardOf([[voidPiece('v')]]);
     expect(shouldShowBoardShapeTutorial(board, [BLOCKER_TUTORIAL_ID])).toBe(true);
+  });
+});
+
+describe('findObjectiveTutorialId', () => {
+  function objective(type: Objective['type'], overrides: Partial<Objective> = {}): Objective {
+    return { type, targetCount: 10, currentCount: 0, ...overrides };
+  }
+
+  test('undefined for an ordinary collect-only level, regardless of seenTutorials', () => {
+    expect(findObjectiveTutorialId([objective('collect', { targetMatchType: 'tomato' })], [])).toBeUndefined();
+  });
+
+  test('returns the score tutorial id for a never-seen score objective', () => {
+    expect(findObjectiveTutorialId([objective('score')], [])).toBe(SCORE_OBJECTIVE_TUTORIAL_ID);
+  });
+
+  test('returns the clearance tutorial id for a never-seen clearance objective', () => {
+    expect(findObjectiveTutorialId([objective('clearance')], [])).toBe(CLEARANCE_OBJECTIVE_TUTORIAL_ID);
+  });
+
+  test('returns the escort tutorial id for a never-seen escort objective', () => {
+    expect(findObjectiveTutorialId([objective('escort')], [])).toBe(ESCORT_OBJECTIVE_TUTORIAL_ID);
+  });
+
+  test('undefined once that objective type\'s tutorial has already been seen', () => {
+    expect(findObjectiveTutorialId([objective('score')], [SCORE_OBJECTIVE_TUTORIAL_ID])).toBeUndefined();
+  });
+
+  test('each objective type has its own distinct id — seeing one does not suppress another', () => {
+    expect(findObjectiveTutorialId([objective('clearance')], [SCORE_OBJECTIVE_TUTORIAL_ID])).toBe(
+      CLEARANCE_OBJECTIVE_TUTORIAL_ID
+    );
+  });
+
+  test('a two-objective level (collect + a real second target) still surfaces the non-collect one', () => {
+    const objectives = [objective('collect', { targetMatchType: 'tomato' }), objective('score')];
+    expect(findObjectiveTutorialId(objectives, [])).toBe(SCORE_OBJECTIVE_TUTORIAL_ID);
   });
 });
 

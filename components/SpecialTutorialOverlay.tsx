@@ -2,10 +2,22 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { Piece } from '../engine/matrix';
+import {
+  CLEARANCE_OBJECTIVE_TUTORIAL_ID,
+  ESCORT_OBJECTIVE_TUTORIAL_ID,
+  SCORE_OBJECTIVE_TUTORIAL_ID,
+} from '../appPersistence';
 import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
-import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
+import {
+  CLEARANCE_OBJECTIVE_SPRITE,
+  ESCORT_OBJECTIVE_SPRITE,
+  resolveSpriteAsset,
+  ResolvedSprite,
+  SCORE_OBJECTIVE_SPRITE,
+  SpriteAssetMap,
+} from './spriteAsset';
 import { spriteLabel } from './spriteLabel';
 
 // The calm one-line explanation shown the first time each special piece comes
@@ -70,6 +82,24 @@ export const SPECIAL_TUTORIAL_CONTENT: Record<string, { headline: string; subtex
     headline: 'A Sealed Jar',
     subtext: "This jar is sealed tight — ordinary matches beside it won't budge it. Set off a special piece next to it to pop the lid.",
   },
+  // The three non-'collect' objective types (see appPersistence.ts's
+  // findObjectiveTutorialId and engine/gameState.ts's ObjectiveType) — each
+  // explains what this level is actually asking for, since none of the
+  // three can be inferred from watching an ordinary collect target's
+  // icon+count the way every earlier level already taught. Shown once, at
+  // mount, before the player's first move on that level.
+  score_objective: {
+    headline: 'A Running Tally',
+    subtext: "This one's scored, not collected — every match adds points, and bigger matches and chains add more. Reach the target to finish.",
+  },
+  clearance_objective: {
+    headline: 'A Dusty Counter',
+    subtext: "Some spots on this board are dusty — match right on top of them, with anything, to wipe them clean. Clear every dusty spot to finish.",
+  },
+  escort_objective: {
+    headline: 'A Careful Delivery',
+    subtext: 'That basket needs to reach the bottom of the board. It rides along as the board settles — nudge it sideways to help it find a clear path down.',
+  },
 };
 
 // A soft low-alpha tint of config.palette.border (#D9C79E) behind the icon —
@@ -127,14 +157,28 @@ export interface SpecialTutorialOverlayProps {
 // rests on the board, with input gated behind it (Board.tsx's canAcceptMove).
 // A single dismiss action, not a primary/secondary pair — an explanation, not a
 // decision.
+// The three objective-tutorial ids each resolve to the exact same fixed
+// glyph Hud.tsx/WonOverlay.tsx already show for that objective type (see
+// spriteAsset.ts) — the same "show the real thing" convention
+// spread_warning's real warned piece already follows, just for an icon with
+// no single piece to anchor to instead.
+const OBJECTIVE_TUTORIAL_SPRITE: Record<string, ResolvedSprite> = {
+  [SCORE_OBJECTIVE_TUTORIAL_ID]: SCORE_OBJECTIVE_SPRITE,
+  [CLEARANCE_OBJECTIVE_TUTORIAL_ID]: CLEARANCE_OBJECTIVE_SPRITE,
+  [ESCORT_OBJECTIVE_TUTORIAL_ID]: ESCORT_OBJECTIVE_SPRITE,
+};
+
 export function SpecialTutorialOverlay({ config, spriteAssets, tutorialId, piece, onDismiss }: SpecialTutorialOverlayProps) {
-  // No single piece to derive an icon from for chain_reaction (see the `piece`
-  // prop's doc comment) — falls back to the same short-code placeholder every
-  // un-arted sprite already uses (spriteLabel), rather than resolving through
-  // getSpriteForPiece against a piece that doesn't exist.
+  // No single piece to derive an icon from for chain_reaction or any of the
+  // three objective tutorials (see the `piece` prop's doc comment) — the
+  // objective ones resolve to their own fixed glyph above; anything else
+  // with no piece (chain_reaction, how_to_play, board_shape) falls back to
+  // the same short-code placeholder every un-arted sprite already uses
+  // (spriteLabel), rather than resolving through getSpriteForPiece against
+  // a piece that doesn't exist.
   const sprite: ResolvedSprite = piece
     ? resolveSpriteAsset(getSpriteForPiece(piece, config), spriteAssets)
-    : { kind: 'label', label: spriteLabel(tutorialId) };
+    : (OBJECTIVE_TUTORIAL_SPRITE[tutorialId] ?? { kind: 'label', label: spriteLabel(tutorialId) });
   const content = SPECIAL_TUTORIAL_CONTENT[tutorialId];
   const { accent, mutedText, text, panel, border } = config.palette;
 
