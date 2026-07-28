@@ -147,6 +147,23 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     displayName: 'Cutting Board',
   },
   {
+    // A plain breather between two genuine "firsts" (the just-taught board
+    // shape above, and the score objective below) — a general playability
+    // review flagged levels 4-8 as five back-to-back new ideas with no
+    // repetition in between, each demanding fresh comprehension before the
+    // last one had a chance to settle in. An ordinary rectangular board,
+    // ordinary collect objective: nothing new here on purpose, just a level
+    // to actually practice matching on before the next new idea arrives.
+    // See engine/DECISIONS.md's queue-breather-levels entry.
+    seed: 350,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 24,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[5].id, targetCount: 18 }],
+    displayName: 'Spoon Stir',
+  },
+  {
     // First 'score'-type objective level (see engine/gameState.ts's
     // ObjectiveType and the scoring-system entry in engine/DECISIONS.md):
     // reach a target cumulative score, rather than collect a target count of
@@ -161,6 +178,17 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     movesLimit: 24,
     objectives: [{ type: 'score', targetCount: 1000 }],
     displayName: 'Score Rush',
+  },
+  {
+    // Second breather — same reasoning as "Spoon Stir" above, between the
+    // score objective just taught and the clearance objective next.
+    seed: 451,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 24,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 18 }],
+    displayName: 'Herb Snip',
   },
   {
     // First 'clearance'-type objective level (see engine/gameState.ts's
@@ -179,8 +207,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     displayName: 'Dusty Counter',
   },
   {
-    // Second hand-built shaped level (see CORNER_SHOWCASE_VOIDS above), and
-    // now the second-to-last hand-built level (see "Delivery Day" below) —
+    // Second hand-built shaped level (see CORNER_SHOWCASE_VOIDS above) —
     // every new player has now seen two distinct shape templates (plus, then
     // this cut-corners) from purely curated content alone, before shapes
     // become a much more frequent generator-driven occurrence.
@@ -192,6 +219,20 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     movesLimit: 26,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[4].id, targetCount: 18 }],
     displayName: 'Pantry Corners',
+  },
+  {
+    // Third breather — same reasoning as the two above, directly before the
+    // last genuine "first" (the escort objective below). Pantry Corners
+    // itself doesn't need a breather in front of it: a second board shape
+    // is a repeat of an already-taught idea (from "Cutting Board"), not a
+    // new one, so it doesn't stack novelty the way two genuine firsts would.
+    seed: 651,
+    rows: 8,
+    cols: 5,
+    pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
+    movesLimit: 25,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[1].id, targetCount: 19 }],
+    displayName: 'Lemon Drizzle',
   },
   {
     // First 'escort'-type objective level (see engine/gameState.ts's
