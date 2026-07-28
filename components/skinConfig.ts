@@ -55,6 +55,14 @@ export interface SkinPalette {
   // top of that, so these are real palette data rather than hardcoded in
   // the new screens themselves.
   secondaryAccent: string;
+  // A darker variant of secondaryAccent, same hue, reserved for when that
+  // color is used as text color against `panel` — `secondaryAccent` itself
+  // only computes to 3.16:1 contrast there (WCAG AA needs 4.5:1 for normal
+  // text), confirmed by direct computation, not eyeballed. secondaryAccent
+  // is left unchanged for its many non-text uses (borders, icon tints,
+  // sparkle colors) where contrast rules don't apply the same way, so
+  // fixing this doesn't ripple into those.
+  secondaryAccentText: string;
   mutedText: string;
   border: string;
   text: string;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
 
@@ -51,6 +52,7 @@ const styles = StyleSheet.create({
     height: 16,
   },
   value: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 13,
     fontWeight: '700',
   },

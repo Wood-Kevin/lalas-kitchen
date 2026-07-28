@@ -2,6 +2,7 @@ import React from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Text } from './AppText';
 import { CrashRecord } from '../engine/gameState';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
 
@@ -188,6 +189,7 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   title: {
+    fontFamily: Fonts.headingBold,
     fontSize: 23,
     fontWeight: '700',
     lineHeight: 26,
@@ -209,6 +211,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   rowTitle: {
+    fontFamily: Fonts.headingBold,
     fontSize: 19,
     fontWeight: '700',
   },
@@ -217,15 +220,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   crashNote: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 13,
     marginTop: 4,
   },
   crashDetail: {
+    fontFamily: Fonts.bodyRegular,
     // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
     fontSize: 12,
     marginTop: 8,
   },
   versionLabel: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 12,
     textAlign: 'center',
     marginTop: 20,

@@ -18,7 +18,7 @@ const config: SkinConfig = {
   animationProfile: { matchStyle: 'popAndShrink', matchDurationMs: 220, cascadeFallSpeed: 'medium', swapDurationMs: 140 },
   palette: {
     background: ['#fff', '#eee'], panel: '#fff', accent: '#000',
-    secondaryAccent: '#0a0', mutedText: '#333', border: '#ccc', text: '#111',
+    secondaryAccent: '#0a0', secondaryAccentText: '#070', mutedText: '#333', border: '#ccc', text: '#111',
   },
   recipeCards: [],
 };

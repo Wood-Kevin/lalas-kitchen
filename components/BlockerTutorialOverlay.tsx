@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
@@ -93,11 +94,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headline: {
+    fontFamily: Fonts.headingBold,
     marginTop: 16,
     fontSize: 21,
     fontWeight: '800',
   },
   subtext: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 6,
     fontSize: 13.5,
     fontWeight: '500',
@@ -111,6 +114,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonLabel: {
+    fontFamily: Fonts.headingBold,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 15,

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { msUntilNextLifeRegen } from '../appPersistence';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { resolveSpriteAsset, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
 
@@ -51,7 +52,7 @@ export interface OutOfLivesProps {
 // objective chip and no "Play Again" (there is nothing yet to replay).
 export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGrantLife, grantPending, adAvailable, onBack }: OutOfLivesProps) {
   const { max, regenMinutes, icon } = config.lives;
-  const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
+  const { accent, secondaryAccent, secondaryAccentText, mutedText, text, panel, border } = config.palette;
   const flameSprite = resolveSpriteAsset(icon, spriteAssets);
 
   // Ticks once a second purely to re-render the countdown text below — the
@@ -92,7 +93,7 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
         </Text>
 
         <View style={[styles.countdownPill, { borderColor: secondaryAccent }]}>
-          <Text style={[styles.countdownText, { color: secondaryAccent }]}>
+          <Text style={[styles.countdownText, { color: secondaryAccentText }]}>
             {atMax
               ? 'Lives are full'
               : ready
@@ -176,11 +177,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headline: {
+    fontFamily: Fonts.headingBold,
     fontSize: 21,
     fontWeight: '800',
     textAlign: 'center',
   },
   subtext: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 6,
     fontSize: 13.5,
     fontWeight: '500',
@@ -194,6 +197,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   countdownText: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -206,6 +210,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonLabel: {
+    fontFamily: Fonts.headingBold,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14.5,
@@ -216,6 +221,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   secondaryLinkLabel: {
+    fontFamily: Fonts.bodyBold,
     fontWeight: '600',
     fontSize: 14,
     opacity: 0.85,

@@ -21,6 +21,7 @@ const sampleConfig: SkinConfig = {
     panel: '#fff',
     accent: '#000',
     secondaryAccent: '#0a0',
+    secondaryAccentText: '#070',
     mutedText: '#333',
     border: '#ccc',
     text: '#111',

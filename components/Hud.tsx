@@ -2,6 +2,7 @@ import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { Objective } from '../engine/gameState';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import {
@@ -113,6 +114,7 @@ function Panel({
 
 const styles = StyleSheet.create({
   levelLabel: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
@@ -133,11 +135,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 12,
     fontWeight: '600',
     marginBottom: 2,
   },
   value: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 16,
     fontWeight: '700',
   },

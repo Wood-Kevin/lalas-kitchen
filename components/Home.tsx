@@ -186,7 +186,7 @@ export function Home({
               )}
             </View>
             <View style={styles.nextTextBlock}>
-              <Text style={[styles.nextLabel, { color: config.palette.secondaryAccent }]}>
+              <Text style={[styles.nextLabel, { color: config.palette.secondaryAccentText }]}>
                 Up next · Level {nextLevel.levelIndex}
               </Text>
               <Text style={[styles.nextName, { color: config.palette.text }]}>{nextLevel.displayName}</Text>

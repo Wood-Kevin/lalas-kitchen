@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { PauseReason } from '../engine/gameState';
+import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { SteamWisp } from './SteamWisp';
 
@@ -58,7 +59,7 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPl
 
   if (reason !== 'moves') return null;
 
-  const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
+  const { accent, secondaryAccent, secondaryAccentText, mutedText, text, panel, border } = config.palette;
 
   return (
     <View style={styles.backdrop}>
@@ -81,7 +82,7 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPl
               determined by which resource actually hit zero, not a player
               choice, so this is a plain View/Text pill with no onPress. */}
           <View style={[styles.statusPill, { borderColor: secondaryAccent }]}>
-            <Text style={[styles.statusPillText, { color: secondaryAccent }]}>{movesRemaining} moves left</Text>
+            <Text style={[styles.statusPillText, { color: secondaryAccentText }]}>{movesRemaining} moves left</Text>
           </View>
         </View>
 
@@ -189,6 +190,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   levelLabel: {
+    fontFamily: Fonts.bodyBold,
     // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
     fontSize: 12,
     fontWeight: '800',
@@ -201,16 +203,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   statusPillText: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 12,
     fontWeight: '700',
   },
   headline: {
+    fontFamily: Fonts.headingBold,
     marginTop: 10,
     fontSize: 21,
     fontWeight: '800',
     textAlign: 'center',
   },
   subtext: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 6,
     fontSize: 13.5,
     fontWeight: '500',
@@ -225,6 +230,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonLabel: {
+    fontFamily: Fonts.headingBold,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14.5,
@@ -235,6 +241,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   secondaryLinkLabel: {
+    fontFamily: Fonts.bodyBold,
     fontWeight: '600',
     fontSize: 14,
     opacity: 0.85,

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 
@@ -123,12 +124,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   title: {
+    fontFamily: Fonts.headingBold,
     marginTop: 10,
     fontSize: 16,
     fontWeight: '800',
     textAlign: 'center',
   },
   flavorText: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 4,
     fontSize: 12,
     fontStyle: 'italic',

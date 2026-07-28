@@ -26,6 +26,7 @@
     "panel": "#FBF3E1",
     "accent": "#A83A2E",
     "secondaryAccent": "#7C8F6E",
+    "secondaryAccentText": "#5A6850",
     "mutedText": "#6E5C49",
     "border": "#D9C79E",
     "text": "#2B211A"

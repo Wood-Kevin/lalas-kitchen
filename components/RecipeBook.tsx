@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
+import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { GinghamTrim } from './GinghamTrim';
@@ -154,11 +155,13 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   title: {
+    fontFamily: Fonts.headingBold,
     fontSize: 23,
     fontWeight: '700',
     lineHeight: 26,
   },
   subtitle: {
+    fontFamily: Fonts.bodyRegular,
     fontSize: 12,
     marginTop: 1,
   },
@@ -206,6 +209,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cellTitle: {
+    fontFamily: Fonts.bodyBold,
     marginTop: 6,
     // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
     fontSize: 12,

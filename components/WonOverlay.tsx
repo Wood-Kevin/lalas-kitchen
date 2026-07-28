@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Objective } from '../engine/gameState';
+import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { getSpriteForMatchType } from './spriteMap';
 import {
@@ -127,7 +128,7 @@ export function WonOverlay({
         : objectives[0].type === 'escort'
           ? ESCORT_OBJECTIVE_SPRITE
           : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
-  const { accent, secondaryAccent, mutedText, text, panel, border } = config.palette;
+  const { accent, secondaryAccent, secondaryAccentText, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
 
   return (
@@ -196,7 +197,7 @@ export function WonOverlay({
                     <Text style={[styles.chipAmount, { color: text }]}>
                       {objective.currentCount} / {objective.targetCount}
                     </Text>
-                    <Text style={[styles.chipLabel, { color: secondaryAccent }]}>
+                    <Text style={[styles.chipLabel, { color: secondaryAccentText }]}>
                       {objective.type === 'score'
                         ? 'SCORE'
                         : objective.type === 'clearance'
@@ -281,6 +282,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   levelLabel: {
+    fontFamily: Fonts.bodyBold,
     marginTop: 10,
     // 12pt legibility floor (1.0.1 pass) — see LevelMap.tsx's captionText.
     fontSize: 12,
@@ -288,6 +290,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
   headline: {
+    fontFamily: Fonts.headingBold,
     marginTop: 4,
     fontSize: 22,
     fontWeight: '800',
@@ -301,6 +304,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
   },
   subtext: {
+    fontFamily: Fonts.bodyRegular,
     marginTop: 6,
     fontSize: 13.5,
     fontWeight: '500',
@@ -321,10 +325,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   chipAmount: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 14,
     fontWeight: '800',
   },
   chipLabel: {
+    fontFamily: Fonts.bodyBold,
     marginTop: 1,
     fontSize: 12,
     fontWeight: '700',
@@ -338,6 +344,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonLabel: {
+    fontFamily: Fonts.headingBold,
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 15,
@@ -347,6 +354,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   secondaryLinkLabel: {
+    fontFamily: Fonts.bodyBold,
     fontWeight: '600',
     fontSize: 14,
     opacity: 0.85,
@@ -356,6 +364,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   tertiaryLinkLabel: {
+    fontFamily: Fonts.bodyBold,
     fontWeight: '600',
     fontSize: 12,
     opacity: 0.7,

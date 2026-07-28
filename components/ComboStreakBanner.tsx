@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { Text } from './AppText';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
+import { Fonts } from './fonts';
 
 export interface ComboStreakBannerProps {
   accentColor: string;
@@ -69,6 +70,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   text: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 14,
     fontWeight: '700',
   },

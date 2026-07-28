@@ -30,6 +30,7 @@ import {
   shouldActivateTutorial,
 } from '../appPersistence';
 import { findAnyLegalMove } from '../engine/matrix';
+import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
@@ -1373,6 +1374,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   hintButtonLabel: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 13,
     fontWeight: '700',
   },
