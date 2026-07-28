@@ -53,7 +53,12 @@ export function BlockerTutorialOverlay({ config, spriteAssets, blockerMatchType,
           Match ingredients next to a covered dish to help clear it away.
         </Text>
 
-        <Pressable style={[styles.primaryButton, { backgroundColor: accent }]} onPress={onDismiss}>
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: accent }]}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Got it"
+        >
           <Text style={styles.primaryButtonLabel}>Got it</Text>
         </Pressable>
       </View>

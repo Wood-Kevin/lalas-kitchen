@@ -107,11 +107,18 @@ export function OutOfLives({ config, spriteAssets, lives, livesLastRegenAt, onGr
             style={[styles.primaryButton, { backgroundColor: FLAME, opacity: grantPending ? 0.5 : 1 }]}
             disabled={grantPending}
             onPress={onGrantLife}
+            accessibilityRole="button"
+            accessibilityLabel={adAvailable ? 'Watch a video to refill your lives' : 'Refill your lives'}
           >
             <Text style={styles.primaryButtonLabel}>{adAvailable ? 'Watch a video to refill your lives' : 'Refill your lives'}</Text>
           </Pressable>
         )}
-        <Pressable style={styles.secondaryLink} onPress={onBack}>
+        <Pressable
+          style={styles.secondaryLink}
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Home"
+        >
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Back to Home</Text>
         </Pressable>
       </View>

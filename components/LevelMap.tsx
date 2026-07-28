@@ -117,6 +117,7 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
         <Pressable
           style={[styles.backButton, { backgroundColor: panel, borderColor: border }]}
           onPress={onBack}
+          accessibilityRole="button"
           accessibilityLabel="Back to home"
         >
           <Text style={[styles.backArrow, { color: text }]} allowFontScaling={false}>
@@ -193,6 +194,20 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
       </View>
     </View>
   );
+}
+
+// A screen-reader label for one level node — its number/name plus its real
+// status, so a VoiceOver/TalkBack player gets the same information the
+// medallion's checkmark/glow/star row already conveys visually. Locked
+// nodes never reach this (see the isLocked branch below, which renders a
+// plain View with no Pressable at all — nothing to label).
+function describeLevelNodeForAccessibility(level: LevelMapRow, isCompleted: boolean, isCurrent: boolean): string {
+  const base = `Level ${level.levelIndex}: ${level.displayName}`;
+  if (isCurrent) return `${base}, next level, play`;
+  if (isCompleted) {
+    return level.stars ? `${base}, completed, ${level.stars} of 3 stars` : `${base}, completed`;
+  }
+  return base;
 }
 
 function LevelNode({
@@ -306,7 +321,12 @@ function LevelNode({
   }
 
   return (
-    <Pressable style={wrapStyle} onPress={() => onPlayLevel(level.levelIndex)}>
+    <Pressable
+      style={wrapStyle}
+      onPress={() => onPlayLevel(level.levelIndex)}
+      accessibilityRole="button"
+      accessibilityLabel={describeLevelNodeForAccessibility(level, isCompleted, isCurrent)}
+    >
       {content}
     </Pressable>
   );

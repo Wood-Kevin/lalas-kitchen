@@ -97,10 +97,20 @@ export function PausedOverlay({ reason, movesRemaining, levelIndex, config, onPl
         {/* Play Again is the primary slot — no ad CTA here anymore (see
             ContinueOffer.tsx). Uses secondaryAccent (the warm pot brown), not
             the brand-red accent (no red anywhere on this screen, per above). */}
-        <Pressable style={[styles.primaryButton, { backgroundColor: secondaryAccent }]} onPress={onPlayAgain}>
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: secondaryAccent }]}
+          onPress={onPlayAgain}
+          accessibilityRole="button"
+          accessibilityLabel="Play Again"
+        >
           <Text style={styles.primaryButtonLabel}>Play Again</Text>
         </Pressable>
-        <Pressable style={styles.secondaryLink} onPress={onExit}>
+        <Pressable
+          style={styles.secondaryLink}
+          onPress={onExit}
+          accessibilityRole="button"
+          accessibilityLabel="Exit to Kitchen"
+        >
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Exit to Kitchen</Text>
         </Pressable>
       </View>

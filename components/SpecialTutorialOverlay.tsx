@@ -148,7 +148,12 @@ export function SpecialTutorialOverlay({ config, spriteAssets, tutorialId, piece
         <Text style={[styles.headline, { color: text }]}>{content.headline}</Text>
         <Text style={[styles.subtext, { color: mutedText }]}>{content.subtext}</Text>
 
-        <Pressable style={[styles.primaryButton, { backgroundColor: accent }]} onPress={onDismiss}>
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: accent }]}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Got it"
+        >
           <Text style={styles.primaryButtonLabel}>Got it</Text>
         </Pressable>
       </View>

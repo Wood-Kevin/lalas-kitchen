@@ -157,6 +157,8 @@ export function Home({
           { backgroundColor: config.palette.panel, borderColor: config.palette.border, marginTop: 14 },
         ]}
         onPress={onOpenRecipeBook}
+        accessibilityRole="button"
+        accessibilityLabel="Your recipe book"
       >
         <View style={styles.cardPadding}>
           <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
@@ -167,6 +169,8 @@ export function Home({
       <Pressable
         style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}
         onPress={onOpenSettings}
+        accessibilityRole="button"
+        accessibilityLabel="Settings"
       >
         <View style={styles.cardPadding}>
           <Text style={[styles.cardTitle, { color: config.palette.text }]}>Settings</Text>
@@ -192,7 +196,12 @@ export function Home({
               <Text style={[styles.nextName, { color: config.palette.text }]}>{nextLevel.displayName}</Text>
             </View>
           </View>
-          <Pressable style={[styles.startButton, { backgroundColor: config.palette.accent }]} onPress={onStartNext}>
+          <Pressable
+            style={[styles.startButton, { backgroundColor: config.palette.accent }]}
+            onPress={onStartNext}
+            accessibilityRole="button"
+            accessibilityLabel="Start cooking"
+          >
             <Text style={[styles.startButtonLabel, { color: config.palette.panel }]}>Start cooking</Text>
           </Pressable>
         </View>
@@ -201,6 +210,8 @@ export function Home({
       <Pressable
         style={[styles.browseButton, { borderColor: config.palette.border }]}
         onPress={onBrowseAllLevels}
+        accessibilityRole="button"
+        accessibilityLabel="Browse all levels"
       >
         <Text style={[styles.browseButtonLabel, { color: config.palette.text }]}>Browse all levels</Text>
       </Pressable>

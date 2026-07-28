@@ -98,15 +98,29 @@ export function ContinueOffer({ movesRemaining, levelIndex, config, adAvailable,
           style={[styles.primaryButton, { backgroundColor: FLAME, opacity: grantPending ? 0.5 : 1 }]}
           disabled={grantPending}
           onPress={() => onContinue(action.bonusAmount)}
+          accessibilityRole="button"
+          accessibilityLabel={
+            adAvailable ? `Watch a video for ${action.bonusAmount} more moves` : `Get ${action.bonusAmount} more moves`
+          }
         >
           <Text style={styles.primaryButtonLabel}>
             {adAvailable ? `Watch a video for ${action.bonusAmount} more moves` : `Get ${action.bonusAmount} more moves`}
           </Text>
         </Pressable>
-        <Pressable style={styles.secondaryLink} onPress={onPlayAgain}>
+        <Pressable
+          style={styles.secondaryLink}
+          onPress={onPlayAgain}
+          accessibilityRole="button"
+          accessibilityLabel="Play Again"
+        >
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Play Again</Text>
         </Pressable>
-        <Pressable style={styles.secondaryLink} onPress={onExit}>
+        <Pressable
+          style={styles.secondaryLink}
+          onPress={onExit}
+          accessibilityRole="button"
+          accessibilityLabel="Exit to Kitchen"
+        >
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Exit to Kitchen</Text>
         </Pressable>
       </View>

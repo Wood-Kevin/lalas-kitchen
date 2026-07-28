@@ -66,6 +66,7 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
         <Pressable
           style={[styles.backButton, { backgroundColor: panel, borderColor: border }]}
           onPress={onBack}
+          accessibilityRole="button"
           accessibilityLabel="Back to home"
         >
           <Text style={[styles.backArrow, { color: text }]} allowFontScaling={false}>

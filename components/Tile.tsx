@@ -30,6 +30,13 @@ export interface TileProps {
   accentColor: string;
   panelColor: string;
   selected: boolean;
+  // What this tile is and where, for a screen-reader player — see
+  // components/tileAccessibility.ts's describeTileForAccessibility, the one
+  // place that derives this string from the real Piece. Selection itself is
+  // NOT folded into this text; it's surfaced separately via
+  // accessibilityState below, which VoiceOver/TalkBack already announce
+  // natively.
+  accessibilityLabel: string;
   durationMs: number;
   // Set only on the render where this piece first appears (a cascade
   // spawn). Read once, at mount, to make the tile animate down into place
@@ -116,6 +123,7 @@ export function Tile({
   accentColor,
   panelColor,
   selected,
+  accessibilityLabel,
   durationMs,
   enterFromRow,
   direction,
@@ -241,6 +249,9 @@ export function Tile({
       <Animated.View style={animatedStyle} testID={`tile-${pieceId}`}>
         <Pressable
           onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={accessibilityLabel}
+          accessibilityState={{ selected }}
           style={[
             styles.tile,
             {

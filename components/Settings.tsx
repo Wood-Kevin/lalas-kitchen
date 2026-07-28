@@ -75,6 +75,7 @@ export function Settings({
         <Pressable
           style={[styles.backButton, { backgroundColor: panel, borderColor: border }]}
           onPress={onBack}
+          accessibilityRole="button"
           accessibilityLabel="Back to home"
         >
           <Text style={[styles.backArrow, { color: text }]} allowFontScaling={false}>
@@ -102,6 +103,7 @@ export function Settings({
                 value={soundEnabled}
                 onValueChange={onToggleSound}
                 trackColor={{ false: border, true: accent }}
+                accessibilityLabel="Sound"
               />
             </View>
             <View style={styles.toggleRow}>
@@ -110,6 +112,7 @@ export function Settings({
                 value={hapticsEnabled}
                 onValueChange={onToggleHaptics}
                 trackColor={{ false: border, true: accent }}
+                accessibilityLabel="Haptics"
               />
             </View>
           </View>

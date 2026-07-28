@@ -213,13 +213,28 @@ export function WonOverlay({
           </View>
         )}
 
-        <Pressable style={[styles.primaryButton, { backgroundColor: accent }]} onPress={onNext}>
+        <Pressable
+          style={[styles.primaryButton, { backgroundColor: accent }]}
+          onPress={onNext}
+          accessibilityRole="button"
+          accessibilityLabel="Next Recipe"
+        >
           <Text style={styles.primaryButtonLabel}>Next Recipe</Text>
         </Pressable>
-        <Pressable style={styles.secondaryLink} onPress={onPlayAgain}>
+        <Pressable
+          style={styles.secondaryLink}
+          onPress={onPlayAgain}
+          accessibilityRole="button"
+          accessibilityLabel="Play Again"
+        >
           <Text style={[styles.secondaryLinkLabel, { color: text }]}>Play Again</Text>
         </Pressable>
-        <Pressable style={styles.tertiaryLink} onPress={onOpenDashboard}>
+        <Pressable
+          style={styles.tertiaryLink}
+          onPress={onOpenDashboard}
+          accessibilityRole="button"
+          accessibilityLabel="Back to Levels"
+        >
           <Text style={[styles.tertiaryLinkLabel, { color: mutedText }]}>Back to Levels</Text>
         </Pressable>
       </View>

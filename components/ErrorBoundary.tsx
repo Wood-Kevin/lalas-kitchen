@@ -83,7 +83,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorReco
         <View style={styles.container}>
           <Text style={styles.headline}>Something went wrong</Text>
           <Text style={styles.subtext}>No progress has been lost. Let&apos;s start fresh.</Text>
-          <Pressable onPress={this.handleReset} style={styles.button} testID="error-boundary-reset">
+          <Pressable
+            onPress={this.handleReset}
+            style={styles.button}
+            testID="error-boundary-reset"
+            accessibilityRole="button"
+            accessibilityLabel="Start Fresh"
+          >
             <Text style={styles.buttonLabel}>Start Fresh</Text>
           </Pressable>
         </View>

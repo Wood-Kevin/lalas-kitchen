@@ -32,6 +32,7 @@ import {
 import { findAnyLegalMove } from '../engine/matrix';
 import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
+import { describeTileForAccessibility } from './tileAccessibility';
 import { diffBoards } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import {
@@ -1042,6 +1043,8 @@ export function Board({
             onPress={handleRequestShuffle}
             disabled={!canAcceptMove()}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Shuffle board"
             style={[
               styles.hintButton,
               {
@@ -1058,6 +1061,8 @@ export function Board({
               onPress={handleRequestHint}
               disabled={!canAcceptMove()}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Show a hint"
               style={[
                 styles.hintButton,
                 {
@@ -1073,6 +1078,8 @@ export function Board({
           <Pressable
             onPress={onExit}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Exit level"
             style={[styles.exitButton, { borderColor: skinConfig.palette.accent, backgroundColor: skinConfig.palette.panel }]}
           >
             {/* A symbolic icon glyph, not prose content — scaling it with system
@@ -1139,6 +1146,7 @@ export function Board({
                     accentColor={skinConfig.palette.accent}
                     panelColor={skinConfig.palette.panel}
                     selected={!!selected && selected.row === r && selected.col === c}
+                    accessibilityLabel={describeTileForAccessibility(piece, r, c)}
                     durationMs={duration}
                     enterFromRow={isSpawn ? r - 2 : undefined}
                     // Only a striped piece carries a direction; every other
