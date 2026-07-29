@@ -7,6 +7,12 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/5d411090-9f71-422f-8bb1-8a23219449ea"
+    },
     "ios": {
       "supportsTablet": false,
       "requireFullScreen": true,
