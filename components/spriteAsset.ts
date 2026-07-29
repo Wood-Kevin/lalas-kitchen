@@ -46,3 +46,19 @@ export const CLEARANCE_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label
 // two above — a fixed glyph, not spriteLabel's generic fallback. A down
 // arrow, evoking the dropdown piece's own ride-to-the-bottom mechanic.
 export const ESCORT_OBJECTIVE_SPRITE: ResolvedSprite = { kind: 'label', label: '⬇' };
+
+// board_shape/chain_reaction/how_to_play (SpecialTutorialOverlay.tsx) have no
+// single piece to anchor an icon to either — a void cell renders no Tile at
+// all, a chain-reaction moment celebrates several specials firing together
+// rather than any one of them, and how_to_play explains the base mechanic
+// before any piece has been swapped — so each was falling through to
+// spriteLabel's generic 2-letter placeholder ("BO"/"CH"/"HO") instead of a
+// real icon, a genuine bug surfaced by live playtesting (the same class of
+// fix the three objective sprites above already got). Same fixed-glyph
+// treatment: a square missing a corner for board_shape (evokes a cutout),
+// an eight-point burst for chain_reaction (evokes several things firing at
+// once), and a swap arrow for how_to_play (evokes the tap/drag mechanic
+// itself).
+export const BOARD_SHAPE_TUTORIAL_SPRITE: ResolvedSprite = { kind: 'label', label: '◱' };
+export const CHAIN_REACTION_TUTORIAL_SPRITE: ResolvedSprite = { kind: 'label', label: '✳' };
+export const HOW_TO_PLAY_TUTORIAL_SPRITE: ResolvedSprite = { kind: 'label', label: '⇄' };

@@ -3,16 +3,22 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { Piece } from '../engine/matrix';
 import {
+  BOARD_SHAPE_TUTORIAL_ID,
+  CHAIN_REACTION_TUTORIAL_ID,
   CLEARANCE_OBJECTIVE_TUTORIAL_ID,
   ESCORT_OBJECTIVE_TUTORIAL_ID,
+  HOW_TO_PLAY_TUTORIAL_ID,
   SCORE_OBJECTIVE_TUTORIAL_ID,
 } from '../appPersistence';
 import { Fonts } from './fonts';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
 import {
+  BOARD_SHAPE_TUTORIAL_SPRITE,
+  CHAIN_REACTION_TUTORIAL_SPRITE,
   CLEARANCE_OBJECTIVE_SPRITE,
   ESCORT_OBJECTIVE_SPRITE,
+  HOW_TO_PLAY_TUTORIAL_SPRITE,
   resolveSpriteAsset,
   ResolvedSprite,
   SCORE_OBJECTIVE_SPRITE,
@@ -157,28 +163,35 @@ export interface SpecialTutorialOverlayProps {
 // rests on the board, with input gated behind it (Board.tsx's canAcceptMove).
 // A single dismiss action, not a primary/secondary pair — an explanation, not a
 // decision.
-// The three objective-tutorial ids each resolve to the exact same fixed
-// glyph Hud.tsx/WonOverlay.tsx already show for that objective type (see
-// spriteAsset.ts) — the same "show the real thing" convention
-// spread_warning's real warned piece already follows, just for an icon with
-// no single piece to anchor to instead.
-const OBJECTIVE_TUTORIAL_SPRITE: Record<string, ResolvedSprite> = {
+// Every tutorial with no single piece to anchor an icon to (see the `piece`
+// prop's doc comment) resolves to its own fixed glyph instead — the three
+// objective ids show the exact same glyph Hud.tsx/WonOverlay.tsx already use
+// for that objective type, and chain_reaction/how_to_play/board_shape show
+// theirs (see spriteAsset.ts) — the same "show something real, not a
+// placeholder" convention spread_warning's real warned piece already
+// follows, just for icons with no single piece to anchor to instead. A real
+// playtest report caught these three still falling through to spriteLabel's
+// generic 2-letter placeholder ("BO"/"CH"/"HO") before this map covered
+// them.
+const FIXED_GLYPH_TUTORIAL_SPRITE: Record<string, ResolvedSprite> = {
   [SCORE_OBJECTIVE_TUTORIAL_ID]: SCORE_OBJECTIVE_SPRITE,
   [CLEARANCE_OBJECTIVE_TUTORIAL_ID]: CLEARANCE_OBJECTIVE_SPRITE,
   [ESCORT_OBJECTIVE_TUTORIAL_ID]: ESCORT_OBJECTIVE_SPRITE,
+  [CHAIN_REACTION_TUTORIAL_ID]: CHAIN_REACTION_TUTORIAL_SPRITE,
+  [HOW_TO_PLAY_TUTORIAL_ID]: HOW_TO_PLAY_TUTORIAL_SPRITE,
+  [BOARD_SHAPE_TUTORIAL_ID]: BOARD_SHAPE_TUTORIAL_SPRITE,
 };
 
 export function SpecialTutorialOverlay({ config, spriteAssets, tutorialId, piece, onDismiss }: SpecialTutorialOverlayProps) {
-  // No single piece to derive an icon from for chain_reaction or any of the
-  // three objective tutorials (see the `piece` prop's doc comment) — the
-  // objective ones resolve to their own fixed glyph above; anything else
-  // with no piece (chain_reaction, how_to_play, board_shape) falls back to
-  // the same short-code placeholder every un-arted sprite already uses
-  // (spriteLabel), rather than resolving through getSpriteForPiece against
-  // a piece that doesn't exist.
+  // No single piece to derive an icon from for any tutorial in the fixed-
+  // glyph map above (see the `piece` prop's doc comment). spriteLabel stays
+  // as a defensive fallback only — every no-piece tutorial that exists today
+  // has a real map entry, so it should never actually be reached; it's here
+  // so a future no-piece tutorial fails soft (a short placeholder code) if
+  // one is ever added without a glyph, rather than rendering nothing.
   const sprite: ResolvedSprite = piece
     ? resolveSpriteAsset(getSpriteForPiece(piece, config), spriteAssets)
-    : (OBJECTIVE_TUTORIAL_SPRITE[tutorialId] ?? { kind: 'label', label: spriteLabel(tutorialId) });
+    : (FIXED_GLYPH_TUTORIAL_SPRITE[tutorialId] ?? { kind: 'label', label: spriteLabel(tutorialId) });
   const content = SPECIAL_TUTORIAL_CONTENT[tutorialId];
   const { accent, mutedText, text, panel, border } = config.palette;
 
