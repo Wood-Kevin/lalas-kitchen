@@ -11,7 +11,7 @@ import { Position } from './matrix';
 // the generated-level board's fixed 8x5 size (see appPersistence.ts's
 // buildGeneratedLevelConfig doc on why board size itself never varies).
 
-export type BoardShapeId = 'cut_corners' | 'plus' | 'ring';
+export type BoardShapeId = 'cut_corners' | 'plus' | 'ring' | 'diamond' | 'hourglass' | 'pockets';
 
 // Voids a small L-shaped notch at each of the 4 corners: the corner cell
 // itself plus its two orthogonal neighbours (one step along each edge). A
@@ -77,17 +77,99 @@ export function ringVoids(rows: number, cols: number): Position[] {
   return voids;
 }
 
+// Shared taper depth for diamondVoids/hourglassVoids — both cut a
+// symmetric wedge of columns per row, just anchored at opposite ends (the
+// diamond tapers in from the row edges toward the center; the hourglass
+// tapers in from the vertical center toward its edges). One shared formula
+// keeps the two visually related instead of each guessing its own depth.
+// Capped by cols so the taper can never void an entire row (floor((cols-1)/2)
+// always leaves at least 1 center column standing at maximum cut), and by
+// rows so the taper has enough vertical room to actually step through.
+function diamondTaperSteps(rows: number, cols: number): number {
+  return Math.max(0, Math.min(Math.floor(rows / 2), Math.floor((cols - 1) / 2)));
+}
+
+// Tapers each row's outer columns inward from both the top and bottom edge,
+// widest cut at row 0/rows-1 (down to a single center column) and no cut at
+// all once within `steps` rows of the vertical center — a rounded
+// lozenge/gem silhouette, general for any rows x cols.
+export function diamondVoids(rows: number, cols: number): Position[] {
+  const steps = diamondTaperSteps(rows, cols);
+  const voids: Position[] = [];
+  for (let row = 0; row < rows; row++) {
+    const distFromRowEdge = Math.min(row, rows - 1 - row);
+    const cut = Math.max(0, steps - distFromRowEdge);
+    if (cut <= 0) continue;
+    for (let col = 0; col < cut; col++) voids.push({ row, col });
+    for (let col = cols - cut; col < cols; col++) voids.push({ row, col });
+  }
+  return voids;
+}
+
+// The inverse taper direction from diamondVoids: a band of rows centered on
+// the board's vertical middle narrows to a single-column neck, while every
+// row outside that band stays fully playable — a bowtie/hourglass
+// silhouette. Unlike the other 5 templates (all pure boundary/interior
+// cuts), this pinches the board's own gravity flow through a bottleneck,
+// a genuinely different play texture, not just a different outline.
+export function hourglassVoids(rows: number, cols: number): Position[] {
+  const steps = diamondTaperSteps(rows, cols);
+  if (steps <= 0) return [];
+  const bandHeight = steps * 2;
+  const bandStart = Math.floor((rows - bandHeight) / 2);
+  const bandEnd = bandStart + bandHeight - 1;
+  const voids: Position[] = [];
+  for (let row = bandStart; row <= bandEnd; row++) {
+    const distFromBandEdge = Math.min(row - bandStart, bandEnd - row);
+    const cut = Math.min(steps, distFromBandEdge + 1);
+    for (let col = 0; col < cut; col++) voids.push({ row, col });
+    for (let col = cols - cut; col < cols; col++) voids.push({ row, col });
+  }
+  return voids;
+}
+
+// Scattered single-cell interior holes on an odd-row/odd-col lattice — the
+// one template that isn't a boundary silhouette at all. Restricted to
+// 1 <= row <= rows-2 and 1 <= col <= cols-2 by construction (the lattice
+// starts at row/col 1), so a pocket never touches the board's own edge and
+// this can never be mistaken for a ring cut.
+export function pocketsVoids(rows: number, cols: number): Position[] {
+  const voids: Position[] = [];
+  for (let row = 1; row <= rows - 2; row++) {
+    if (row % 2 !== 1) continue;
+    for (let col = 1; col <= cols - 2; col++) {
+      if (col % 2 === 1) voids.push({ row, col });
+    }
+  }
+  return voids;
+}
+
 export const BOARD_SHAPE_TEMPLATES: Record<BoardShapeId, (rows: number, cols: number) => Position[]> = {
   cut_corners: cutCornersVoids,
   plus: plusVoids,
   ring: ringVoids,
+  diamond: diamondVoids,
+  hourglass: hourglassVoids,
+  pockets: pocketsVoids,
 };
 
 // Deterministic rotation order — appPersistence.ts's generatedShapeId cycles
 // through this list by index rather than picking randomly, the same
 // deterministic-by-levelNumber shape every other generated-level lever
 // (blocker id rotation, objective targetMatchType rotation) already uses.
-export const BOARD_SHAPE_ROTATION: BoardShapeId[] = ['cut_corners', 'plus', 'ring'];
+// The 3 new entries are appended after the original 3 rather than
+// interleaved, so SHAPE_ROTATION_OFFSET's existing reasoning (why raw level
+// 8 lands on `plus`) is untouched for every level number that existed
+// before this change — only levels past the old length-3 cycle see a
+// genuinely new rotation position, disclosed in DECISIONS.md.
+export const BOARD_SHAPE_ROTATION: BoardShapeId[] = [
+  'cut_corners',
+  'plus',
+  'ring',
+  'diamond',
+  'hourglass',
+  'pockets',
+];
 
 // How much of a rows x cols rectangle a shape template actually leaves
 // playable, as a 0-1 fraction. Real playtesting on a generated `ring` level

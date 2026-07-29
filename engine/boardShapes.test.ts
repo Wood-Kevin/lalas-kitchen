@@ -2,7 +2,10 @@ import {
   BOARD_SHAPE_ROTATION,
   BOARD_SHAPE_TEMPLATES,
   cutCornersVoids,
+  diamondVoids,
+  hourglassVoids,
   playableCellRatio,
+  pocketsVoids,
   plusVoids,
   ringVoids,
 } from './boardShapes';
@@ -95,9 +98,100 @@ describe('ringVoids', () => {
   });
 });
 
+describe('diamondVoids', () => {
+  test('tapers to a single center column at the top/bottom edges on the real generated board size (8x5)', () => {
+    const voids = diamondVoids(8, 5);
+    expect(toKeySet(voids)).toEqual(
+      toKeySet([
+        { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 0, col: 3 }, { row: 0, col: 4 },
+        { row: 1, col: 0 }, { row: 1, col: 4 },
+        { row: 6, col: 0 }, { row: 6, col: 4 },
+        { row: 7, col: 0 }, { row: 7, col: 1 }, { row: 7, col: 3 }, { row: 7, col: 4 },
+      ])
+    );
+  });
+
+  test('leaves the vertical-center rows fully playable and every row at least 1 cell wide, across a range of sizes', () => {
+    for (const [rows, cols] of [
+      [8, 5],
+      [6, 6],
+      [10, 4],
+      [5, 5],
+    ]) {
+      const voidKeys = toKeySet(diamondVoids(rows, cols));
+      for (let row = 0; row < rows; row++) {
+        const voidedInRow = Array.from({ length: cols }, (_, col) => voidKeys.has(`${row},${col}`)).filter(Boolean).length;
+        expect(voidedInRow).toBeLessThan(cols);
+      }
+    }
+  });
+});
+
+describe('hourglassVoids', () => {
+  test('pinches to a single center column across the vertical-center band, full width elsewhere, on the real generated board size (8x5)', () => {
+    const voids = hourglassVoids(8, 5);
+    expect(toKeySet(voids)).toEqual(
+      toKeySet([
+        { row: 2, col: 0 }, { row: 2, col: 4 },
+        { row: 3, col: 0 }, { row: 3, col: 1 }, { row: 3, col: 3 }, { row: 3, col: 4 },
+        { row: 4, col: 0 }, { row: 4, col: 1 }, { row: 4, col: 3 }, { row: 4, col: 4 },
+        { row: 5, col: 0 }, { row: 5, col: 4 },
+      ])
+    );
+    const voidKeys = toKeySet(voids);
+    for (const row of [0, 1, 6, 7]) {
+      for (let col = 0; col < 5; col++) {
+        expect(voidKeys.has(`${row},${col}`)).toBe(false);
+      }
+    }
+  });
+
+  test('every row stays at least 1 cell wide, across a range of sizes', () => {
+    for (const [rows, cols] of [
+      [8, 5],
+      [6, 6],
+      [10, 4],
+      [5, 5],
+    ]) {
+      const voidKeys = toKeySet(hourglassVoids(rows, cols));
+      for (let row = 0; row < rows; row++) {
+        const voidedInRow = Array.from({ length: cols }, (_, col) => voidKeys.has(`${row},${col}`)).filter(Boolean).length;
+        expect(voidedInRow).toBeLessThan(cols);
+      }
+    }
+  });
+});
+
+describe('pocketsVoids', () => {
+  test('voids only interior odd-row/odd-col lattice cells on the real generated board size (8x5)', () => {
+    const voids = pocketsVoids(8, 5);
+    expect(toKeySet(voids)).toEqual(
+      toKeySet([
+        { row: 1, col: 1 }, { row: 1, col: 3 },
+        { row: 3, col: 1 }, { row: 3, col: 3 },
+        { row: 5, col: 1 }, { row: 5, col: 3 },
+      ])
+    );
+  });
+
+  test('never voids a border cell, across a range of sizes', () => {
+    for (const [rows, cols] of [
+      [8, 5],
+      [6, 6],
+      [10, 4],
+      [5, 5],
+    ]) {
+      for (const p of pocketsVoids(rows, cols)) {
+        const isBorder = p.row === 0 || p.row === rows - 1 || p.col === 0 || p.col === cols - 1;
+        expect(isBorder).toBe(false);
+      }
+    }
+  });
+});
+
 describe('BOARD_SHAPE_TEMPLATES / BOARD_SHAPE_ROTATION', () => {
-  test('the rotation list and the template registry cover exactly the same 3 ids', () => {
-    expect(BOARD_SHAPE_ROTATION).toHaveLength(3);
+  test('the rotation list and the template registry cover exactly the same 6 ids', () => {
+    expect(BOARD_SHAPE_ROTATION).toHaveLength(6);
     expect(new Set(BOARD_SHAPE_ROTATION)).toEqual(new Set(Object.keys(BOARD_SHAPE_TEMPLATES)));
   });
 
@@ -121,7 +215,13 @@ describe('playableCellRatio', () => {
     expect(playableCellRatio(8, 5, plusVoids(8, 5))).toBeCloseTo(32 / 40); // 80%
   });
 
-  test('ring is the most restrictive of the 3 templates at this board size', () => {
+  test('real percentages for the 3 newer templates on the real generated board size (8x5, 40 cells)', () => {
+    expect(playableCellRatio(8, 5, diamondVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
+    expect(playableCellRatio(8, 5, hourglassVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
+    expect(playableCellRatio(8, 5, pocketsVoids(8, 5))).toBeCloseTo(34 / 40); // 85%
+  });
+
+  test('ring is the most restrictive of all 6 templates at this board size', () => {
     const ratios = BOARD_SHAPE_ROTATION.map((id) => playableCellRatio(8, 5, BOARD_SHAPE_TEMPLATES[id](8, 5)));
     expect(Math.min(...ratios)).toBe(playableCellRatio(8, 5, ringVoids(8, 5)));
   });
