@@ -154,15 +154,15 @@
     {
       "id": "chili_cornbread_skillet", "title": "Chili Cornbread Skillet", "flavorText": "Sweet skillet cornbread with a spicy chili sparkle.", "milestoneLevel": 81, "sprite": "recipe_chili_cornbread_skillet.webp",
       "recipe": {
-        "ingredients": ["1 cup cornmeal", "1 cup flour", "1 cup buttermilk", "2 eggs", "1-2 chili peppers, chopped", "2 tbsp honey"],
-        "steps": ["Whisk the wet ingredients together, then fold in the cornmeal, flour, and chili.", "Pour into a hot, buttered skillet.", "Bake at 400°F (200°C) until golden and a toothpick comes out clean, about 20 minutes.", "Drizzle with honey before serving."]
+        "ingredients": ["1 cup cornmeal", "1 cup flour", "1 cup buttermilk", "2 eggs", "1/4 cup melted butter", "1 tsp baking soda", "1-2 chili peppers, chopped", "2 tbsp honey"],
+        "steps": ["Whisk the buttermilk, eggs, and melted butter together, then fold in the cornmeal, flour, baking soda, and chili.", "Pour into a hot, buttered skillet.", "Bake at 400°F (200°C) until golden and a toothpick comes out clean, about 20 minutes.", "Drizzle with honey before serving."]
       }
     },
     {
       "id": "chili_honey_carrots", "title": "Chili Honey Carrots", "flavorText": "Honey-glazed carrots with a sweet little heat.", "milestoneLevel": 89, "sprite": "recipe_chili_honey_carrots.webp",
       "recipe": {
-        "ingredients": ["1 lb carrots, halved", "2 tbsp butter", "2 tbsp honey", "1 chili pepper, thinly sliced", "Salt"],
-        "steps": ["Roast the carrots at 400°F (200°C) until tender, about 25 minutes.", "Melt the butter and honey together with the chili.", "Toss the warm carrots in the glaze and season with salt."]
+        "ingredients": ["1 lb carrots, halved", "1 tbsp olive oil", "2 tbsp butter", "2 tbsp honey", "1 chili pepper, thinly sliced", "Salt"],
+        "steps": ["Toss the carrots with olive oil and roast at 400°F (200°C) until tender, about 25 minutes.", "Melt the butter and honey together with the chili.", "Toss the warm carrots in the glaze and season with salt."]
       }
     },
     {
@@ -211,7 +211,7 @@
       "id": "herb_crumb_chicken", "title": "Herb Crumb Chicken", "flavorText": "Crisp herb crust over tender golden chicken.", "milestoneLevel": 157, "sprite": "recipe_herb_crumb_chicken.webp",
       "recipe": {
         "ingredients": ["4 chicken breasts", "1 cup breadcrumbs", "A handful of fresh herbs, chopped", "1 egg, beaten", "2 tbsp olive oil", "Salt and pepper"],
-        "steps": ["Mix the breadcrumbs with the herbs, salt, and pepper.", "Dip each chicken breast in the egg, then press into the crumb mixture.", "Pan-fry in olive oil until golden, then finish in a 375°F (190°C) oven until cooked through."]
+        "steps": ["Mix the breadcrumbs with the herbs, salt, and pepper.", "Dip each chicken breast in the egg, then press into the crumb mixture.", "Pan-fry in olive oil until golden, then finish in a 375°F (190°C) oven until it reaches 165°F internally and juices run clear."]
       }
     },
     {
@@ -259,8 +259,8 @@
     {
       "id": "lemon_poppy_loaf", "title": "Lemon Poppy Loaf", "flavorText": "A sunny loaf cake with soft icing and poppy-speckled crumb.", "milestoneLevel": 250, "sprite": "recipe_lemon_poppy_loaf.webp",
       "recipe": {
-        "ingredients": ["1 1/2 cups flour", "1 cup sugar", "1/2 cup butter, softened", "2 eggs", "Zest and juice of 1 lemon", "2 tbsp poppy seeds"],
-        "steps": ["Cream the butter and sugar, then beat in the eggs, lemon zest, and juice.", "Fold in the flour and poppy seeds.", "Pour into a loaf pan and bake at 350°F (175°C) until a toothpick comes out clean, about 50 minutes."]
+        "ingredients": ["1 1/2 cups flour", "1 cup sugar", "1/2 cup butter, softened", "2 eggs", "Zest and juice of 1 lemon", "2 tbsp poppy seeds", "1 1/2 tsp baking powder"],
+        "steps": ["Cream the butter and sugar, then beat in the eggs, lemon zest, and juice.", "Fold in the flour, baking powder, and poppy seeds.", "Pour into a loaf pan and bake at 350°F (175°C) until a toothpick comes out clean, about 50 minutes."]
       }
     },
     {
@@ -287,15 +287,15 @@
     {
       "id": "roasted_garlic_mash", "title": "Roasted Garlic Mash", "flavorText": "Creamy mash with deep roasted garlic warmth.", "milestoneLevel": 314, "sprite": "recipe_roasted_garlic_mash.webp",
       "recipe": {
-        "ingredients": ["2 lbs potatoes, peeled and quartered", "1 head garlic, roasted", "4 tbsp butter", "1/2 cup warm milk", "Salt and pepper"],
-        "steps": ["Boil the potatoes until tender, then drain.", "Squeeze the roasted garlic cloves from their skins.", "Mash the potatoes with the garlic, butter, and warm milk.", "Season to taste."]
+        "ingredients": ["2 lbs potatoes, peeled and quartered", "1 head garlic", "1 tsp olive oil", "4 tbsp butter", "1/2 cup warm milk", "Salt and pepper"],
+        "steps": ["Cut the top off the garlic head, drizzle with olive oil, wrap in foil, and roast at 400°F (200°C) for 40 minutes until soft.", "Boil the potatoes until tender, then drain.", "Squeeze the roasted garlic cloves from their skins.", "Mash the potatoes with the garlic, butter, and warm milk.", "Season to taste."]
       }
     },
     {
       "id": "roasted_garlic_soup", "title": "Roasted Garlic Soup", "flavorText": "Smooth soup with mellow garlic sweetness.", "milestoneLevel": 331, "sprite": "recipe_roasted_garlic_soup.webp",
       "recipe": {
-        "ingredients": ["2 heads garlic, roasted", "3 cups broth", "1 onion, diced", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
-        "steps": ["Sauté the onion in butter until soft.", "Squeeze in the roasted garlic and add the broth.", "Simmer 15 minutes, then blend until smooth.", "Stir in a splash of cream and season to taste."]
+        "ingredients": ["2 heads garlic", "1 tsp olive oil", "3 cups broth", "1 onion, diced", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
+        "steps": ["Cut the tops off the garlic heads, drizzle with olive oil, wrap in foil, and roast at 400°F (200°C) for 40 minutes until soft.", "Sauté the onion in butter until soft.", "Squeeze in the roasted garlic and add the broth.", "Simmer 15 minutes, then blend until smooth.", "Stir in a splash of cream and season to taste."]
       }
     },
     {
@@ -308,8 +308,8 @@
     {
       "id": "rosemary_garlic_rolls", "title": "Rosemary Garlic Rolls", "flavorText": "Golden rolls brushed with rosemary-garlic butter.", "milestoneLevel": 367, "sprite": "recipe_rosemary_garlic_rolls.webp",
       "recipe": {
-        "ingredients": ["3 cups bread flour", "1 packet yeast", "1 cup warm water", "3 tbsp butter, melted", "2 cloves garlic, minced", "Fresh rosemary"],
-        "steps": ["Mix the flour, yeast, and warm water into a soft dough and let rise until doubled.", "Divide into rolls and place in a buttered pan.", "Brush with garlic butter and top with rosemary before baking at 375°F (190°C) until golden."]
+        "ingredients": ["3 cups bread flour", "1 packet yeast", "1 tsp salt", "1 tbsp sugar", "1 cup warm water", "3 tbsp butter, melted", "2 cloves garlic, minced", "Fresh rosemary"],
+        "steps": ["Mix the flour, yeast, salt, sugar, and warm water into a soft dough and let rise until doubled.", "Divide into rolls and place in a buttered pan.", "Brush with garlic butter and top with rosemary before baking at 375°F (190°C) until golden."]
       }
     },
     {
@@ -343,8 +343,8 @@
     {
       "id": "tomato_basil_tart", "title": "Tomato Basil Tart", "flavorText": "A bright tomato tart with basil leaves like little jewels.", "milestoneLevel": 466, "sprite": "recipe_tomato_basil_tart.webp",
       "recipe": {
-        "ingredients": ["1 sheet puff pastry", "3 ripe tomatoes, sliced", "1/2 cup grated cheese", "A handful of fresh basil", "2 tbsp olive oil", "Salt and pepper"],
-        "steps": ["Roll out the pastry and score a border, then prick the center all over.", "Sprinkle with cheese, then layer on the tomato slices.", "Drizzle with olive oil and bake at 400°F (200°C) until golden, about 25 minutes.", "Scatter with fresh basil before serving."]
+        "ingredients": ["1 sheet puff pastry", "3 ripe tomatoes, sliced and lightly salted to drain", "1/2 cup grated cheese", "A handful of fresh basil", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Lay the tomato slices on paper towels, salt lightly, and let sit 10 minutes to draw out extra moisture.", "Roll out the pastry and score a border, then prick the center all over.", "Sprinkle with cheese, then layer on the tomato slices.", "Drizzle with olive oil and bake at 400°F (200°C) until golden, about 25 minutes.", "Scatter with fresh basil before serving."]
       }
     },
     {
@@ -371,7 +371,7 @@
     {
       "id": "tomato_rice_bake", "title": "Tomato Rice Bake", "flavorText": "A casserole-style rice bake with baked tomato comfort.", "milestoneLevel": 554, "sprite": "recipe_tomato_rice_bake.webp",
       "recipe": {
-        "ingredients": ["1 cup rice", "1 can crushed tomatoes", "1 onion, diced", "2 cups broth", "1 cup shredded cheese", "Salt and pepper"],
+        "ingredients": ["1 cup rice", "1 can crushed tomatoes", "1 onion, diced", "1 cup broth", "1 cup shredded cheese", "Salt and pepper"],
         "steps": ["Sauté the onion until soft, then stir in the rice, tomatoes, and broth.", "Pour into a baking dish and cover.", "Bake at 375°F (190°C) until the rice is tender, about 40 minutes.", "Top with cheese and bake uncovered until melted."]
       }
     },
@@ -392,7 +392,7 @@
     {
       "id": "skillet_honey_squash", "title": "Skillet Honey Squash", "flavorText": "Honey-glossed squash with cozy autumn warmth.", "milestoneLevel": 625, "sprite": "recipe_skillet_honey_squash.webp",
       "recipe": {
-        "ingredients": ["1 small squash, sliced", "2 tbsp butter", "2 tbsp honey", "A pinch of cinnamon", "Salt"],
+        "ingredients": ["1 small delicata squash, sliced into rounds (no need to peel)", "2 tbsp butter", "2 tbsp honey", "A pinch of cinnamon", "Salt"],
         "steps": ["Cook the squash slices in butter over medium heat until tender and lightly browned.", "Drizzle with honey and a pinch of cinnamon.", "Season with a little salt and serve warm."]
       }
     }
