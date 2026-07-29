@@ -376,7 +376,7 @@ function LevelNode({
           {isLocked && (
             <View style={[styles.lockBadge, { backgroundColor: panel, borderColor: border }]}>
               <Text style={styles.lockGlyph} allowFontScaling={false}>
-                {'\U0001F512'}
+                {'\u{1F512}'}
               </Text>
             </View>
           )}
