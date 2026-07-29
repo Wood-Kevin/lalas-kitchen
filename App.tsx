@@ -273,7 +273,8 @@ function buildLevelConfig(levelIndex: number, lives: number, breather: boolean =
           LEVEL_QUEUE[0].rows,
           LEVEL_QUEUE[0].cols,
           skinConfig.blockers,
-          breather
+          breather,
+          LEVEL_QUEUE[LEVEL_QUEUE.length - 1].pieceTypeIds.length
         );
   return { ...base, lives };
 }

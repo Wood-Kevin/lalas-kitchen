@@ -365,6 +365,24 @@ describe('generatedPieceTypeCount', () => {
     expect(deep).toBeGreaterThan(early);
     expect(deep).toBe(6);
   });
+
+  // A real playtest report: 10 of 11 hand-built LEVEL_QUEUE levels use all
+  // 6 piece types, so the ramp resetting to 3 immediately after the queue
+  // ends was a felt difficulty drop, not a gentle continuation. See
+  // engine/DECISIONS.md's generated-ramp-continuity entry.
+  test('an explicit minStartingTypeCount overrides the default, continuing the ramp from where curated content left off', () => {
+    expect(generatedPieceTypeCount(1, 6, 6)).toBe(6);
+    expect(generatedPieceTypeCount(50, 6, 6)).toBe(6);
+  });
+
+  test('minStartingTypeCount is itself capped at availableTypeCount, never asking for more types than the skin has', () => {
+    expect(generatedPieceTypeCount(1, 6, 99)).toBe(6);
+  });
+
+  test('a minStartingTypeCount below the default ramp still grows normally from its own starting point', () => {
+    expect(generatedPieceTypeCount(1, 6, 2)).toBe(2);
+    expect(generatedPieceTypeCount(4, 6, 2)).toBe(3);
+  });
 });
 
 describe('generatedMovesLimit', () => {
@@ -726,6 +744,18 @@ describe('buildGeneratedLevelConfig', () => {
     const a = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     const b = buildGeneratedLevelConfig(9, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(a).toEqual(b);
+  });
+
+  // App.tsx's real call site passes LEVEL_QUEUE's own last level's
+  // pieceTypeIds.length here — the real fix behind generated-ramp-
+  // continuity (engine/DECISIONS.md): the first generated level should
+  // continue from where curated content left off, not reset to
+  // generatedPieceTypeCount's own low default.
+  test('handBuiltEndingTypeCount continues the ramp instead of resetting it for the first generated level', () => {
+    const reset = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    const continued = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, [], false, 6);
+    expect(reset.pieceTypeIds).toEqual(['A', 'B', 'C']);
+    expect(continued.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
   });
 
   test('never targets the same piece type twice on a level with two objectives', () => {

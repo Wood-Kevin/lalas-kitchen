@@ -717,13 +717,24 @@ export function generatedLevelNumber(levelIndex: number, handBuiltLevelCount: nu
 // add colors for harder difficulty, not remove them, since more types make
 // matches genuinely rarer and require more deliberate play. See
 // engine/DECISIONS.md's "Difficulty tuning" entry for the full retraction.
-// Starts at MIN_TYPES (easy — matches come readily, a gentle introduction)
-// and steps up by one every 3 levels, capped at the skin's own full pool
-// size so the ramp never asks for more types than the skin actually has.
-export function generatedPieceTypeCount(levelNumber: number, availableTypeCount: number): number {
-  const MIN_TYPES = 3;
+// Starts at `minStartingTypeCount` (default 3 — a gentle introduction for a
+// caller with no better answer, e.g. a bare unit test) and steps up by one
+// every 3 levels, capped at the skin's own full pool size so the ramp never
+// asks for more types than the skin actually has. `buildGeneratedLevelConfig`
+// below passes the real hand-built queue's own ending type count instead of
+// relying on this default — a real playtest report caught the ramp resetting
+// to 3 types immediately after 10 of 11 hand-built levels had already used
+// all 6, a jarring easier-not-harder step exactly where a player expects the
+// game to open up, not soften (see engine/DECISIONS.md's
+// generated-ramp-continuity entry).
+export function generatedPieceTypeCount(
+  levelNumber: number,
+  availableTypeCount: number,
+  minStartingTypeCount: number = 3
+): number {
+  const startingTypes = Math.min(minStartingTypeCount, availableTypeCount);
   const step = Math.floor((levelNumber - 1) / 3);
-  return Math.min(availableTypeCount, MIN_TYPES + step);
+  return Math.min(availableTypeCount, startingTypes + step);
 }
 
 // The other difficulty lever: engine/DECISIONS.md is explicit that a move
@@ -1170,10 +1181,20 @@ export function buildGeneratedLevelConfig(
   rows: number,
   cols: number,
   blockers: Array<{ id: string; hitsToClear: number; specialOnly?: boolean }> = [],
-  breather: boolean = false
+  breather: boolean = false,
+  // The hand-built queue's own LAST level's piece-type count, so the
+  // generated ramp continues from where curated content left off instead of
+  // resetting to generatedPieceTypeCount's own low default — see that
+  // function's doc comment. Optional (defaults to that function's own
+  // default) so a caller with no hand-built queue to ask about — a bare
+  // test — is unaffected.
+  handBuiltEndingTypeCount?: number
 ): Omit<LevelConfig, 'lives'> {
   const levelNumber = generatedLevelNumber(levelIndex, handBuiltLevelCount);
-  const typeCount = generatedPieceTypeCount(levelNumber, allPieceTypeIds.length);
+  const typeCount =
+    handBuiltEndingTypeCount === undefined
+      ? generatedPieceTypeCount(levelNumber, allPieceTypeIds.length)
+      : generatedPieceTypeCount(levelNumber, allPieceTypeIds.length, handBuiltEndingTypeCount);
   const pieceTypeIds = allPieceTypeIds.slice(0, typeCount);
 
   // Computed before objectives/movesLimit below — real playtesting on a

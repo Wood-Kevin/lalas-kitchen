@@ -1,6 +1,7 @@
 import {
   buildLevelSummary,
   buildRecipeBookSubtitle,
+  GENERATED_LEVEL_STATION_NAMES,
   resolveLevelDisplayName,
   resolveLevelMapIndices,
   resolveLevelStatus,
@@ -61,8 +62,14 @@ describe('resolveLevelDisplayName', () => {
     expect(resolveLevelDisplayName('Tomato Toss', 1)).toBe('Tomato Toss');
   });
 
-  test('falls back to a plain "Level N" label when displayName is undefined', () => {
-    expect(resolveLevelDisplayName(undefined, 7)).toBe('Level 7');
+  test('falls back to a curated, deterministic station name when displayName is undefined', () => {
+    expect(resolveLevelDisplayName(undefined, 7)).toBe(GENERATED_LEVEL_STATION_NAMES[6]);
+    expect(resolveLevelDisplayName(undefined, 7)).toBe(resolveLevelDisplayName(undefined, 7));
+  });
+
+  test('the station-name rotation cycles rather than running out for a level far past the curated pool', () => {
+    const farLevel = GENERATED_LEVEL_STATION_NAMES.length * 3 + 2;
+    expect(resolveLevelDisplayName(undefined, farLevel)).toBe(GENERATED_LEVEL_STATION_NAMES[1]);
   });
 });
 
@@ -114,11 +121,11 @@ describe('buildLevelSummary', () => {
     });
   });
 
-  test('falls back to "Level N" for a generated level with no displayName', () => {
+  test('falls back to a curated station name for a generated level with no displayName', () => {
     const config = { displayName: undefined, objectives: [{ targetMatchType: 'lemon', targetCount: 21 }] };
     expect(buildLevelSummary(config, 5)).toEqual({
       levelIndex: 5,
-      displayName: 'Level 5',
+      displayName: GENERATED_LEVEL_STATION_NAMES[4],
       targetMatchType: 'lemon',
       objectiveType: 'collect',
     });

@@ -40,11 +40,42 @@ export function resolveLevelStatus(
   return levelIndex === nextLevelIndex ? 'current' : 'locked';
 }
 
-// Falls back to a plain "Level N" label for any level with no displayName
-// (every generator-driven level past LEVEL_QUEUE, and any hand-built level
-// that hasn't been given a real name) — never fabricates a themed name.
+// A curated, deterministic rotation of warm kitchen-scene names for any
+// level with no real authored displayName — every generator-driven level
+// past LEVEL_QUEUE, since generated content has no per-level identity to
+// draw from. A real playtest report flagged the plain "Level N" fallback
+// (the level number is ALREADY shown separately everywhere this renders —
+// Home's "Up next · Level N" eyebrow, LevelMap's "LEVEL N" caption and
+// medallion number — see Home.tsx/LevelMap.tsx) as weakening the fantasy
+// once curated names ran out, since it repeated information rather than
+// adding any. Same "curated set, rotated by index" shape every other
+// generated-level lever already uses (board shapes, blocker ids) — cycles
+// forever rather than running out, deliberately not coupled to LEVEL_QUEUE's
+// own displayNames (a rare repeat in flavor text isn't a correctness
+// concern, and reaching into hand-built content here would be real coupling
+// for no functional benefit). See engine/DECISIONS.md's
+// generated-level-naming entry.
+export const GENERATED_LEVEL_STATION_NAMES: string[] = [
+  'The Pantry Shelf',
+  'Sunday Prep',
+  'The Spice Rack',
+  'Second Helpings',
+  'The Bread Board',
+  'Morning Simmer',
+  'The Corner Nook',
+  'Afternoon Stir',
+  'The Warm Oven',
+  'Kitchen Windowsill',
+  'The Cutting Table',
+  'Evening Ladle',
+  'The Spare Burner',
+  'Quiet Countertop',
+];
+
 export function resolveLevelDisplayName(displayName: string | undefined, levelIndex: number): string {
-  return displayName ?? `Level ${levelIndex}`;
+  if (displayName) return displayName;
+  const stationIndex = (levelIndex - 1) % GENERATED_LEVEL_STATION_NAMES.length;
+  return GENERATED_LEVEL_STATION_NAMES[stationIndex];
 }
 
 // The hand-built queue's levels are always part of the "recipe book" —
