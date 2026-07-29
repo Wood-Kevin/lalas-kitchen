@@ -40,42 +40,70 @@ export function resolveLevelStatus(
   return levelIndex === nextLevelIndex ? 'current' : 'locked';
 }
 
-// A curated, deterministic rotation of warm kitchen-scene names for any
-// level with no real authored displayName — every generator-driven level
-// past LEVEL_QUEUE, since generated content has no per-level identity to
-// draw from. A real playtest report flagged the plain "Level N" fallback
-// (the level number is ALREADY shown separately everywhere this renders —
-// Home's "Up next · Level N" eyebrow, LevelMap's "LEVEL N" caption and
-// medallion number — see Home.tsx/LevelMap.tsx) as weakening the fantasy
-// once curated names ran out, since it repeated information rather than
-// adding any. Same "curated set, rotated by index" shape every other
-// generated-level lever already uses (board shapes, blocker ids) — cycles
-// forever rather than running out, deliberately not coupled to LEVEL_QUEUE's
-// own displayNames (a rare repeat in flavor text isn't a correctness
-// concern, and reaching into hand-built content here would be real coupling
-// for no functional benefit). See engine/DECISIONS.md's
-// generated-level-naming entry.
-export const GENERATED_LEVEL_STATION_NAMES: string[] = [
-  'The Pantry Shelf',
-  'Sunday Prep',
-  'The Spice Rack',
-  'Second Helpings',
-  'The Bread Board',
-  'Morning Simmer',
-  'The Corner Nook',
-  'Afternoon Stir',
-  'The Warm Oven',
-  'Kitchen Windowsill',
-  'The Cutting Table',
-  'Evening Ladle',
-  'The Spare Burner',
-  'Quiet Countertop',
+// A curated, deterministic name for any level with no real authored
+// displayName — every generator-driven level past LEVEL_QUEUE, since
+// generated content has no per-level identity to draw from. A real
+// playtest report flagged the plain "Level N" fallback (the level number
+// is ALREADY shown separately everywhere this renders — Home's "Up next ·
+// Level N" eyebrow, LevelMap's "LEVEL N" caption and medallion number —
+// see Home.tsx/LevelMap.tsx) as weakening the fantasy once curated names
+// ran out, since it repeated information rather than adding any.
+//
+// A single 14-entry rotated list was tried first and rejected — the real
+// player's save is already past level 330 (~319 generated levels), so a
+// 14-name cycle would repeat roughly 23 times over, more noticeable than
+// the "Level N" it replaced, not less. Combining two small, independently-
+// stepping word pools instead gives far more mileage from the same modest
+// amount of authored content: with pool sizes chosen COPRIME (13 and 17,
+// both prime), the combined (timeWord, noun) pair has period exactly
+// 13 x 17 = 221 by the Chinese Remainder Theorem — every one of the 221
+// possible combinations occurs exactly once per cycle, not some smaller
+// sub-cycle a shared-factor pool size would waste. 221 levels between
+// exact repeats is a large, deliberate improvement over 14, not a claim of
+// literal infinity. See engine/DECISIONS.md's generated-level-naming entry
+// (and its later revision after this exact repeat-frequency concern).
+const STATION_TIME_WORDS: string[] = [
+  'Morning',
+  'Midday',
+  'Afternoon',
+  'Evening',
+  'Sunday',
+  'Quiet',
+  'Golden',
+  'Slow',
+  'Early',
+  'Warm',
+  'Late',
+  'Busy',
+  'Gentle',
+];
+
+const STATION_NOUNS: string[] = [
+  'Simmer',
+  'Prep',
+  'Pantry Shelf',
+  'Spice Rack',
+  'Bread Board',
+  'Corner Nook',
+  'Stir',
+  'Windowsill',
+  'Cutting Table',
+  'Ladle',
+  'Countertop',
+  'Burner',
+  'Stovetop',
+  'Teapot',
+  'Mixing Bowl',
+  'Cupboard',
+  'Breadbasket',
 ];
 
 export function resolveLevelDisplayName(displayName: string | undefined, levelIndex: number): string {
   if (displayName) return displayName;
-  const stationIndex = (levelIndex - 1) % GENERATED_LEVEL_STATION_NAMES.length;
-  return GENERATED_LEVEL_STATION_NAMES[stationIndex];
+  const n = levelIndex - 1;
+  const timeWord = STATION_TIME_WORDS[n % STATION_TIME_WORDS.length];
+  const noun = STATION_NOUNS[n % STATION_NOUNS.length];
+  return `${timeWord} ${noun}`;
 }
 
 // The hand-built queue's levels are always part of the "recipe book" —

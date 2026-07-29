@@ -1,7 +1,6 @@
 import {
   buildLevelSummary,
   buildRecipeBookSubtitle,
-  GENERATED_LEVEL_STATION_NAMES,
   resolveLevelDisplayName,
   resolveLevelMapIndices,
   resolveLevelStatus,
@@ -62,14 +61,36 @@ describe('resolveLevelDisplayName', () => {
     expect(resolveLevelDisplayName('Tomato Toss', 1)).toBe('Tomato Toss');
   });
 
-  test('falls back to a curated, deterministic station name when displayName is undefined', () => {
-    expect(resolveLevelDisplayName(undefined, 7)).toBe(GENERATED_LEVEL_STATION_NAMES[6]);
-    expect(resolveLevelDisplayName(undefined, 7)).toBe(resolveLevelDisplayName(undefined, 7));
+  test('falls back to a two-word station name when displayName is undefined, and is deterministic', () => {
+    const name = resolveLevelDisplayName(undefined, 7);
+    expect(name.split(' ').length).toBeGreaterThanOrEqual(2);
+    expect(resolveLevelDisplayName(undefined, 7)).toBe(name);
   });
 
-  test('the station-name rotation cycles rather than running out for a level far past the curated pool', () => {
-    const farLevel = GENERATED_LEVEL_STATION_NAMES.length * 3 + 2;
-    expect(resolveLevelDisplayName(undefined, farLevel)).toBe(GENERATED_LEVEL_STATION_NAMES[1]);
+  // The two internal word pools are 13 and 17 entries, chosen coprime so
+  // the combined (timeWord, noun) pair has period exactly 13*17 = 221 (no
+  // combination reached twice within one full cycle) — this replaced an
+  // earlier single 14-name list after the real player's save (already past
+  // level 330) made a 14-level repeat cycle a real, noticeable concern. See
+  // levelProgress.ts's own doc comment and engine/DECISIONS.md.
+  test('produces 221 distinct names across one full cycle before repeating', () => {
+    const names = new Set<string>();
+    for (let levelIndex = 1; levelIndex <= 221; levelIndex++) {
+      names.add(resolveLevelDisplayName(undefined, levelIndex));
+    }
+    expect(names.size).toBe(221);
+  });
+
+  test('repeats exactly at the 222nd level, not before — a real full-period guarantee, not an approximation', () => {
+    expect(resolveLevelDisplayName(undefined, 222)).toBe(resolveLevelDisplayName(undefined, 1));
+    expect(resolveLevelDisplayName(undefined, 223)).toBe(resolveLevelDisplayName(undefined, 2));
+  });
+
+  test('a real long-term save past level 330 still gets a distinct-feeling name, not an early, over-familiar repeat', () => {
+    // Level 330 is ~319 generated levels in — comfortably into a second
+    // cycle (221 < 319 < 442), but still a completely different pairing
+    // from level 1's, unlike a 14-entry pool's ~23rd repeat would be.
+    expect(resolveLevelDisplayName(undefined, 330)).not.toBe(resolveLevelDisplayName(undefined, 1));
   });
 });
 
@@ -125,7 +146,7 @@ describe('buildLevelSummary', () => {
     const config = { displayName: undefined, objectives: [{ targetMatchType: 'lemon', targetCount: 21 }] };
     expect(buildLevelSummary(config, 5)).toEqual({
       levelIndex: 5,
-      displayName: GENERATED_LEVEL_STATION_NAMES[4],
+      displayName: resolveLevelDisplayName(undefined, 5),
       targetMatchType: 'lemon',
       objectiveType: 'collect',
     });
