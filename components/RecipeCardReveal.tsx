@@ -41,7 +41,7 @@ function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labe
 // treatment shown instead of that illustration, not layered on top of it.
 export function RecipeCardReveal({ card, config, spriteAssets }: RecipeCardRevealProps) {
   const sprite = resolveSpriteAsset(card.sprite, spriteAssets);
-  const { panel, border, text, mutedText } = config.palette;
+  const { panel, border, text, mutedText, accent } = config.palette;
 
   const progress = useSharedValue(0);
   useEffect(() => {
@@ -71,6 +71,9 @@ export function RecipeCardReveal({ card, config, spriteAssets }: RecipeCardRevea
         </View>
         <Text style={[styles.title, { color: text }]}>{card.title}</Text>
         <Text style={[styles.flavorText, { color: mutedText }]}>{card.flavorText}</Text>
+        {card.recipe && (
+          <Text style={[styles.recipeHint, { color: accent }]}>Find the full recipe in your recipe book.</Text>
+        )}
       </Animated.View>
     </View>
   );
@@ -135,6 +138,17 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  // Only shown when card.recipe exists (see RecipeCardReveal's own gate) —
+  // never a broken promise pointing at a recipe that isn't written yet.
+  // Accent-colored, not muted, since this is a cue toward an action (open
+  // the recipe book) rather than flavor copy.
+  recipeHint: {
+    fontFamily: Fonts.bodyBold,
+    marginTop: 8,
+    fontSize: 11,
+    fontWeight: '700',
     textAlign: 'center',
   },
 });
