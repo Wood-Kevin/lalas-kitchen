@@ -32,17 +32,89 @@
     "text": "#2B211A"
   },
   "recipeCards": [
-    { "id": "tomato_stew", "title": "Sunday Tomato Stew", "flavorText": "Simmered slow, just like Sunday mornings.", "milestoneLevel": 1, "sprite": "recipe_tomato_stew.webp" },
-    { "id": "classic_tomato_soup", "title": "Classic Tomato Soup", "flavorText": "Smooth, simple, and best with a full spoon.", "milestoneLevel": 2, "sprite": "recipe_classic_tomato_soup.webp" },
-    { "id": "herb_garden_salad", "title": "Herb Garden Salad", "flavorText": "A handful of green, fresh off the sill.", "milestoneLevel": 3, "sprite": "recipe_herb_garden_salad.webp" },
-    { "id": "lemon_roast_chicken", "title": "Lemon Roast Chicken", "flavorText": "Bright, golden, and worth the wait.", "milestoneLevel": 6, "sprite": "recipe_lemon_roast_chicken.webp" },
-    { "id": "herb_hearth_focaccia", "title": "Herb Hearth Focaccia", "flavorText": "Torn warm at the table, before it cools.", "milestoneLevel": 8, "sprite": "recipe_herb_hearth_focaccia.webp" },
-    { "id": "garlic_bread_basket", "title": "Garlic Bread Basket", "flavorText": "Warm enough to fog up the window.", "milestoneLevel": 10, "sprite": "recipe_garlic_bread_basket.webp" },
-    { "id": "hearty_chili_pot", "title": "Hearty Chili Pot", "flavorText": "The kind that simmers all afternoon.", "milestoneLevel": 15, "sprite": "recipe_hearty_chili_pot.webp" },
-    { "id": "wooden_spoon_pancakes", "title": "Wooden Spoon Pancakes", "flavorText": "Stacked high on a slow Saturday.", "milestoneLevel": 21, "sprite": "recipe_wooden_spoon_pancakes.webp" },
-    { "id": "chili_lemon_soup", "title": "Chili Lemon Soup", "flavorText": "A little heat, a little brightness.", "milestoneLevel": 28, "sprite": "recipe_chili_lemon_soup.webp" },
-    { "id": "lemon_squeeze", "title": "Lemon Squeeze", "flavorText": "Bright, simple, and good with warm bread.", "milestoneLevel": 32, "sprite": "recipe_lemon_squeeze.webp" },
-    { "id": "garlic_herb_roast", "title": "Garlic Herb Roast", "flavorText": "Sunday dinner, any day of the week.", "milestoneLevel": 36, "sprite": "recipe_garlic_herb_roast.webp" },
-    { "id": "grandmas_recipe_box", "title": "Grandma's Recipe Box", "flavorText": "The one that started it all.", "milestoneLevel": 45, "sprite": "recipe_grandmas_recipe_box.webp" }
+    {
+      "id": "tomato_stew", "title": "Sunday Tomato Stew", "flavorText": "Simmered slow, just like Sunday mornings.", "milestoneLevel": 1, "sprite": "recipe_tomato_stew.webp",
+      "recipe": {
+        "ingredients": ["1 can crushed tomatoes", "1 onion, diced", "2 cloves garlic, minced", "2 tbsp olive oil", "A handful of fresh basil", "Salt and pepper"],
+        "steps": ["Sauté the onion and garlic in olive oil until soft.", "Add the tomatoes and simmer for 20 minutes.", "Season with salt, pepper, and torn basil.", "Serve warm with crusty bread."]
+      }
+    },
+    {
+      "id": "classic_tomato_soup", "title": "Classic Tomato Soup", "flavorText": "Smooth, simple, and best with a full spoon.", "milestoneLevel": 2, "sprite": "recipe_classic_tomato_soup.webp",
+      "recipe": {
+        "ingredients": ["4 ripe tomatoes", "2 cups vegetable broth", "1 small onion", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
+        "steps": ["Simmer tomatoes, broth, and onion together for 15 minutes.", "Blend until smooth.", "Stir in butter and a splash of cream.", "Season to taste and serve hot."]
+      }
+    },
+    {
+      "id": "herb_garden_salad", "title": "Herb Garden Salad", "flavorText": "A handful of green, fresh off the sill.", "milestoneLevel": 3, "sprite": "recipe_herb_garden_salad.webp",
+      "recipe": {
+        "ingredients": ["Mixed greens", "A handful of fresh herbs (parsley, dill, chives)", "2 tbsp olive oil", "1 tbsp lemon juice", "Salt"],
+        "steps": ["Toss the greens and herbs together.", "Whisk olive oil, lemon juice, and salt for the dressing.", "Drizzle over the salad just before serving."]
+      }
+    },
+    {
+      "id": "lemon_roast_chicken", "title": "Lemon Roast Chicken", "flavorText": "Bright, golden, and worth the wait.", "milestoneLevel": 6, "sprite": "recipe_lemon_roast_chicken.webp",
+      "recipe": {
+        "ingredients": ["1 whole chicken", "1 lemon, halved", "3 cloves garlic", "2 tbsp olive oil", "A few sprigs of rosemary", "Salt and pepper"],
+        "steps": ["Rub the chicken all over with olive oil, salt, and pepper.", "Stuff the cavity with the lemon, garlic, and rosemary.", "Roast at 400°F (200°C) until golden, about 1 hour.", "Rest for 10 minutes before carving."]
+      }
+    },
+    {
+      "id": "herb_hearth_focaccia", "title": "Herb Hearth Focaccia", "flavorText": "Torn warm at the table, before it cools.", "milestoneLevel": 8, "sprite": "recipe_herb_hearth_focaccia.webp",
+      "recipe": {
+        "ingredients": ["3 cups bread flour", "1 packet yeast", "1 1/4 cups warm water", "1/4 cup olive oil", "Fresh rosemary", "Coarse salt"],
+        "steps": ["Mix flour, yeast, water, and olive oil into a soft dough.", "Let rise until doubled, about an hour.", "Press into a pan, dimple with your fingers, and top with rosemary and salt.", "Bake at 425°F (220°C) until golden."]
+      }
+    },
+    {
+      "id": "garlic_bread_basket", "title": "Garlic Bread Basket", "flavorText": "Warm enough to fog up the window.", "milestoneLevel": 10, "sprite": "recipe_garlic_bread_basket.webp",
+      "recipe": {
+        "ingredients": ["1 loaf crusty bread", "4 tbsp butter, softened", "3 cloves garlic, minced", "Fresh parsley", "Salt"],
+        "steps": ["Mix the softened butter with garlic and parsley.", "Spread generously over sliced bread.", "Bake at 375°F (190°C) until golden and fragrant."]
+      }
+    },
+    {
+      "id": "hearty_chili_pot", "title": "Hearty Chili Pot", "flavorText": "The kind that simmers all afternoon.", "milestoneLevel": 15, "sprite": "recipe_hearty_chili_pot.webp",
+      "recipe": {
+        "ingredients": ["1 lb ground meat or 2 cans beans", "1 can crushed tomatoes", "2 chili peppers, chopped", "1 onion", "2 cloves garlic", "1 tsp cumin"],
+        "steps": ["Brown the meat or beans with onion and garlic.", "Add the tomatoes, chili, and cumin.", "Simmer low and slow for at least an hour, stirring occasionally."]
+      }
+    },
+    {
+      "id": "wooden_spoon_pancakes", "title": "Wooden Spoon Pancakes", "flavorText": "Stacked high on a slow Saturday.", "milestoneLevel": 21, "sprite": "recipe_wooden_spoon_pancakes.webp",
+      "recipe": {
+        "ingredients": ["1 1/2 cups flour", "1 cup milk", "2 eggs", "2 tbsp melted butter", "2 tbsp sugar", "2 tsp baking powder"],
+        "steps": ["Whisk the dry ingredients together.", "Stir in the milk, eggs, and melted butter until just combined.", "Cook spoonfuls on a hot griddle until bubbles form, then flip."]
+      }
+    },
+    {
+      "id": "chili_lemon_soup", "title": "Chili Lemon Soup", "flavorText": "A little heat, a little brightness.", "milestoneLevel": 28, "sprite": "recipe_chili_lemon_soup.webp",
+      "recipe": {
+        "ingredients": ["4 cups broth", "1-2 chili peppers, sliced", "Juice of 1 lemon", "2 cloves garlic", "Fresh herbs", "Salt"],
+        "steps": ["Simmer the broth with garlic and chili until fragrant.", "Stir in the lemon juice just before serving.", "Garnish with fresh herbs."]
+      }
+    },
+    {
+      "id": "lemon_squeeze", "title": "Lemon Squeeze", "flavorText": "Bright, simple, and good with warm bread.", "milestoneLevel": 32, "sprite": "recipe_lemon_squeeze.webp",
+      "recipe": {
+        "ingredients": ["4 lemons", "1/2 cup sugar", "4 cups water", "Ice"],
+        "steps": ["Juice the lemons.", "Stir the juice with sugar and water until dissolved.", "Pour over ice and serve cold."]
+      }
+    },
+    {
+      "id": "garlic_herb_roast", "title": "Garlic Herb Roast", "flavorText": "Sunday dinner, any day of the week.", "milestoneLevel": 36, "sprite": "recipe_garlic_herb_roast.webp",
+      "recipe": {
+        "ingredients": ["1 beef or vegetable roast", "4 cloves garlic, crushed", "Mixed fresh herbs", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Rub the roast all over with olive oil, garlic, and herbs.", "Season generously with salt and pepper.", "Roast slow until tender, then rest before serving."]
+      }
+    },
+    {
+      "id": "grandmas_recipe_box", "title": "Grandma's Recipe Box", "flavorText": "The one that started it all.", "milestoneLevel": 45, "sprite": "recipe_grandmas_recipe_box.webp",
+      "recipe": {
+        "ingredients": ["A little of everything you've learned so far", "Patience", "Love"],
+        "steps": ["There's no real recipe here — just years of Sunday mornings, borrowed spoons, and a box too full to close.", "Some things are better remembered than measured."]
+      }
+    }
   ]
 }

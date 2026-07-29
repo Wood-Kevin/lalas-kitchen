@@ -19,6 +19,17 @@ export interface SkinBlocker {
   specialOnly?: boolean;
 }
 
+// The actual cookable recipe behind a card — plain ingredient/step lists,
+// not markup or structured quantities, matching how flavorText is already
+// just a plain string rather than a richer data shape. Optional on
+// RecipeCard: a card can exist (real art, a real milestone) before its
+// recipe content is written, the same "art can land before/after config"
+// gap the sprite-fallback convention already tolerates elsewhere.
+export interface Recipe {
+  ingredients: string[];
+  steps: string[];
+}
+
 // A fixed, curated collectible tied to one specific level number — not one
 // per level forever (levels generate indefinitely; a collection needs a
 // completable set). `milestoneLevel` is the absolute level index (matching
@@ -33,6 +44,7 @@ export interface RecipeCard {
   flavorText: string;
   milestoneLevel: number;
   sprite: string;
+  recipe?: Recipe;
 }
 
 export type CascadeFallSpeed = 'slow' | 'medium' | 'fast';

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import { Fonts } from './fonts';
@@ -6,6 +6,7 @@ import { RecipeCard, SkinConfig } from './skinConfig';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { GinghamTrim } from './GinghamTrim';
 import { buildRecipeBookSubtitle } from './levelProgress';
+import { RecipeDetailModal } from './RecipeDetailModal';
 
 export interface RecipeBookProps {
   config: SkinConfig;
@@ -59,6 +60,15 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
   const subtitle = buildRecipeBookSubtitle(unlockedCardIds.length, config.recipeCards.length);
   const { accent, panel, border, text, mutedText, background } = config.palette;
 
+  // Which unlocked card's recipe is currently open, if any — a plain id
+  // lookup against config.recipeCards rather than storing the card object
+  // itself, the same shape Board.tsx's own selected-tile state already
+  // uses. Only ever set by tapping an UNLOCKED cell (see RecipeGridCell's
+  // onPress, gated behind `unlocked` there) — a locked cell has no card to
+  // show a recipe for.
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const openCard = openCardId ? config.recipeCards.find((card) => card.id === openCardId) : undefined;
+
   return (
     <View style={[styles.container, { backgroundColor: background[0] }]}>
       <GinghamTrim accentColor={accent} panelColor={panel} height={12} />
@@ -90,11 +100,21 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
                 unlocked={unlockedCardIds.includes(card.id)}
                 config={config}
                 spriteAssets={spriteAssets}
+                onPress={() => setOpenCardId(card.id)}
               />
             ))}
           </View>
         ))}
       </ScrollView>
+
+      {openCard && (
+        <RecipeDetailModal
+          card={openCard}
+          config={config}
+          spriteAssets={spriteAssets}
+          onDismiss={() => setOpenCardId(null)}
+        />
+      )}
     </View>
   );
 }
@@ -104,11 +124,13 @@ function RecipeGridCell({
   unlocked,
   config,
   spriteAssets,
+  onPress,
 }: {
   card: RecipeCard;
   unlocked: boolean;
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
+  onPress: () => void;
 }) {
   const { panel, border, text } = config.palette;
 
@@ -118,14 +140,19 @@ function RecipeGridCell({
 
   const sprite = resolveSpriteAsset(card.sprite, spriteAssets);
   return (
-    <View style={[styles.cell, { backgroundColor: panel, borderColor: border }]}>
+    <Pressable
+      style={[styles.cell, { backgroundColor: panel, borderColor: border }]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${card.title} recipe`}
+    >
       <View style={styles.cellIllustration}>
         <CardIllustration sprite={sprite} labelColor={text} />
       </View>
       <Text style={[styles.cellTitle, { color: text }]} numberOfLines={2}>
         {card.title}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
