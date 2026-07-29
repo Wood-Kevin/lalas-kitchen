@@ -128,7 +128,7 @@ export function buildLevelSummary(
 // The recipe book collection's progress copy — unlike level-completion
 // progress (which has no ceiling, see this file's git history for the
 // now-removed buildProgressCopy), the recipe card collection genuinely is
-// a fixed, curated set (skinConfig.recipeCards, currently 9 — see
+// a fixed, curated set (skinConfig.recipeCards in the active skin — see
 // appPersistence.ts's findRecipeCardForLevel), so "X of Y" is a real ratio
 // here, not a fake denominator smuggled back in. Still just a plain count,
 // no percentage, no progress bar, no urgency language, per this feature's
@@ -141,7 +141,7 @@ export function buildRecipeBookSubtitle(unlockedCount: number, totalCount: numbe
     return 'Every recipe collected — the book is complete.';
   }
   // "recipes" stays plural even at a count of 1 — the ratio's denominator
-  // ("of 9") already frames this as a pool, so "1 of 9 recipe collected"
+  // ("of Y") already frames this as a pool, so "1 of Y recipe collected"
   // reads wrong the way a bare "1 recipe" never would.
   return `${unlockedCount} of ${totalCount} recipes collected.`;
 }

@@ -12,8 +12,8 @@ export interface RecipeBookProps {
   spriteAssets: SpriteAssetMap;
   // Which of config.recipeCards's ids have been unlocked so far (App.tsx's
   // unlockedRecipeCards, loaded from SaveData) — the only thing that
-  // decides filled vs. empty per card. config.recipeCards itself is always
-  // the same fixed 9 entries; this list is what grows over time.
+  // decides filled vs. empty per card. config.recipeCards itself is the
+  // skin's curated recipe set; this list is what grows over time.
   unlockedCardIds: string[];
   onBack: () => void;
 }
@@ -31,7 +31,7 @@ function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labe
 
 const GRID_COLUMNS = 3;
 
-// Splits the fixed 9-card list into rows of 3 — each row is its own flex
+// Splits the curated recipe-card list into rows of 3 — each row is its own flex
 // container with `flex: 1` cells (see styles.cell), which is what makes the
 // gap math work out exactly to 100% width with no overflow. A single
 // flexWrap container with percentage-width cells was tried first and
@@ -47,8 +47,9 @@ function chunkIntoRows<T>(items: T[], columns: number): T[][] {
   return rows;
 }
 
-// The collection view — a fixed 3x3 grid over skinConfig.recipeCards, never
-// a scrolling/paginated list, since the set itself is fixed and small (see
+// The collection view — a simple 3-column grid over skinConfig.recipeCards,
+// never a scrolling/paginated list per row, since the set itself is fixed and
+// still intentionally small (see
 // appPersistence.ts's findRecipeCardForLevel). Filled cells show the real
 // card; unfilled cells are a plain dashed outline with nothing inside — no
 // lock glyph (unlike LevelMap.tsx's locked-level nodes), no number, no

@@ -26,8 +26,8 @@ export interface LevelMapNodePosition {
 // Vertical distance between consecutive node centers, and the gap above the
 // first node — both fixed layout constants (not derived from screen size),
 // matching the approved design's own fixed node spacing.
-const NODE_SPACING_Y = 210;
-const TOP_PADDING = 100;
+const NODE_SPACING_Y = 230;
+const TOP_PADDING = 120;
 
 // A repeating left/center/right/center snake cycle — deterministic and
 // testable, not randomized, so the same level list always lays out

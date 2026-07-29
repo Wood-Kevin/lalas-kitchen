@@ -79,17 +79,35 @@ export const spriteRegistry: SpriteAssetMap = {
   'sealed_jar.webp': require('./sprites/sealed_jar.webp'),
   'home-hero-500h-crop.webp': require('./sprites/home-hero-500h-crop.webp'),
   'splash-full-1024h.webp': require('./sprites/splash-full-1024h.webp'),
+  // Level map decor — resized to a 600px longest edge (the largest on-screen
+  // use, the start-gate landmark, renders at 150x184dp, i.e. 450x552px at
+  // @3x) and converted to WebP, matching every other sprite in this skin.
+  // The raw, full-resolution originals (~2.3-2.7MB PNGs each) are kept in
+  // the untracked _assets/ staging folder, not bundled.
+  'levelmap_garden_gate.webp': require('./sprites/levelmap_garden_gate.webp'),
+  'levelmap_lemon_basket.webp': require('./sprites/levelmap_lemon_basket.webp'),
+  'levelmap_herb_garden.webp': require('./sprites/levelmap_herb_garden.webp'),
+  'levelmap_garlic_crate.webp': require('./sprites/levelmap_garlic_crate.webp'),
+  'levelmap_simmering_pot.webp': require('./sprites/levelmap_simmering_pot.webp'),
+  'levelmap_recipe_box.webp': require('./sprites/levelmap_recipe_box.webp'),
   // Recipe card illustrations — one per config.json recipeCards entry, keyed
   // by that entry's `sprite` field (see appPersistence.ts's
   // findRecipeCardForLevel). Real art landing here is the only change needed
-  // to swap RecipeCardReveal/RecipeBook off the text-label fallback.
+  // to swap RecipeCardReveal/RecipeBook off the text-label fallback. Resized
+  // to 300x300 (the largest on-screen use, RecipeCardReveal's illustration,
+  // renders at 96dp, i.e. 288px at @3x) and converted to WebP — the source
+  // art arrived as uncompressed 1254x1254 PNGs (~2.5-3.2MB each); the raw
+  // originals are kept in the untracked _assets/ staging folder, not bundled.
   'recipe_tomato_stew.webp': require('./sprites/recipe_tomato_stew.webp'),
+  'recipe_classic_tomato_soup.webp': require('./sprites/recipe_classic_tomato_soup.webp'),
   'recipe_herb_garden_salad.webp': require('./sprites/recipe_herb_garden_salad.webp'),
   'recipe_lemon_roast_chicken.webp': require('./sprites/recipe_lemon_roast_chicken.webp'),
+  'recipe_herb_hearth_focaccia.webp': require('./sprites/recipe_herb_hearth_focaccia.webp'),
   'recipe_garlic_bread_basket.webp': require('./sprites/recipe_garlic_bread_basket.webp'),
   'recipe_hearty_chili_pot.webp': require('./sprites/recipe_hearty_chili_pot.webp'),
   'recipe_wooden_spoon_pancakes.webp': require('./sprites/recipe_wooden_spoon_pancakes.webp'),
   'recipe_chili_lemon_soup.webp': require('./sprites/recipe_chili_lemon_soup.webp'),
+  'recipe_lemon_squeeze.webp': require('./sprites/recipe_lemon_squeeze.webp'),
   'recipe_garlic_herb_roast.webp': require('./sprites/recipe_garlic_herb_roast.webp'),
   'recipe_grandmas_recipe_box.webp': require('./sprites/recipe_grandmas_recipe_box.webp'),
 };
