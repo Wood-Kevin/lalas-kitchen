@@ -12,9 +12,11 @@ import { SpriteAssetMap } from '../../components/spriteAsset';
 // never know this file exists.
 //
 // All six pieceTypes sprites, all six striped_ variants, the color_bomb
-// special-piece sprite, the lives.icon sprite, all three blocker sprites
-// (cling.webp, dish_stack.webp, pot_lid.webp), and all nine recipe card
-// illustrations have landed; each gets exactly one line below.
+// special-piece sprite, the lives.icon sprite, all four blocker sprites
+// (cling.webp, dish_stack.webp, pot_lid.webp, sealed_jar.webp), and all 52
+// recipe card illustrations (the original 12, plus a 40-card extension pack
+// — see engine/DECISIONS.md's 40-card-extension-wired entry) have landed;
+// each gets exactly one line below.
 //
 // home-hero-500h-crop.webp and splash-full-1024h.webp aren't piece/blocker
 // sprites from config.json — they're the Home screen's header banner and
@@ -110,4 +112,49 @@ export const spriteRegistry: SpriteAssetMap = {
   'recipe_lemon_squeeze.webp': require('./sprites/recipe_lemon_squeeze.webp'),
   'recipe_garlic_herb_roast.webp': require('./sprites/recipe_garlic_herb_roast.webp'),
   'recipe_grandmas_recipe_box.webp': require('./sprites/recipe_grandmas_recipe_box.webp'),
+  // 40-card extension pack (recipe-card-watercolor-pack-2026-07-29-expansion),
+  // wired to the milestone curve engine/DECISIONS.md's 40-card-extension-curve
+  // entry designed (levels 50-625, widening gap). Same 300x300/quality-85
+  // WebP treatment as the original 12; a further 6 "alternate" cards from the
+  // same pack were deliberately left unwired — see DEFERRED_COMPLEXITY.md.
+  'recipe_basil_breakfast_eggs.webp': require('./sprites/recipe_basil_breakfast_eggs.webp'),
+  'recipe_basil_butter_gnocchi.webp': require('./sprites/recipe_basil_butter_gnocchi.webp'),
+  'recipe_basil_cream_pasta.webp': require('./sprites/recipe_basil_cream_pasta.webp'),
+  'recipe_chili_bean_bake.webp': require('./sprites/recipe_chili_bean_bake.webp'),
+  'recipe_chili_cheddar_bake.webp': require('./sprites/recipe_chili_cheddar_bake.webp'),
+  'recipe_chili_cornbread_skillet.webp': require('./sprites/recipe_chili_cornbread_skillet.webp'),
+  'recipe_chili_honey_carrots.webp': require('./sprites/recipe_chili_honey_carrots.webp'),
+  'recipe_chili_roast_potatoes.webp': require('./sprites/recipe_chili_roast_potatoes.webp'),
+  'recipe_garden_herb_omelet.webp': require('./sprites/recipe_garden_herb_omelet.webp'),
+  'recipe_garlic_braised_greens.webp': require('./sprites/recipe_garlic_braised_greens.webp'),
+  'recipe_garlic_herb_rice.webp': require('./sprites/recipe_garlic_herb_rice.webp'),
+  'recipe_garlic_skillet_mushrooms.webp': require('./sprites/recipe_garlic_skillet_mushrooms.webp'),
+  'recipe_garlic_tomato_bruschetta.webp': require('./sprites/recipe_garlic_tomato_bruschetta.webp'),
+  'recipe_herb_crumb_chicken.webp': require('./sprites/recipe_herb_crumb_chicken.webp'),
+  'recipe_herb_garden_flatbread.webp': require('./sprites/recipe_herb_garden_flatbread.webp'),
+  'recipe_herb_market_soup.webp': require('./sprites/recipe_herb_market_soup.webp'),
+  'recipe_herb_roasted_carrots.webp': require('./sprites/recipe_herb_roasted_carrots.webp'),
+  'recipe_lemon_apron_cookies.webp': require('./sprites/recipe_lemon_apron_cookies.webp'),
+  'recipe_lemon_cream_scones.webp': require('./sprites/recipe_lemon_cream_scones.webp'),
+  'recipe_lemon_herb_couscous.webp': require('./sprites/recipe_lemon_herb_couscous.webp'),
+  'recipe_lemon_poppy_loaf.webp': require('./sprites/recipe_lemon_poppy_loaf.webp'),
+  'recipe_lemon_skillet_greens.webp': require('./sprites/recipe_lemon_skillet_greens.webp'),
+  'recipe_lemon_thyme_biscuits.webp': require('./sprites/recipe_lemon_thyme_biscuits.webp'),
+  'recipe_pantry_bean_stew.webp': require('./sprites/recipe_pantry_bean_stew.webp'),
+  'recipe_roasted_garlic_mash.webp': require('./sprites/recipe_roasted_garlic_mash.webp'),
+  'recipe_roasted_garlic_soup.webp': require('./sprites/recipe_roasted_garlic_soup.webp'),
+  'recipe_roasted_pepper_stew.webp': require('./sprites/recipe_roasted_pepper_stew.webp'),
+  'recipe_rosemary_garlic_rolls.webp': require('./sprites/recipe_rosemary_garlic_rolls.webp'),
+  'recipe_skillet_lemon_potatoes.webp': require('./sprites/recipe_skillet_lemon_potatoes.webp'),
+  'recipe_spoon_cake_pudding.webp': require('./sprites/recipe_spoon_cake_pudding.webp'),
+  'recipe_spoon_stirred_polenta.webp': require('./sprites/recipe_spoon_stirred_polenta.webp'),
+  'recipe_sunday_herb_stuffing.webp': require('./sprites/recipe_sunday_herb_stuffing.webp'),
+  'recipe_tomato_basil_tart.webp': require('./sprites/recipe_tomato_basil_tart.webp'),
+  'recipe_tomato_braised_beans.webp': require('./sprites/recipe_tomato_braised_beans.webp'),
+  'recipe_tomato_harvest_pie.webp': require('./sprites/recipe_tomato_harvest_pie.webp'),
+  'recipe_tomato_jam_toast.webp': require('./sprites/recipe_tomato_jam_toast.webp'),
+  'recipe_tomato_rice_bake.webp': require('./sprites/recipe_tomato_rice_bake.webp'),
+  'recipe_garden_tomato_galette.webp': require('./sprites/recipe_garden_tomato_galette.webp'),
+  'recipe_basil_skillet_bread.webp': require('./sprites/recipe_basil_skillet_bread.webp'),
+  'recipe_skillet_honey_squash.webp': require('./sprites/recipe_skillet_honey_squash.webp'),
 };

@@ -115,6 +115,286 @@
         "ingredients": ["A little of everything you've learned so far", "Patience", "Love"],
         "steps": ["There's no real recipe here — just years of Sunday mornings, borrowed spoons, and a box too full to close.", "Some things are better remembered than measured."]
       }
+    },
+    {
+      "id": "basil_breakfast_eggs", "title": "Basil Breakfast Eggs", "flavorText": "Soft morning eggs with a bright basil finish.", "milestoneLevel": 50, "sprite": "recipe_basil_breakfast_eggs.webp",
+      "recipe": {
+        "ingredients": ["4 eggs", "2 tbsp milk or cream", "1 tbsp butter", "A handful of fresh basil, torn", "Salt and pepper"],
+        "steps": ["Whisk the eggs with milk, salt, and pepper.", "Melt butter in a pan over low heat and pour in the eggs.", "Stir gently until just set, then fold in the basil.", "Serve right away, still soft."]
+      }
+    },
+    {
+      "id": "basil_butter_gnocchi", "title": "Basil Butter Gnocchi", "flavorText": "Pillowy gnocchi tucked into a buttery basil glow.", "milestoneLevel": 55, "sprite": "recipe_basil_butter_gnocchi.webp",
+      "recipe": {
+        "ingredients": ["1 lb potato gnocchi", "4 tbsp butter", "2 cloves garlic, minced", "A handful of fresh basil, torn", "Grated parmesan", "Salt and pepper"],
+        "steps": ["Boil the gnocchi until they float, then drain.", "Melt the butter in a pan and cook the garlic until fragrant.", "Toss the gnocchi in the butter until lightly golden.", "Stir in the basil and top with parmesan before serving."]
+      }
+    },
+    {
+      "id": "basil_cream_pasta", "title": "Basil Cream Pasta", "flavorText": "Creamy ribbons of pasta with a garden-fresh basil finish.", "milestoneLevel": 61, "sprite": "recipe_basil_cream_pasta.webp",
+      "recipe": {
+        "ingredients": ["12 oz pasta", "1 cup cream", "2 cloves garlic, minced", "A handful of fresh basil, chopped", "Grated parmesan", "Salt and pepper"],
+        "steps": ["Cook the pasta until al dente, then drain, saving a little pasta water.", "Simmer the garlic and cream together until slightly thickened.", "Toss in the pasta, basil, and parmesan, loosening with pasta water as needed.", "Season to taste and serve warm."]
+      }
+    },
+    {
+      "id": "chili_bean_bake", "title": "Chili Bean Bake", "flavorText": "A cozy bake with smoky chili warmth and hearty beans.", "milestoneLevel": 67, "sprite": "recipe_chili_bean_bake.webp",
+      "recipe": {
+        "ingredients": ["2 cans beans, drained", "1 can crushed tomatoes", "1-2 chili peppers, chopped", "1 onion, diced", "1 cup shredded cheese", "1 tsp cumin"],
+        "steps": ["Stir the beans, tomatoes, onion, chili, and cumin together in a baking dish.", "Top with the shredded cheese.", "Bake at 375°F (190°C) until bubbling and golden, about 25 minutes."]
+      }
+    },
+    {
+      "id": "chili_cheddar_bake", "title": "Chili Cheddar Bake", "flavorText": "Golden cheddar comfort with a little red-pepper kick.", "milestoneLevel": 74, "sprite": "recipe_chili_cheddar_bake.webp",
+      "recipe": {
+        "ingredients": ["2 chili peppers, chopped", "2 cups shredded cheddar", "4 eggs", "1/2 cup milk", "1/4 cup flour", "Salt"],
+        "steps": ["Whisk the eggs, milk, and flour together until smooth.", "Stir in the cheddar and chili.", "Pour into a greased baking dish and bake at 375°F (190°C) until golden and set, about 30 minutes."]
+      }
+    },
+    {
+      "id": "chili_cornbread_skillet", "title": "Chili Cornbread Skillet", "flavorText": "Sweet skillet cornbread with a spicy chili sparkle.", "milestoneLevel": 81, "sprite": "recipe_chili_cornbread_skillet.webp",
+      "recipe": {
+        "ingredients": ["1 cup cornmeal", "1 cup flour", "1 cup buttermilk", "2 eggs", "1-2 chili peppers, chopped", "2 tbsp honey"],
+        "steps": ["Whisk the wet ingredients together, then fold in the cornmeal, flour, and chili.", "Pour into a hot, buttered skillet.", "Bake at 400°F (200°C) until golden and a toothpick comes out clean, about 20 minutes.", "Drizzle with honey before serving."]
+      }
+    },
+    {
+      "id": "chili_honey_carrots", "title": "Chili Honey Carrots", "flavorText": "Honey-glazed carrots with a sweet little heat.", "milestoneLevel": 89, "sprite": "recipe_chili_honey_carrots.webp",
+      "recipe": {
+        "ingredients": ["1 lb carrots, halved", "2 tbsp butter", "2 tbsp honey", "1 chili pepper, thinly sliced", "Salt"],
+        "steps": ["Roast the carrots at 400°F (200°C) until tender, about 25 minutes.", "Melt the butter and honey together with the chili.", "Toss the warm carrots in the glaze and season with salt."]
+      }
+    },
+    {
+      "id": "chili_roast_potatoes", "title": "Chili Roast Potatoes", "flavorText": "Crisp roast potatoes with a smoky chili edge.", "milestoneLevel": 97, "sprite": "recipe_chili_roast_potatoes.webp",
+      "recipe": {
+        "ingredients": ["2 lbs potatoes, cut into wedges", "3 tbsp olive oil", "1-2 chili peppers, chopped", "2 cloves garlic, minced", "Salt and pepper"],
+        "steps": ["Toss the potatoes with olive oil, chili, garlic, salt, and pepper.", "Spread on a baking sheet in a single layer.", "Roast at 425°F (220°C) until crisp and golden, turning once, about 35 minutes."]
+      }
+    },
+    {
+      "id": "garden_herb_omelet", "title": "Garden Herb Omelet", "flavorText": "A folded omelet full of soft herbs and sunny comfort.", "milestoneLevel": 106, "sprite": "recipe_garden_herb_omelet.webp",
+      "recipe": {
+        "ingredients": ["3 eggs", "1 tbsp butter", "A handful of mixed fresh herbs, chopped", "2 tbsp grated cheese", "Salt and pepper"],
+        "steps": ["Whisk the eggs with salt and pepper.", "Melt the butter in a pan and pour in the eggs.", "Sprinkle the herbs and cheese over one half as the eggs set.", "Fold in half and slide onto a plate."]
+      }
+    },
+    {
+      "id": "garlic_braised_greens", "title": "Garlic Braised Greens", "flavorText": "Silky greens cooked down with mellow garlic.", "milestoneLevel": 115, "sprite": "recipe_garlic_braised_greens.webp",
+      "recipe": {
+        "ingredients": ["1 bunch leafy greens (chard, kale, or spinach)", "3 cloves garlic, sliced", "2 tbsp olive oil", "1/4 cup broth", "Salt and a pinch of chili flakes"],
+        "steps": ["Warm the olive oil and cook the garlic until just golden.", "Add the greens and broth, cover, and cook until wilted and tender.", "Season with salt and a pinch of chili flakes."]
+      }
+    },
+    {
+      "id": "garlic_herb_rice", "title": "Garlic Herb Rice", "flavorText": "Fluffy rice with roasted garlic tucked between the grains.", "milestoneLevel": 125, "sprite": "recipe_garlic_herb_rice.webp",
+      "recipe": {
+        "ingredients": ["1 cup rice", "2 cloves garlic, minced", "2 tbsp butter", "2 cups broth", "A handful of fresh herbs, chopped"],
+        "steps": ["Cook the garlic in butter until fragrant.", "Stir in the rice to coat, then add the broth.", "Simmer covered until the rice is tender, about 18 minutes.", "Fluff with a fork and stir in the fresh herbs."]
+      }
+    },
+    {
+      "id": "garlic_skillet_mushrooms", "title": "Garlic Skillet Mushrooms", "flavorText": "Savory browned mushrooms with skillet-deep flavor.", "milestoneLevel": 135, "sprite": "recipe_garlic_skillet_mushrooms.webp",
+      "recipe": {
+        "ingredients": ["1 lb mushrooms, sliced", "3 cloves garlic, minced", "3 tbsp butter", "A splash of white wine or broth", "Fresh parsley, chopped", "Salt and pepper"],
+        "steps": ["Melt the butter in a hot skillet and add the mushrooms in a single layer.", "Cook undisturbed until browned, then stir and add the garlic.", "Deglaze with a splash of wine or broth.", "Season and finish with parsley."]
+      }
+    },
+    {
+      "id": "garlic_tomato_bruschetta", "title": "Garlic Tomato Bruschetta", "flavorText": "Toasty bread piled high with juicy tomato and garlic.", "milestoneLevel": 146, "sprite": "recipe_garlic_tomato_bruschetta.webp",
+      "recipe": {
+        "ingredients": ["1 baguette, sliced", "3 ripe tomatoes, diced", "2 cloves garlic", "2 tbsp olive oil", "Fresh basil, torn", "Salt"],
+        "steps": ["Toast the bread slices until golden.", "Rub each slice with a raw garlic clove.", "Toss the tomatoes with olive oil, basil, and salt.", "Spoon over the toasted bread and serve right away."]
+      }
+    },
+    {
+      "id": "herb_crumb_chicken", "title": "Herb Crumb Chicken", "flavorText": "Crisp herb crust over tender golden chicken.", "milestoneLevel": 157, "sprite": "recipe_herb_crumb_chicken.webp",
+      "recipe": {
+        "ingredients": ["4 chicken breasts", "1 cup breadcrumbs", "A handful of fresh herbs, chopped", "1 egg, beaten", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Mix the breadcrumbs with the herbs, salt, and pepper.", "Dip each chicken breast in the egg, then press into the crumb mixture.", "Pan-fry in olive oil until golden, then finish in a 375°F (190°C) oven until cooked through."]
+      }
+    },
+    {
+      "id": "herb_garden_flatbread", "title": "Herb Garden Flatbread", "flavorText": "A simple flatbread carrying the whole herb garden.", "milestoneLevel": 169, "sprite": "recipe_herb_garden_flatbread.webp",
+      "recipe": {
+        "ingredients": ["2 cups flour", "3/4 cup warm water", "2 tbsp olive oil", "1 tsp baking powder", "A handful of fresh herbs, chopped", "Salt"],
+        "steps": ["Mix the flour, baking powder, salt, herbs, water, and olive oil into a soft dough.", "Divide and roll into thin rounds.", "Cook in a hot, dry skillet until bubbled and lightly charred on both sides."]
+      }
+    },
+    {
+      "id": "herb_market_soup", "title": "Herb Market Soup", "flavorText": "Fresh green soup that feels straight from the market stall.", "milestoneLevel": 181, "sprite": "recipe_herb_market_soup.webp",
+      "recipe": {
+        "ingredients": ["4 cups vegetable broth", "A big handful of mixed fresh herbs", "1 onion, diced", "2 potatoes, diced", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Sauté the onion in olive oil until soft.", "Add the potatoes and broth and simmer until tender.", "Stir in the fresh herbs and blend until smooth.", "Season to taste and serve warm."]
+      }
+    },
+    {
+      "id": "herb_roasted_carrots", "title": "Herb Roasted Carrots", "flavorText": "Roasted carrots with a sweet edge and fresh herb finish.", "milestoneLevel": 194, "sprite": "recipe_herb_roasted_carrots.webp",
+      "recipe": {
+        "ingredients": ["1 lb carrots, halved lengthwise", "2 tbsp olive oil", "A handful of fresh herbs, chopped", "1 tsp honey", "Salt and pepper"],
+        "steps": ["Toss the carrots with olive oil, salt, and pepper.", "Roast at 400°F (200°C) until tender and lightly browned, about 25 minutes.", "Drizzle with honey and scatter with fresh herbs before serving."]
+      }
+    },
+    {
+      "id": "lemon_apron_cookies", "title": "Lemon Apron Cookies", "flavorText": "Bright iced cookies for the happiest kitchen afternoon.", "milestoneLevel": 207, "sprite": "recipe_lemon_apron_cookies.webp",
+      "recipe": {
+        "ingredients": ["2 cups flour", "1 cup butter, softened", "3/4 cup sugar", "Zest and juice of 1 lemon", "1 cup powdered sugar (for icing)"],
+        "steps": ["Cream the butter and sugar, then mix in the lemon zest and flour.", "Roll into small balls, flatten slightly, and bake at 350°F (175°C) until just set, about 12 minutes.", "Whisk powdered sugar with lemon juice for the icing and drizzle over the cooled cookies."]
+      }
+    },
+    {
+      "id": "lemon_cream_scones", "title": "Lemon Cream Scones", "flavorText": "Tender scones with a soft citrus cream drizzle.", "milestoneLevel": 221, "sprite": "recipe_lemon_cream_scones.webp",
+      "recipe": {
+        "ingredients": ["2 cups flour", "1/3 cup sugar", "1/2 cup cold butter, cubed", "3/4 cup cream", "Zest of 1 lemon", "1 tbsp baking powder"],
+        "steps": ["Mix the flour, sugar, baking powder, and lemon zest.", "Cut in the cold butter until crumbly, then stir in the cream just until combined.", "Shape into a round, cut into wedges, and bake at 400°F (200°C) until golden, about 18 minutes."]
+      }
+    },
+    {
+      "id": "lemon_herb_couscous", "title": "Lemon Herb Couscous", "flavorText": "Tiny golden grains brightened with lemon and herbs.", "milestoneLevel": 235, "sprite": "recipe_lemon_herb_couscous.webp",
+      "recipe": {
+        "ingredients": ["1 cup couscous", "1 1/4 cups hot broth", "Juice and zest of 1 lemon", "2 tbsp olive oil", "A handful of fresh herbs, chopped", "Salt"],
+        "steps": ["Pour the hot broth over the couscous, cover, and let sit 5 minutes.", "Fluff with a fork.", "Stir in the lemon juice, zest, olive oil, and herbs.", "Season with salt and serve warm or at room temperature."]
+      }
+    },
+    {
+      "id": "lemon_poppy_loaf", "title": "Lemon Poppy Loaf", "flavorText": "A sunny loaf cake with soft icing and poppy-speckled crumb.", "milestoneLevel": 250, "sprite": "recipe_lemon_poppy_loaf.webp",
+      "recipe": {
+        "ingredients": ["1 1/2 cups flour", "1 cup sugar", "1/2 cup butter, softened", "2 eggs", "Zest and juice of 1 lemon", "2 tbsp poppy seeds"],
+        "steps": ["Cream the butter and sugar, then beat in the eggs, lemon zest, and juice.", "Fold in the flour and poppy seeds.", "Pour into a loaf pan and bake at 350°F (175°C) until a toothpick comes out clean, about 50 minutes."]
+      }
+    },
+    {
+      "id": "lemon_skillet_greens", "title": "Lemon Skillet Greens", "flavorText": "Skillet greens with a bright citrus lift.", "milestoneLevel": 265, "sprite": "recipe_lemon_skillet_greens.webp",
+      "recipe": {
+        "ingredients": ["1 bunch leafy greens", "2 tbsp olive oil", "2 cloves garlic, sliced", "Juice of 1/2 lemon", "Salt and pepper"],
+        "steps": ["Warm the olive oil and cook the garlic until fragrant.", "Add the greens and cook until just wilted.", "Finish with a squeeze of lemon juice and season to taste."]
+      }
+    },
+    {
+      "id": "lemon_thyme_biscuits", "title": "Lemon Thyme Biscuits", "flavorText": "Warm biscuits glossed with lemon and dotted with thyme.", "milestoneLevel": 281, "sprite": "recipe_lemon_thyme_biscuits.webp",
+      "recipe": {
+        "ingredients": ["2 cups flour", "1/2 cup cold butter, cubed", "3/4 cup buttermilk", "Zest of 1 lemon", "1 tbsp fresh thyme", "1 tbsp baking powder"],
+        "steps": ["Mix the flour, baking powder, lemon zest, and thyme.", "Cut in the cold butter until crumbly, then stir in the buttermilk just until combined.", "Pat into a round, cut into biscuits, and bake at 425°F (220°C) until golden, about 15 minutes."]
+      }
+    },
+    {
+      "id": "pantry_bean_stew", "title": "Pantry Bean Stew", "flavorText": "A humble pantry stew that still feels hearty and rich.", "milestoneLevel": 297, "sprite": "recipe_pantry_bean_stew.webp",
+      "recipe": {
+        "ingredients": ["2 cans beans, drained", "1 can crushed tomatoes", "1 onion, diced", "2 cloves garlic, minced", "2 cups broth", "Salt and pepper"],
+        "steps": ["Sauté the onion and garlic until soft.", "Add the beans, tomatoes, and broth.", "Simmer for 20 minutes, mashing some of the beans to thicken.", "Season to taste and serve hot."]
+      }
+    },
+    {
+      "id": "roasted_garlic_mash", "title": "Roasted Garlic Mash", "flavorText": "Creamy mash with deep roasted garlic warmth.", "milestoneLevel": 314, "sprite": "recipe_roasted_garlic_mash.webp",
+      "recipe": {
+        "ingredients": ["2 lbs potatoes, peeled and quartered", "1 head garlic, roasted", "4 tbsp butter", "1/2 cup warm milk", "Salt and pepper"],
+        "steps": ["Boil the potatoes until tender, then drain.", "Squeeze the roasted garlic cloves from their skins.", "Mash the potatoes with the garlic, butter, and warm milk.", "Season to taste."]
+      }
+    },
+    {
+      "id": "roasted_garlic_soup", "title": "Roasted Garlic Soup", "flavorText": "Smooth soup with mellow garlic sweetness.", "milestoneLevel": 331, "sprite": "recipe_roasted_garlic_soup.webp",
+      "recipe": {
+        "ingredients": ["2 heads garlic, roasted", "3 cups broth", "1 onion, diced", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
+        "steps": ["Sauté the onion in butter until soft.", "Squeeze in the roasted garlic and add the broth.", "Simmer 15 minutes, then blend until smooth.", "Stir in a splash of cream and season to taste."]
+      }
+    },
+    {
+      "id": "roasted_pepper_stew", "title": "Roasted Pepper Stew", "flavorText": "A pepper-rich stew that glows with slow-cooked comfort.", "milestoneLevel": 349, "sprite": "recipe_roasted_pepper_stew.webp",
+      "recipe": {
+        "ingredients": ["4 bell peppers, roasted and chopped", "1 can crushed tomatoes", "1 onion, diced", "2 cloves garlic, minced", "2 cups broth", "Salt and pepper"],
+        "steps": ["Sauté the onion and garlic until soft.", "Add the roasted peppers, tomatoes, and broth.", "Simmer for 25 minutes, then blend partially for a rustic texture.", "Season to taste and serve warm."]
+      }
+    },
+    {
+      "id": "rosemary_garlic_rolls", "title": "Rosemary Garlic Rolls", "flavorText": "Golden rolls brushed with rosemary-garlic butter.", "milestoneLevel": 367, "sprite": "recipe_rosemary_garlic_rolls.webp",
+      "recipe": {
+        "ingredients": ["3 cups bread flour", "1 packet yeast", "1 cup warm water", "3 tbsp butter, melted", "2 cloves garlic, minced", "Fresh rosemary"],
+        "steps": ["Mix the flour, yeast, and warm water into a soft dough and let rise until doubled.", "Divide into rolls and place in a buttered pan.", "Brush with garlic butter and top with rosemary before baking at 375°F (190°C) until golden."]
+      }
+    },
+    {
+      "id": "skillet_lemon_potatoes", "title": "Skillet Lemon Potatoes", "flavorText": "Crisp-edged potatoes with cheerful lemon brightness.", "milestoneLevel": 386, "sprite": "recipe_skillet_lemon_potatoes.webp",
+      "recipe": {
+        "ingredients": ["1 1/2 lbs baby potatoes, halved", "3 tbsp olive oil", "Zest and juice of 1 lemon", "2 cloves garlic, minced", "Fresh herbs", "Salt and pepper"],
+        "steps": ["Cook the potatoes cut-side down in olive oil until deeply golden.", "Add the garlic and cook until fragrant.", "Finish with lemon zest, juice, and fresh herbs before serving."]
+      }
+    },
+    {
+      "id": "spoon_cake_pudding", "title": "Spoon Cake Pudding", "flavorText": "A soft spoonable dessert with warm bakery comfort.", "milestoneLevel": 405, "sprite": "recipe_spoon_cake_pudding.webp",
+      "recipe": {
+        "ingredients": ["1 cup flour", "1 cup sugar", "1 cup milk", "1/4 cup melted butter", "1 tsp vanilla", "2 tsp baking powder"],
+        "steps": ["Whisk all the ingredients together into a smooth batter.", "Pour into a baking dish.", "Bake at 350°F (175°C) until the top is set and the center stays soft, about 30 minutes.", "Serve warm, straight from the dish, by the spoonful."]
+      }
+    },
+    {
+      "id": "spoon_stirred_polenta", "title": "Spoon-Stirred Polenta", "flavorText": "Golden polenta stirred smooth and finished warm.", "milestoneLevel": 425, "sprite": "recipe_spoon_stirred_polenta.webp",
+      "recipe": {
+        "ingredients": ["1 cup polenta", "4 cups broth or water", "2 tbsp butter", "1/2 cup grated cheese", "Salt and pepper"],
+        "steps": ["Bring the broth to a simmer and slowly whisk in the polenta.", "Stir often over low heat until thick and creamy, about 20 minutes.", "Stir in the butter and cheese.", "Season to taste and serve warm."]
+      }
+    },
+    {
+      "id": "sunday_herb_stuffing", "title": "Sunday Herb Stuffing", "flavorText": "Toasty bread-cube stuffing made for a full family table.", "milestoneLevel": 445, "sprite": "recipe_sunday_herb_stuffing.webp",
+      "recipe": {
+        "ingredients": ["6 cups cubed bread, dried out", "1 onion, diced", "2 celery stalks, diced", "A handful of fresh herbs, chopped", "2 cups broth", "4 tbsp butter"],
+        "steps": ["Sauté the onion and celery in butter until soft.", "Toss with the bread cubes, herbs, and broth until evenly moistened.", "Transfer to a baking dish and bake at 350°F (175°C) until golden on top, about 35 minutes."]
+      }
+    },
+    {
+      "id": "tomato_basil_tart", "title": "Tomato Basil Tart", "flavorText": "A bright tomato tart with basil leaves like little jewels.", "milestoneLevel": 466, "sprite": "recipe_tomato_basil_tart.webp",
+      "recipe": {
+        "ingredients": ["1 sheet puff pastry", "3 ripe tomatoes, sliced", "1/2 cup grated cheese", "A handful of fresh basil", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Roll out the pastry and score a border, then prick the center all over.", "Sprinkle with cheese, then layer on the tomato slices.", "Drizzle with olive oil and bake at 400°F (200°C) until golden, about 25 minutes.", "Scatter with fresh basil before serving."]
+      }
+    },
+    {
+      "id": "tomato_braised_beans", "title": "Tomato Braised Beans", "flavorText": "Beans simmered low in a rich tomato base.", "milestoneLevel": 487, "sprite": "recipe_tomato_braised_beans.webp",
+      "recipe": {
+        "ingredients": ["2 cans beans, drained", "1 can crushed tomatoes", "1 onion, diced", "2 cloves garlic, minced", "2 tbsp olive oil", "Salt and pepper"],
+        "steps": ["Sauté the onion and garlic in olive oil until soft.", "Add the beans and tomatoes.", "Simmer low and slow for 30 minutes, stirring occasionally.", "Season to taste and serve warm."]
+      }
+    },
+    {
+      "id": "tomato_harvest_pie", "title": "Tomato Harvest Pie", "flavorText": "A harvest-style savory pie built around ripe tomatoes.", "milestoneLevel": 509, "sprite": "recipe_tomato_harvest_pie.webp",
+      "recipe": {
+        "ingredients": ["1 pie crust", "4 ripe tomatoes, sliced and drained", "1 cup shredded cheese", "1/4 cup mayonnaise", "Fresh basil", "Salt and pepper"],
+        "steps": ["Blind-bake the pie crust until lightly golden.", "Layer in the tomato slices, seasoning as you go.", "Mix the cheese and mayonnaise and spread over the top.", "Bake at 375°F (190°C) until bubbling and golden, about 30 minutes."]
+      }
+    },
+    {
+      "id": "tomato_jam_toast", "title": "Tomato Jam Toast", "flavorText": "Sweet-savory tomato jam spread over rustic toast.", "milestoneLevel": 531, "sprite": "recipe_tomato_jam_toast.webp",
+      "recipe": {
+        "ingredients": ["4 ripe tomatoes, chopped", "1/4 cup sugar", "1 tbsp vinegar", "Crusty bread, toasted", "Soft cheese, for spreading"],
+        "steps": ["Simmer the tomatoes, sugar, and vinegar together until thick and jammy, about 25 minutes.", "Let cool slightly.", "Spread the toast with soft cheese and top generously with the tomato jam."]
+      }
+    },
+    {
+      "id": "tomato_rice_bake", "title": "Tomato Rice Bake", "flavorText": "A casserole-style rice bake with baked tomato comfort.", "milestoneLevel": 554, "sprite": "recipe_tomato_rice_bake.webp",
+      "recipe": {
+        "ingredients": ["1 cup rice", "1 can crushed tomatoes", "1 onion, diced", "2 cups broth", "1 cup shredded cheese", "Salt and pepper"],
+        "steps": ["Sauté the onion until soft, then stir in the rice, tomatoes, and broth.", "Pour into a baking dish and cover.", "Bake at 375°F (190°C) until the rice is tender, about 40 minutes.", "Top with cheese and bake uncovered until melted."]
+      }
+    },
+    {
+      "id": "garden_tomato_galette", "title": "Garden Tomato Galette", "flavorText": "Rustic free-form pastry hugging a circle of tomatoes.", "milestoneLevel": 577, "sprite": "recipe_garden_tomato_galette.webp",
+      "recipe": {
+        "ingredients": ["1 pie crust", "3 ripe tomatoes, sliced", "1/2 cup ricotta or soft cheese", "A handful of fresh herbs", "1 egg (for egg wash)", "Salt and pepper"],
+        "steps": ["Roll out the pie crust on a baking sheet.", "Spread the cheese in the center, leaving a wide border, then layer on the tomatoes.", "Fold the edges of the crust up and over, brushing with egg wash.", "Bake at 400°F (200°C) until golden, about 30 minutes, and finish with fresh herbs."]
+      }
+    },
+    {
+      "id": "basil_skillet_bread", "title": "Basil Skillet Bread", "flavorText": "Round skillet bread with basil baked right into the top.", "milestoneLevel": 601, "sprite": "recipe_basil_skillet_bread.webp",
+      "recipe": {
+        "ingredients": ["2 cups flour", "1 packet yeast", "3/4 cup warm water", "2 tbsp olive oil", "A handful of fresh basil, chopped", "Salt"],
+        "steps": ["Mix the flour, yeast, water, olive oil, and salt into a soft dough and let rise until doubled.", "Press into a hot, oiled skillet and scatter the basil over the top.", "Bake at 425°F (220°C) until golden, about 20 minutes."]
+      }
+    },
+    {
+      "id": "skillet_honey_squash", "title": "Skillet Honey Squash", "flavorText": "Honey-glossed squash with cozy autumn warmth.", "milestoneLevel": 625, "sprite": "recipe_skillet_honey_squash.webp",
+      "recipe": {
+        "ingredients": ["1 small squash, sliced", "2 tbsp butter", "2 tbsp honey", "A pinch of cinnamon", "Salt"],
+        "steps": ["Cook the squash slices in butter over medium heat until tender and lightly browned.", "Drizzle with honey and a pinch of cinnamon.", "Season with a little salt and serve warm."]
+      }
     }
   ]
 }
