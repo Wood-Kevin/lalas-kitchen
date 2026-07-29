@@ -40,10 +40,10 @@
       }
     },
     {
-      "id": "classic_tomato_soup", "title": "Classic Tomato Soup", "flavorText": "Smooth, simple, and best with a full spoon.", "milestoneLevel": 2, "sprite": "recipe_classic_tomato_soup.webp",
+      "id": "lemon_squeeze", "title": "Lemon Squeeze", "flavorText": "Bright, simple, and good with warm bread.", "milestoneLevel": 2, "sprite": "recipe_lemon_squeeze.webp",
       "recipe": {
-        "ingredients": ["4 ripe tomatoes", "2 cups vegetable broth", "1 small onion", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
-        "steps": ["Simmer tomatoes, broth, and onion together for 15 minutes.", "Blend until smooth.", "Stir in butter and a splash of cream.", "Season to taste and serve hot."]
+        "ingredients": ["4 lemons", "1/2 cup sugar", "4 cups water", "Ice"],
+        "steps": ["Juice the lemons.", "Stir the juice with sugar and water until dissolved.", "Pour over ice and serve cold."]
       }
     },
     {
@@ -51,6 +51,13 @@
       "recipe": {
         "ingredients": ["Mixed greens", "A handful of fresh herbs (parsley, dill, chives)", "2 tbsp olive oil", "1 tbsp lemon juice", "Salt"],
         "steps": ["Toss the greens and herbs together.", "Whisk olive oil, lemon juice, and salt for the dressing.", "Drizzle over the salad just before serving."]
+      }
+    },
+    {
+      "id": "classic_tomato_soup", "title": "Classic Tomato Soup", "flavorText": "Smooth, simple, and best with a full spoon.", "milestoneLevel": 5, "sprite": "recipe_classic_tomato_soup.webp",
+      "recipe": {
+        "ingredients": ["4 ripe tomatoes", "2 cups vegetable broth", "1 small onion", "2 tbsp butter", "A splash of cream", "Salt and pepper"],
+        "steps": ["Simmer tomatoes, broth, and onion together for 15 minutes.", "Blend until smooth.", "Stir in butter and a splash of cream.", "Season to taste and serve hot."]
       }
     },
     {
@@ -93,13 +100,6 @@
       "recipe": {
         "ingredients": ["4 cups broth", "1-2 chili peppers, sliced", "Juice of 1 lemon", "2 cloves garlic", "Fresh herbs", "Salt"],
         "steps": ["Simmer the broth with garlic and chili until fragrant.", "Stir in the lemon juice just before serving.", "Garnish with fresh herbs."]
-      }
-    },
-    {
-      "id": "lemon_squeeze", "title": "Lemon Squeeze", "flavorText": "Bright, simple, and good with warm bread.", "milestoneLevel": 32, "sprite": "recipe_lemon_squeeze.webp",
-      "recipe": {
-        "ingredients": ["4 lemons", "1/2 cup sugar", "4 cups water", "Ice"],
-        "steps": ["Juice the lemons.", "Stir the juice with sugar and water until dissolved.", "Pour over ice and serve cold."]
       }
     },
     {
