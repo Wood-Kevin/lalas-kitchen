@@ -4,13 +4,14 @@ import { Text } from './AppText';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
 import { LivesBadge } from './LivesBadge';
+import { LevelMapPath } from './LevelMapPath';
 import { ResolvedSprite, resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import { Fonts } from './fonts';
 import { LevelStatus, LevelSummary } from './levelProgress';
 import { StarRating } from './wonActions';
 import {
+  computeLevelMapCurveSegments,
   computeLevelMapNodePositions,
-  computeLevelMapPathSegments,
   computeScrollOffsetToCenter,
   levelMapContentHeight,
 } from './levelMapLayout';
@@ -37,6 +38,7 @@ const SIDE_INSET = 74;
 const NODE_BOX_WIDTH = 156;
 const PATH_STROKE_WIDTH = 14;
 const PATH_SHADOW_WIDTH = 26;
+const PATH_SHADOW_COLOR = '#A58B67';
 const CAPTION_BLOCK_HEIGHT = 32;
 const MAP_BOTTOM_PADDING = 180;
 
@@ -160,7 +162,7 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
     () => positions.map((position) => ({ x: SIDE_INSET + position.xFraction * usableWidth, y: position.y })),
     [positions, usableWidth]
   );
-  const segments = useMemo(() => computeLevelMapPathSegments(points), [points]);
+  const segments = useMemo(() => computeLevelMapCurveSegments(points), [points]);
   const currentIndex = levels.findIndex((level) => level.status === 'current');
   const landmarks = useMemo(
     () => buildLandmarkPlacements(levels, points, mapWidth, currentIndex, config),
@@ -244,46 +246,20 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
               );
             })}
 
-          {mapWidth > 0 &&
-            segments.map((segment, i) => {
-              const walked = currentIndex >= 0 && i < currentIndex;
-              const lit = currentIndex >= 0 && (i === currentIndex - 1 || i === currentIndex);
-              return (
-                <React.Fragment key={`segment-${i}`}>
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.pathShadowSegment,
-                      {
-                        left: segment.x,
-                        top: segment.y - PATH_SHADOW_WIDTH / 2,
-                        width: segment.length,
-                        height: PATH_SHADOW_WIDTH,
-                        opacity: walked || lit ? 0.34 : 0.16,
-                        transform: [{ rotate: `${segment.angleDeg}deg` }],
-                        transformOrigin: 'left center',
-                      },
-                    ]}
-                  />
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.pathSegment,
-                      {
-                        left: segment.x,
-                        top: segment.y - PATH_STROKE_WIDTH / 2,
-                        width: segment.length,
-                        height: PATH_STROKE_WIDTH,
-                        backgroundColor: walked ? secondaryAccent : lit ? GLOW : border,
-                        opacity: walked ? 0.92 : lit ? 0.9 : 0.62,
-                        transform: [{ rotate: `${segment.angleDeg}deg` }],
-                        transformOrigin: 'left center',
-                      },
-                    ]}
-                  />
-                </React.Fragment>
-              );
-            })}
+          {mapWidth > 0 && (
+            <LevelMapPath
+              segments={segments}
+              mapWidth={mapWidth}
+              contentHeight={contentHeight}
+              currentIndex={currentIndex}
+              walkedColor={secondaryAccent}
+              litColor={GLOW}
+              lockedColor={border}
+              shadowColor={PATH_SHADOW_COLOR}
+              strokeWidth={PATH_STROKE_WIDTH}
+              shadowWidth={PATH_SHADOW_WIDTH}
+            />
+          )}
 
           {mapWidth > 0 &&
             levels.map((level, i) => (
@@ -527,15 +503,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     lineHeight: 18,
-  },
-  pathShadowSegment: {
-    position: 'absolute',
-    borderRadius: PATH_SHADOW_WIDTH / 2,
-    backgroundColor: '#A58B67',
-  },
-  pathSegment: {
-    position: 'absolute',
-    borderRadius: PATH_STROKE_WIDTH / 2,
   },
   nodeWrap: {
     position: 'absolute',

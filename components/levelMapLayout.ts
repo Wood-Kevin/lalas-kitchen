@@ -1,14 +1,18 @@
 // Pure geometry behind components/LevelMap.tsx — same "push anything
 // testable out of the component" reasoning as cascadeTiming.ts/
-// dragDirection.ts/sweepAnimation.ts. No react-native-svg is installed in
-// this project (see package.json), and GinghamTrim.tsx already establishes
-// the house convention of reproducing a mockup effect with plain Views
-// rather than reaching for a new rendering dependency (its own comment:
-// "reproduced with plain Views since no gradient dependency was added") —
-// so the winding path is a series of straight rotated-View segments between
-// node centers, not a smooth SVG bezier curve. Still reads as a winding
-// path (it zigzags left/right/center down the screen); it just doesn't
-// curve within a single segment.
+// dragDirection.ts/sweepAnimation.ts.
+//
+// The winding path was originally a series of straight rotated-View
+// segments between node centers, matching GinghamTrim.tsx's house
+// convention of reproducing a mockup effect with plain Views rather than a
+// new rendering dependency — see engine/DECISIONS.md's level-map entry.
+// That was revisited after a real architect request for an actual curve:
+// react-native-svg is now installed (see package.json) — a real, low-risk
+// choice compared to this project's other native-dependency history (the
+// AdMob saga), since it's one of the native modules Expo Go itself already
+// bundles, so it doesn't reintroduce the "can't load in Expo Go" regression
+// that surfaced earlier this session. See engine/DECISIONS.md's
+// level-map-curve entry for the full reasoning.
 
 export interface LevelMapNodePosition {
   // 0..1 fraction across whatever usable width the caller has (component
@@ -56,38 +60,81 @@ export interface LevelMapPoint {
   y: number;
 }
 
-export interface LevelMapPathSegment {
-  // Anchored at its start point, not its center — renders as an absolutely
-  // positioned `left`/`top` View of `width: length` rotated `angleDeg`
-  // around its left edge (style `transformOrigin: 'left center'`, real RN
-  // 0.81 support — see package.json), so the un-rotated line's left end
-  // always lands exactly on the segment's real start point regardless of
-  // angle.
-  x: number;
-  y: number;
-  length: number;
-  angleDeg: number;
+// One cubic-bezier piece of a smooth curve through a sequence of points —
+// `start`/`end` land exactly on two consecutive real node centers (a real,
+// testable invariant: the curve always passes through every node, same
+// guarantee the old straight segments trivially had), `control1`/`control2`
+// are the Catmull-Rom-derived bezier handles that make the join between
+// this segment and its neighbors read as one continuous smooth line rather
+// than a visible kink at each node. One segment per adjacent point pair —
+// same shape the old straight-segment array had — so LevelMap.tsx's
+// existing per-segment walked/lit/locked coloring loop needed no
+// restructuring, only a different render (an SVG <Path> instead of a
+// rotated View) per segment.
+export interface LevelMapCurveSegment {
+  start: LevelMapPoint;
+  control1: LevelMapPoint;
+  control2: LevelMapPoint;
+  end: LevelMapPoint;
 }
 
-// Straight-line connectors between consecutive real (pixel) node centers —
-// see this file's header comment for why these are straight segments
-// rather than a curved SVG path. One segment per adjacent pair, so `points`
-// of length N yields N-1 segments (empty for 0 or 1 points).
-export function computeLevelMapPathSegments(points: LevelMapPoint[]): LevelMapPathSegment[] {
-  const segments: LevelMapPathSegment[] = [];
+// Catmull-Rom-to-Bezier conversion (the standard technique for a smooth
+// curve that passes through every control point, not just near them, unlike
+// a raw Bezier spline): each segment's handles are derived from its own two
+// endpoints plus one neighbor on each side, using the well-known
+// `p1 + (p2 - p0) / 6` / `p2 - (p3 - p1) / 6` formulas. A segment at either
+// end of the path has no real outer neighbor, so it reuses its own nearer
+// endpoint in that slot (`points[i - 1] ?? points[i]`) — the conventional
+// boundary handling, equivalent to the curve's tangent flattening out
+// exactly at the first/last node rather than extrapolating past it.
+export function computeLevelMapCurveSegments(points: LevelMapPoint[]): LevelMapCurveSegment[] {
+  const segments: LevelMapCurveSegment[] = [];
   for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? points[i + 1];
     segments.push({
-      x: a.x,
-      y: a.y,
-      length: Math.sqrt(dx * dx + dy * dy),
-      angleDeg: (Math.atan2(dy, dx) * 180) / Math.PI,
+      start: p1,
+      control1: { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 },
+      control2: { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 },
+      end: p2,
     });
   }
   return segments;
+}
+
+// An SVG path `d` string for exactly one curve segment — deliberately not
+// the whole path joined into one string, since LevelMapPath.native.tsx
+// renders each segment as its own <Path> to keep the existing per-segment
+// walked/lit/locked color logic (a single joined path could only ever have
+// one color).
+export function curveSegmentToPathD(segment: LevelMapCurveSegment): string {
+  const { start, control1, control2, end } = segment;
+  return `M ${start.x} ${start.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${end.x} ${end.y}`;
+}
+
+// Samples `steps + 1` points along one cubic-bezier curve segment (the
+// standard De Casteljau/Bernstein-polynomial evaluation), including both
+// endpoints — used only by LevelMapPath.web.tsx, which has no SVG <Path> to
+// draw the true curve (react-native-svg's web entry point transitively
+// imports a Fabric-only codegen file Metro cannot bundle for web, a real
+// break caught live — see engine/DECISIONS.md's level-map-curve entry), so
+// the web fallback approximates the same curve as several short straight
+// segments between consecutive sampled points instead. `steps` is the
+// caller's choice of how many straight micro-segments to render per real
+// curve segment — more steps reads smoother but costs more Views.
+export function sampleCurveSegment(segment: LevelMapCurveSegment, steps: number): LevelMapPoint[] {
+  const points: LevelMapPoint[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const mt = 1 - t;
+    points.push({
+      x: mt * mt * mt * segment.start.x + 3 * mt * mt * t * segment.control1.x + 3 * mt * t * t * segment.control2.x + t * t * t * segment.end.x,
+      y: mt * mt * mt * segment.start.y + 3 * mt * mt * t * segment.control1.y + 3 * mt * t * t * segment.control2.y + t * t * t * segment.end.y,
+    });
+  }
+  return points;
 }
 
 // The scroll offset that centers a node vertically in the viewport — used to

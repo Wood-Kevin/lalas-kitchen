@@ -1,8 +1,10 @@
 import {
+  computeLevelMapCurveSegments,
   computeLevelMapNodePositions,
-  computeLevelMapPathSegments,
   computeScrollOffsetToCenter,
+  curveSegmentToPathD,
   levelMapContentHeight,
+  sampleCurveSegment,
 } from './levelMapLayout';
 
 describe('computeLevelMapNodePositions', () => {
@@ -48,31 +50,107 @@ describe('levelMapContentHeight', () => {
   });
 });
 
-describe('computeLevelMapPathSegments', () => {
+describe('computeLevelMapCurveSegments', () => {
   test('yields one fewer segment than points', () => {
     const points = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 30 }];
-    expect(computeLevelMapPathSegments(points)).toHaveLength(2);
-  });
-
-  test('a straight vertical drop has length equal to the y delta and points straight down', () => {
-    const segments = computeLevelMapPathSegments([{ x: 50, y: 0 }, { x: 50, y: 100 }]);
-    expect(segments).toEqual([{ x: 50, y: 0, length: 100, angleDeg: 90 }]);
-  });
-
-  test('a straight horizontal move has angle 0', () => {
-    const segments = computeLevelMapPathSegments([{ x: 0, y: 10 }, { x: 40, y: 10 }]);
-    expect(segments[0].angleDeg).toBe(0);
-    expect(segments[0].length).toBe(40);
-  });
-
-  test('a diagonal segment computes real pythagorean length', () => {
-    const segments = computeLevelMapPathSegments([{ x: 0, y: 0 }, { x: 3, y: 4 }]);
-    expect(segments[0].length).toBe(5);
+    expect(computeLevelMapCurveSegments(points)).toHaveLength(2);
   });
 
   test('fewer than two points yields no segments', () => {
-    expect(computeLevelMapPathSegments([])).toEqual([]);
-    expect(computeLevelMapPathSegments([{ x: 0, y: 0 }])).toEqual([]);
+    expect(computeLevelMapCurveSegments([])).toEqual([]);
+    expect(computeLevelMapCurveSegments([{ x: 0, y: 0 }])).toEqual([]);
+  });
+
+  // The curve must pass through every real node center, not just near
+  // them — the same guarantee the old straight segments trivially had, and
+  // the whole point of Catmull-Rom over a raw/approximating spline.
+  test('every segment starts and ends exactly on its two real node points', () => {
+    const points = [{ x: 0, y: 0 }, { x: 50, y: 80 }, { x: 120, y: 40 }, { x: 200, y: 200 }];
+    const segments = computeLevelMapCurveSegments(points);
+    expect(segments[0].start).toEqual(points[0]);
+    expect(segments[0].end).toEqual(points[1]);
+    expect(segments[1].start).toEqual(points[1]);
+    expect(segments[1].end).toEqual(points[2]);
+    expect(segments[2].start).toEqual(points[2]);
+    expect(segments[2].end).toEqual(points[3]);
+  });
+
+  // A degenerate 2-point "curve" has no real neighbor on either side —
+  // both p0 and p3 fall back to the segment's own nearer endpoint (see the
+  // function's own boundary-handling comment). Sanity check this produces
+  // a straight line (control points sitting exactly on the start-end line),
+  // not a NaN or a wild handle from an undefined neighbor.
+  test('a 2-point path (both boundary fallbacks at once) still produces a straight, sane segment', () => {
+    const segments = computeLevelMapCurveSegments([{ x: 0, y: 0 }, { x: 90, y: 0 }]);
+    expect(segments).toHaveLength(1);
+    const { control1, control2 } = segments[0];
+    expect(control1.y).toBe(0);
+    expect(control2.y).toBe(0);
+    expect(Number.isFinite(control1.x)).toBe(true);
+    expect(Number.isFinite(control2.x)).toBe(true);
+  });
+
+  // Collinear points are the real regression case for a Catmull-Rom
+  // implementation bug: a curve through 3+ points on a straight vertical
+  // line should stay exactly on that line, not bow outward — every control
+  // point's x must equal the shared x.
+  test('collinear points produce a curve that stays on the line, not bowing outward', () => {
+    const points = [{ x: 40, y: 0 }, { x: 40, y: 100 }, { x: 40, y: 200 }, { x: 40, y: 300 }];
+    const segments = computeLevelMapCurveSegments(points);
+    for (const segment of segments) {
+      expect(segment.control1.x).toBe(40);
+      expect(segment.control2.x).toBe(40);
+    }
+  });
+
+  test('is deterministic — the same points always produce the same curve', () => {
+    const points = [{ x: 0, y: 0 }, { x: 30, y: 60 }, { x: 90, y: 10 }];
+    expect(computeLevelMapCurveSegments(points)).toEqual(computeLevelMapCurveSegments(points));
+  });
+});
+
+describe('curveSegmentToPathD', () => {
+  test('formats a valid single-segment cubic-bezier SVG path string', () => {
+    const d = curveSegmentToPathD({
+      start: { x: 0, y: 0 },
+      control1: { x: 10, y: 5 },
+      control2: { x: 20, y: 15 },
+      end: { x: 30, y: 20 },
+    });
+    expect(d).toBe('M 0 0 C 10 5, 20 15, 30 20');
+  });
+});
+
+describe('sampleCurveSegment', () => {
+  const segment = {
+    start: { x: 0, y: 0 },
+    control1: { x: 10, y: 20 },
+    control2: { x: 30, y: 20 },
+    end: { x: 40, y: 0 },
+  };
+
+  test('returns steps + 1 points, including both real endpoints exactly', () => {
+    const points = sampleCurveSegment(segment, 8);
+    expect(points).toHaveLength(9);
+    expect(points[0]).toEqual(segment.start);
+    expect(points[8]).toEqual(segment.end);
+  });
+
+  test('a straight (collinear control points) segment samples points that stay exactly on the line', () => {
+    const straight = {
+      start: { x: 0, y: 0 },
+      control1: { x: 10, y: 0 },
+      control2: { x: 20, y: 0 },
+      end: { x: 30, y: 0 },
+    };
+    const points = sampleCurveSegment(straight, 5);
+    for (const point of points) {
+      expect(point.y).toBe(0);
+    }
+  });
+
+  test('is deterministic — the same segment and step count always sample identically', () => {
+    expect(sampleCurveSegment(segment, 8)).toEqual(sampleCurveSegment(segment, 8));
   });
 });
 
