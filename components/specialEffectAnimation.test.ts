@@ -52,9 +52,21 @@ describe('resolveSpecialEffectDescriptor', () => {
     });
   });
 
-  test('striped + striped resolves to a cross centered on posA', () => {
+  // Must match the engine's own cross anchor (gameState.ts's resolveStripedCross
+  // is centered on posB, the cell the player dragged into) — if the ripple
+  // origin and the clear set disagree, the sweep travels out from a cell the
+  // cross doesn't clear through.
+  test('striped + striped resolves to a cross centered on posB, the cell dragged into', () => {
     const board = boardOf({ '1,1': striped('sA', 'tomato', 'row'), '1,2': striped('sB', 'lemon', 'col') });
     expect(resolveSpecialEffectDescriptor(board, { row: 1, col: 1 }, { row: 1, col: 2 })).toEqual({
+      kind: 'striped_cross',
+      origin: { row: 1, col: 2 },
+    });
+  });
+
+  test('the same striped pair dragged the other way centers on the other cell', () => {
+    const board = boardOf({ '1,1': striped('sA', 'tomato', 'row'), '1,2': striped('sB', 'lemon', 'col') });
+    expect(resolveSpecialEffectDescriptor(board, { row: 1, col: 2 }, { row: 1, col: 1 })).toEqual({
       kind: 'striped_cross',
       origin: { row: 1, col: 1 },
     });

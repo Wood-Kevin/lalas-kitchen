@@ -16,11 +16,14 @@ import { sweepDelaysForClears } from './sweepAnimation';
 // known to be clearing.
 //
 // Deliberately narrow to the three effects this module gives real identity to.
-// An area-bomb swap (solo or the area+special deferred-combo snap-back) never
-// matches here — the solo case already has its own distinct powder-burst
-// animation (Tile.tsx/Board.tsx, unrelated to this module), and a deferred
-// combo never reaches animateCascade at all (applyMove returns the identical
-// state, so Board.tsx's attemptSwap snaps back before animateCascade runs).
+// An area-bomb swap never matches here — the solo case already has its own
+// distinct powder-burst animation (Tile.tsx/Board.tsx, unrelated to this
+// module), and the three area+special combos (which DO commit as real combos
+// now — an earlier version of this note still described them as deferred
+// snap-backs that never reached animateCascade) simply fall through to the
+// generic sweep rather than getting a fourth descriptor kind. Giving them
+// their own identity is a separate, unbuilt nicety — see
+// DEFERRED_COMPLEXITY.md.
 export type SpecialEffectDescriptor =
   | { kind: 'color_bomb'; origin: Position }
   | { kind: 'striped_cross'; origin: Position }
@@ -57,9 +60,13 @@ export function resolveSpecialEffectDescriptor(
     };
   }
   if (aStriped && bStriped) {
-    // The combo's cross is centered on posA (see resolveStripedCross) — posB
-    // is just its adjacent partner, which lies on one of the two swept lines.
-    return { kind: 'striped_cross', origin: posA };
+    // The combo's cross is centered on posB — the cell the player dragged into
+    // (see resolveStripedCross and applyMove's anchor-rule comment). posA is
+    // just its adjacent partner, which lies on one of the two swept lines.
+    // This MUST track the engine's anchor — it used to read posA because the
+    // engine centered there, so moving one without the other would leave the
+    // sweep travelling out from a cell the cross no longer clears through.
+    return { kind: 'striped_cross', origin: posB };
   }
   if (aBomb || bBomb) {
     const bombPos = aBomb ? posA : posB;

@@ -1,4 +1,4 @@
-import { diffBoards } from './boardDiff';
+import { diffBoards, relocateSwappedClears } from './boardDiff';
 import { Board, Piece } from '../engine/matrix';
 
 function piece(id: string, matchType: string): Piece {
@@ -49,5 +49,47 @@ describe('diffBoards', () => {
     const diff = diffBoards(board, board);
 
     expect(diff).toEqual({ cleared: [], moved: [], spawned: [] });
+  });
+});
+
+describe('relocateSwappedClears', () => {
+  const a = { row: 2, col: 3 };
+  const b = { row: 2, col: 4 };
+  const cleared = (id: string, row: number, col: number) => ({
+    piece: piece(id, 'A'),
+    from: { row, col },
+  });
+
+  test('a swapped-then-cleared tile exits from the cell the swap PUT it on', () => {
+    // The dragged special (at posA before the move) came to rest on posB, which
+    // is where the player's finger left it — so that's where its exit plays.
+    const out = relocateSwappedClears([cleared('bomb', 2, 3)], a, b, true);
+    expect(out[0].from).toEqual(b);
+  });
+
+  test('the partner cell is remapped the other way, not just the dragged one', () => {
+    const out = relocateSwappedClears([cleared('partner', 2, 4)], a, b, true);
+    expect(out[0].from).toEqual(a);
+  });
+
+  test('cells that were not part of the swap are untouched', () => {
+    const others = [cleared('x', 0, 0), cleared('y', 5, 5)];
+    expect(relocateSwappedClears(others, a, b, true)).toEqual(others);
+  });
+
+  test('no remap at all when the engine did not stage a swap', () => {
+    // The position-independent detonations (solo color bomb, striped+bomb,
+    // area+color) deliberately never move their pieces — see
+    // ApplyMoveResult.swapCommitted. Remapping them would move an exit
+    // animation off the cell the piece genuinely still occupies.
+    const input = [cleared('bomb', 2, 3), cleared('partner', 2, 4)];
+    expect(relocateSwappedClears(input, a, b, false)).toEqual(input);
+  });
+
+  test('returns a new array without mutating the input entries', () => {
+    const input = [cleared('bomb', 2, 3)];
+    const out = relocateSwappedClears(input, a, b, true);
+    expect(out).not.toBe(input);
+    expect(input[0].from).toEqual(a);
   });
 });

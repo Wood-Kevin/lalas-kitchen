@@ -73,3 +73,39 @@ export function diffBoards(before: Board, after: Board): BoardDiff {
 
   return { cleared, moved, spawned };
 }
+
+function samePosition(a: Position, b: Position): boolean {
+  return a.row === b.row && a.col === b.col;
+}
+
+// Corrects where a swapped-then-immediately-cleared tile plays its exit
+// animation. The first cascade pass is diffed against the PRE-move board, so a
+// cleared piece's `from` is the cell it occupied before the swap — but the
+// engine may have exchanged the two cells before resolving (see
+// ApplyMoveResult.swapCommitted), and the player's finger left the dragged tile
+// at the OTHER cell. Without this the tile visibly snaps back to the cell it
+// came from and then exits there, which reads as the effect firing in the wrong
+// place — the presentation-layer half of the same swap-anchor bug the engine's
+// anchor rule fixes (see engine/DECISIONS.md's swap-anchor entry).
+//
+// Only `cleared` is remapped, and only for the two swapped cells. `moved` and
+// `spawned` must keep diffing against the pre-move board: a swapped piece that
+// SURVIVES (the displaced ordinary piece of a non-matching swap, or a dropdown
+// relocation) genuinely travelled from its old cell to its new one, and
+// rewriting its origin would make it teleport instead of slide.
+//
+// A no-op when the engine didn't swap (the position-independent detonations) or
+// when neither swapped cell cleared, so every other move is untouched.
+export function relocateSwappedClears(
+  cleared: ClearedPiece[],
+  posA: Position,
+  posB: Position,
+  swapCommitted: boolean
+): ClearedPiece[] {
+  if (!swapCommitted) return cleared;
+  return cleared.map((entry) => {
+    if (samePosition(entry.from, posA)) return { ...entry, from: posB };
+    if (samePosition(entry.from, posB)) return { ...entry, from: posA };
+    return entry;
+  });
+}

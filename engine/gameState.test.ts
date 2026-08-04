@@ -964,13 +964,14 @@ describe('applyMove — special piece combos', () => {
 
     const result = applyMove(stateWith(board, 'c21'), { row: 2, col: 1 }, { row: 2, col: 2 });
 
-    // The cross is centered on posA = (2,1): the whole of row 2 and the whole of
-    // column 1. Every one of those 9 cells is gone.
-    const crossIds = ['2-0', '2-1', '2-2', '2-3', '2-4', '0-1', '1-1', '3-1', '4-1'];
+    // The cross is centered on posB = (2,2) — the cell the player dragged INTO
+    // (see applyMove's anchor rule): the whole of row 2 and the whole of column
+    // 2. Every one of those 9 cells is gone.
+    const crossIds = ['2-0', '2-1', '2-2', '2-3', '2-4', '0-2', '1-2', '3-2', '4-2'];
     for (const id of crossIds) expect(hasId(result.state.board, id)).toBe(false);
-    // Off-cross cells survive — including (1,2), which shares neither row 2 nor
-    // column 1, proving the effect is a single cross, not a double sweep.
-    for (const id of ['0-0', '0-2', '1-2', '3-3', '4-4']) {
+    // Off-cross cells survive — including (1,1), which shares neither row 2 nor
+    // column 2, proving the effect is a single cross, not a double sweep.
+    for (const id of ['0-0', '0-1', '1-1', '3-3', '4-4']) {
       expect(hasId(result.state.board, id)).toBe(true);
     }
     // Exactly 9 of the 25 original pieces cleared — nothing extra cascaded.
@@ -1128,14 +1129,16 @@ describe('applyMove — special piece chaining', () => {
 
   test('a single move drives a chain of three triggered effects in sequence', () => {
     const board = distinctBoard(6, 6);
-    // Origin: an area bomb at (1,1), swapped with the ordinary piece at (1,0), so
-    // its 3x3 blast (rows 0-2, cols 0-2) fires. The chain then runs three links:
+    // Origin: an area bomb at (1,0), DRAGGED onto the ordinary piece at (1,1) —
+    // so the bomb comes to rest on (1,1) and its 3x3 blast (rows 0-2, cols 0-2)
+    // fires around there (the anchor is where the bomb lands, see applyMove).
+    // The chain then runs three links:
     //   link 1 — the blast catches a ROW-striped piece at (2,2) → it sweeps row 2
     //   link 2 — row 2 catches a second area bomb at (2,5) → its 3x3 (rows 1-3,
     //            cols 4-5) fires
     //   link 3 — that blast catches a color bomb at (3,5) → it detonates the
     //            board's most-common color, 'Q'
-    board[1][1] = { id: board[1][1].id, type: 'area_bomb' };
+    board[1][0] = { id: board[1][0].id, type: 'area_bomb' };
     board[2][2] = { id: board[2][2].id, type: 'striped', matchType: 'S', direction: 'row' };
     board[2][5] = { id: board[2][5].id, type: 'area_bomb' };
     board[3][5] = { id: board[3][5].id, type: 'color_bomb' };
@@ -1148,7 +1151,7 @@ describe('applyMove — special piece chaining', () => {
     board[5][4] = piece('Q', 'q2');
     board[0][5] = piece('Q', 'q3');
 
-    const result = applyMove(stateWith(board, 'Q'), { row: 1, col: 1 }, { row: 1, col: 0 });
+    const result = applyMove(stateWith(board, 'Q'), { row: 1, col: 0 }, { row: 1, col: 1 });
 
     // Link 1 fired: (2,3) lies on row 2 but in NO blast (cols 0-2 / cols 4-5) and
     // isn't 'Q' — it clears only if the striped swept its row.
@@ -1177,7 +1180,7 @@ describe('applyMove — special piece chaining', () => {
     expect(result.chainWaveByPieceId['3-5']).toBe(2);
     expect(result.chainWaveByPieceId['q0']).toBe(3);
     expect(result.chainWaveByPieceId['q3']).toBe(3);
-    expect(result.chainWaveByPieceId['1-1']).toBeUndefined();
+    expect(result.chainWaveByPieceId['1-0']).toBeUndefined();
   });
 
   test('every effect in a chain credits its own cleared cells to the objective', () => {
@@ -2932,28 +2935,32 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.state.movesRemaining).toBe(9);
   });
 
-  test('swapping an area bomb with an ordinary piece fires the 3x3 blast immediately — no run needed, centered on the bomb', () => {
+  test('swapping an area bomb with an ordinary piece fires the 3x3 blast immediately — no run needed, centered where the bomb LANDS', () => {
     const board = distinctBoard(5, 5);
-    // A live COLORLESS area bomb at the center (2,2). No A's, no runs anywhere —
-    // the swap forms no ordinary match at all, proving the trigger is the swap
-    // itself, not a match. Two of the blast cells are made 'A' to show objective
-    // credit comes from the cleared cells, NOT the colorless bomb.
-    board[2][2] = { id: '2-2', type: 'area_bomb' };
+    // A live COLORLESS area bomb at (2,1). No A's, no runs anywhere — the swap
+    // forms no ordinary match at all, proving the trigger is the swap itself,
+    // not a match. Two of the blast cells are made 'A' to show objective credit
+    // comes from the cleared cells, NOT the colorless bomb.
+    board[2][1] = { id: '2-1', type: 'area_bomb' };
     board[1][1] = piece('A', '1-1');
     board[3][3] = piece('A', '3-3');
     // Pre-move sanity: no run and no square exist (the swap won't make one either).
     expect(checkMatches(board)).toHaveLength(0);
     expect(checkSquares(board)).toHaveLength(0);
 
-    // Swap the bomb (2,2) with its ordinary right neighbour (2,3).
-    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
+    // Drag the bomb (2,1) one cell RIGHT onto its ordinary neighbour (2,2).
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 1 }, { row: 2, col: 2 });
 
-    // The blast is the 3x3 centered on the bomb's own cell (rows 1-3, cols 1-3),
-    // regardless of the partner — the bomb isn't physically swapped first, so its
-    // blast geometry never depends on what it swapped with.
+    // The swap is staged for real, so the bomb comes to rest on (2,2) and the
+    // 3x3 fires around THERE (rows 1-3, cols 1-3) — where the player aimed it,
+    // not the cell it just left. Anchoring on the pre-swap cell is the real
+    // reported bug this replaces: dragging the bomb right blasted to its left
+    // (it would have cleared cols 0-2 here). See DECISIONS.md's swap-anchor entry.
     const blastIds = ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3'];
     for (const id of blastIds) expect(hasId(result.state.board, id)).toBe(false);
-    // A cell just outside the 3x3 survives (proving the clear is the local 3x3).
+    // Cells just outside the 3x3 survive on BOTH sides — (2,0) especially, since
+    // that's the cell the old pre-swap anchor would have wrongly cleared.
+    expect(hasId(result.state.board, '2-0')).toBe(true);
     expect(hasId(result.state.board, '2-4')).toBe(true);
     // The bomb consumed itself; none left.
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
@@ -3030,31 +3037,39 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.multiSpecialFired).toBe(true);
   });
 
-  test('area + striped: a plus-shaped blast unions the 3x3 block with the striped piece\'s full sweep line', () => {
+  test('area + striped: a GENUINELY CENTERED plus — the sweep line runs through the 3x3 block\'s middle, not its edge', () => {
     const board = distinctBoard(5, 5);
     board[2][2] = { id: '2-2', type: 'area_bomb' };
     board[2][3] = { id: '2-3', type: 'striped', matchType: 'S', direction: 'col' };
     // One 'A' inside the 3x3 block only, one inside the sweep-only extension —
     // proves objective credit comes from both shapes, not just one.
-    board[3][1] = piece('A', '3-1');
+    board[3][2] = piece('A', '3-2');
     board[0][3] = piece('A', '0-3');
     expect(checkMatches(board)).toHaveLength(0);
     expect(checkSquares(board)).toHaveLength(0);
 
+    // Drag the area bomb RIGHT onto the striped piece.
     const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
 
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
     expect(countType(result.state.board, 'striped')).toBe(0);
-    // The full 3x3 centered on the bomb (rows 1-3, cols 1-3).
-    for (const id of ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3']) {
+    // Both halves anchor on posB = (2,3), the cell dragged into: the 3x3 is rows
+    // 1-3 x cols 2-4, and the column sweep is col 3 — which runs through the
+    // block's MIDDLE column. Before the swap-anchor fix the two halves anchored
+    // on their own separate pre-swap cells, so the line ran down the block's
+    // right EDGE instead: an offset union, not the plus this is documented as.
+    for (const id of ['1-2', '1-3', '1-4', '2-2', '2-3', '2-4', '3-2', '3-3', '3-4']) {
       expect(hasId(result.state.board, id)).toBe(false);
     }
-    // The striped piece's own full column-3 sweep reaches beyond the 3x3
-    // (rows 0 and 4), proving the plus shape, not just the block.
+    // The full column-3 sweep reaches beyond the 3x3 (rows 0 and 4), proving the
+    // plus shape, not just the block.
     expect(hasId(result.state.board, '0-3')).toBe(false);
     expect(hasId(result.state.board, '4-3')).toBe(false);
     // A cell outside both shapes survives.
     expect(hasId(result.state.board, '0-0')).toBe(true);
+    // (2,1) survives — it's the cell the old pre-swap 3x3 (cols 1-3) would have
+    // cleared, so this pins the block to its new center rather than the old one.
+    expect(hasId(result.state.board, '2-1')).toBe(true);
     // 9 (3x3) + 2 (sweep cells beyond the block: rows 0 and 4 of col 3) = 11.
     expect(survivingGridPieces(result.state.board)).toBe(25 - 11);
     expect(result.state.objectives[0].currentCount).toBe(2);
@@ -3068,30 +3083,143 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     board[3][4] = { id: '3-4', type: 'area_bomb' };
     // One 'A' near each end of the 5x5, to confirm objective credit spans the
     // whole bigger block.
-    board[1][1] = piece('A', '1-1');
-    board[5][5] = piece('A', '5-5');
+    board[1][2] = piece('A', '1-2');
+    board[5][6] = piece('A', '5-6');
     expect(checkMatches(board)).toHaveLength(0);
     expect(checkSquares(board)).toHaveLength(0);
 
+    // Drag the LEFT bomb right onto the right one.
     const result = applyMove(stateWith(board, 'A'), { row: 3, col: 3 }, { row: 3, col: 4 });
 
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
-    // The full 5x5 centered on posA=(3,3): rows 1-5, cols 1-5.
+    // The full 5x5 centered on posB=(3,4), the cell dragged into: rows 1-5,
+    // cols 2-6. Centering on posA instead made the same physical pair of bombs
+    // clear a different 25 cells depending on which one the player touched
+    // first — see DECISIONS.md's swap-anchor entry.
     for (let r = 1; r <= 5; r++) {
-      for (let c = 1; c <= 5; c++) expect(hasId(result.state.board, `${r}-${c}`)).toBe(false);
+      for (let c = 2; c <= 6; c++) expect(hasId(result.state.board, `${r}-${c}`)).toBe(false);
     }
     // Cells just outside the 5x5 on every side survive — proving it's exactly
     // 5x5, not e.g. two separate 3x3s that would leave (0,3)/(6,3) cleared too
     // only if they happened to fall in a 3x3, which they don't either way, so
     // check the cells a real "two separate 3x3s" reading WOULD still clear
     // (they're all inside this 5x5 too) plus cells only a bigger 5x5 reaches.
-    expect(hasId(result.state.board, '1-5')).toBe(false); // only reachable if the blast is 5 wide, not 3
+    expect(hasId(result.state.board, '1-6')).toBe(false); // only reachable if the blast is 5 wide, not 3
     expect(hasId(result.state.board, '0-0')).toBe(true); // outside the 5x5 entirely
     expect(hasId(result.state.board, '6-6')).toBe(true); // outside the 5x5 entirely
+    // Column 1 survives entirely — the old posA-centered 5x5 would have cleared it.
+    expect(hasId(result.state.board, '3-1')).toBe(true);
     expect(survivingGridPieces(result.state.board)).toBe(49 - 25);
     expect(result.state.objectives[0].currentCount).toBe(2);
     expect(result.state.movesRemaining).toBe(9);
     expect(result.multiSpecialFired).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // The swap-anchor rule (see applyMove's anchor-rule comment and DECISIONS.md).
+  // These are the regressions that would have caught the real reported bug:
+  // every swap-triggered LOCAL effect used to anchor on the cell the special had
+  // just LEFT, so a bomb dragged right blew up to its left, and the two-special
+  // combos cleared a different set depending on which tile the player happened
+  // to touch first. Each test below drives the SAME physical setup from both
+  // directions and pins that the result follows the gesture.
+  // ---------------------------------------------------------------------------
+
+  test('area bomb: dragging an ordinary piece INTO the bomb moves the bomb, and the blast follows it', () => {
+    const board = distinctBoard(5, 5);
+    // Bomb at (2,2). This time the player grabs the ORDINARY piece at (2,1) and
+    // drags it right onto the bomb — so the bomb slides LEFT to (2,1), and that
+    // is where the 3x3 must fire.
+    board[2][2] = { id: '2-2', type: 'area_bomb' };
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 1 }, { row: 2, col: 2 });
+
+    // 3x3 around (2,1): rows 1-3, cols 0-2.
+    for (const id of ['1-0', '1-1', '1-2', '2-0', '2-1', '2-2', '3-0', '3-1', '3-2']) {
+      expect(hasId(result.state.board, id)).toBe(false);
+    }
+    // (2,3) survives — the bomb moved away from it, so the blast must not reach.
+    expect(hasId(result.state.board, '2-3')).toBe(true);
+    expect(survivingGridPieces(result.state.board)).toBe(25 - 9);
+    // The engine genuinely staged the swap, which is what the presentation layer
+    // reads to play the bomb's exit from where the finger left it (see
+    // components/boardDiff.ts's relocateSwappedClears).
+    expect(result.swapCommitted).toBe(true);
+  });
+
+  test('striped cross: the SAME two pieces clear a mirrored cross depending on which one is dragged', () => {
+    const buildPair = (): Board => {
+      const board = distinctBoard(5, 5);
+      board[2][1] = { id: '2-1', type: 'striped', matchType: 'c21', direction: 'row' };
+      board[2][2] = { id: '2-2', type: 'striped', matchType: 'c22', direction: 'col' };
+      return board;
+    };
+
+    // Drag the LEFT striped right → the cross's vertical arm lands on column 2.
+    const rightward = applyMove(stateWith(buildPair(), 'x'), { row: 2, col: 1 }, { row: 2, col: 2 });
+    for (const id of ['0-2', '1-2', '3-2', '4-2']) {
+      expect(hasId(rightward.state.board, id)).toBe(false);
+    }
+    for (const id of ['0-1', '1-1', '3-1', '4-1']) {
+      expect(hasId(rightward.state.board, id)).toBe(true);
+    }
+
+    // Drag the RIGHT striped left → the vertical arm lands on column 1 instead.
+    // Before the fix BOTH directions produced the column-1 cross, because the
+    // anchor was always posA — the cell being vacated.
+    const leftward = applyMove(stateWith(buildPair(), 'x'), { row: 2, col: 2 }, { row: 2, col: 1 });
+    for (const id of ['0-1', '1-1', '3-1', '4-1']) {
+      expect(hasId(leftward.state.board, id)).toBe(false);
+    }
+    for (const id of ['0-2', '1-2', '3-2', '4-2']) {
+      expect(hasId(leftward.state.board, id)).toBe(true);
+    }
+
+    // Both are the same size — the anchor moved, the shape didn't change.
+    expect(survivingGridPieces(rightward.state.board)).toBe(25 - 9);
+    expect(survivingGridPieces(leftward.state.board)).toBe(25 - 9);
+  });
+
+  test('area + area: the SAME two bombs clear a shifted 5x5 depending on which one is dragged', () => {
+    const buildPair = (): Board => {
+      const board = distinctBoard(7, 7);
+      board[3][3] = { id: '3-3', type: 'area_bomb' };
+      board[3][4] = { id: '3-4', type: 'area_bomb' };
+      return board;
+    };
+
+    // Dragged rightward, the 5x5 centers on (3,4) → cols 2-6, so col 1 survives.
+    const rightward = applyMove(stateWith(buildPair(), 'x'), { row: 3, col: 3 }, { row: 3, col: 4 });
+    expect(hasId(rightward.state.board, '3-6')).toBe(false);
+    expect(hasId(rightward.state.board, '3-1')).toBe(true);
+
+    // Dragged leftward, it centers on (3,3) → cols 1-5, so col 6 survives.
+    const leftward = applyMove(stateWith(buildPair(), 'x'), { row: 3, col: 4 }, { row: 3, col: 3 });
+    expect(hasId(leftward.state.board, '3-1')).toBe(false);
+    expect(hasId(leftward.state.board, '3-6')).toBe(true);
+
+    expect(survivingGridPieces(rightward.state.board)).toBe(49 - 25);
+    expect(survivingGridPieces(leftward.state.board)).toBe(49 - 25);
+  });
+
+  test('a position-INDEPENDENT detonation deliberately does NOT stage the swap', () => {
+    // A solo color bomb clears every piece of the partner's colour wherever it
+    // sits, so moving the two pieces first would change nothing — staging a
+    // swap there would be pure ceremony, and swapCommitted says so honestly.
+    // This is the distinction that got lost when the area bomb inherited the
+    // color bomb's "the swap is cosmetically irrelevant" shortcut.
+    const board = distinctBoard(5, 5);
+    board[2][2] = { id: '2-2', type: 'color_bomb' };
+    board[2][3] = piece('A', '2-3');
+    board[4][4] = piece('A', '4-4');
+
+    const result = applyMove(stateWith(board, 'A'), { row: 2, col: 2 }, { row: 2, col: 3 });
+
+    expect(result.swapCommitted).toBe(false);
+    // It still detonated: every 'A' on the board is gone, wherever it sat.
+    expect(hasId(result.state.board, '4-4')).toBe(false);
   });
 
   test('hasLegalMoves keeps a board playable when its only move forms a 2x2 square', () => {

@@ -34,7 +34,7 @@ import { findAnyLegalMove } from '../engine/matrix';
 import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { describeTileForAccessibility } from './tileAccessibility';
-import { diffBoards } from './boardDiff';
+import { diffBoards, relocateSwappedClears } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import {
   SpecialEffectDescriptor,
@@ -606,7 +606,9 @@ export function Board({
       hasCombo,
       result.multiSpecialFired,
       effectDescriptor,
-      result.chainWaveByPieceId
+      result.chainWaveByPieceId,
+      { a: posA, b: posB },
+      result.swapCommitted
     );
   }
 
@@ -683,7 +685,12 @@ export function Board({
     hasCombo: boolean,
     multiSpecialFired: boolean,
     effectDescriptor: SpecialEffectDescriptor | undefined,
-    chainWaveByPieceId: Record<string, number>
+    chainWaveByPieceId: Record<string, number>,
+    // The two cells this move swapped, and whether the engine actually
+    // exchanged them — together these let the first pass play a
+    // swapped-then-cleared tile's exit from where the player's finger left it.
+    swap: { a: Position; b: Position },
+    swapCommitted: boolean
   ) {
     animatingRef.current = true;
     // The final pass's chain-staging hold (see PassAnimation.chainHoldMs) —
@@ -789,7 +796,15 @@ export function Board({
 
     const runStep = (i: number) => {
       const next = steps[i];
-      const diff = diffBoards(previous, next);
+      const rawDiff = diffBoards(previous, next);
+      // Only the first pass is diffed against the pre-move board, so it's the
+      // only one whose cleared tiles can still be sitting at their pre-swap
+      // cells — later passes diff settled board against settled board. See
+      // boardDiff.ts's relocateSwappedClears.
+      const diff =
+        i === 0
+          ? { ...rawDiff, cleared: relocateSwappedClears(rawDiff.cleared, swap.a, swap.b, swapCommitted) }
+          : rawDiff;
 
       // Which cleared tiles belong to a striped piece's line sweep, a color
       // bomb's radial ripple, or the supercombo's convert-then-sweep-together

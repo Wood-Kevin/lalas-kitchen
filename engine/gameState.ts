@@ -223,6 +223,23 @@ export interface ApplyMoveResult {
   // apart). This resolves the long-deferred per-link animation flash — see
   // engine/DECISIONS.md and DEFERRED_COMPLEXITY.md.
   chainWaveByPieceId: Record<string, number>;
+  // Did this move physically exchange the two swapped cells before resolving?
+  // True for an ordinary match swap, a dropdown relocation, and every
+  // swap-triggered effect whose geometry is LOCAL (the area bomb and its
+  // combos, the striped cross — see applyMove's branch comments). False for a
+  // rejected move, and false for the position-INDEPENDENT detonations that
+  // deliberately never move their pieces (solo color bomb, striped+bomb,
+  // area+color) — their clear set is identical either way, so staging a swap
+  // would be pure ceremony.
+  //
+  // Presentation-only, and the reason it's engine data rather than a
+  // presentation-layer re-derivation: components/Board.tsx must know where a
+  // swapped-then-cleared piece actually ENDED UP so its exiting tile plays
+  // from the cell the player's finger left it on, not the cell it vacated
+  // (see boardDiff.ts's relocateSwappedClears). Re-deriving it there would be
+  // a third copy of applyMove's branch order — which is exactly the
+  // duplication that let the pre-swap-anchor bug drift in the first place.
+  swapCommitted: boolean;
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -1377,18 +1394,26 @@ function resolveColorBomb(
 }
 
 // Activates an area-bomb swap — the same swap-triggered camp as the color bomb,
-// but with a fixed LOCAL effect: it always clears the 3x3 block centered on the
-// bomb's own cell, regardless of what it was swapped with (the partner just has
-// to be an ordinary piece — an area+special swap is a deferred combo that
-// applyMove snaps back before ever reaching here). This reverses the area bomb's
-// original passive/colored trigger (see engine/DECISIONS.md's area-bomb reversal
-// entry). `bombPos` is where the area bomb sits; it isn't physically swapped
-// first, since the blast is centered on it and clears it regardless — the swap
-// is cosmetically irrelevant, exactly like the color bomb. Blockers on the blast
-// are filtered out of the clear set (they only ever take adjacent damage, never
-// a force-clear) and the shared resolveClearSet tail does the detonation +
-// refill + chain-cascade, so applyMove treats this like every other move kind
-// from here on.
+// but with a fixed LOCAL effect: it clears the 3x3 block centered on the bomb,
+// regardless of what it was swapped with (an area+special swap is a combo,
+// handled by the resolvers below, and never reaches here). This reverses the
+// area bomb's original passive/colored trigger (see engine/DECISIONS.md's
+// area-bomb reversal entry).
+//
+// `bombPos` is where the bomb sits on the board it's handed — and applyMove
+// hands it the POST-swap board, so the blast lands where the player aimed
+// rather than where the bomb started. This is the opposite of the color bomb's
+// "the swap is cosmetically irrelevant" shortcut, which this function used to
+// copy: that shortcut is sound only because a color bomb's clear set doesn't
+// depend on position at all. A 3x3 very much does — inheriting the shortcut
+// anyway is what made a bomb dragged one cell right blow up one cell to its
+// left (see applyMove's anchor-rule comment and DECISIONS.md's swap-anchor
+// entry).
+//
+// Blockers on the blast are filtered out of the clear set (they only ever take
+// adjacent damage, never a force-clear) and the shared resolveClearSet tail
+// does the detonation + refill + chain-cascade, so applyMove treats this like
+// every other move kind from here on.
 function resolveAreaBomb(
   board: Board,
   bombPos: Position,
@@ -1516,8 +1541,11 @@ function resolveClearSet(
 // Combo 1: two striped pieces swapped directly into each other. Both sweeps fire
 // at once, clearing a full cross — the entire row AND entire column through the
 // swap — instead of each piece waiting to be included in a later ordinary match.
-// The cross is centered on posA; posB is its adjacent swap partner, so it lies on
-// one of the two swept lines and clears regardless. The combo overrides each
+// The cross is centered on `centerPos`, which applyMove passes as the cell the
+// player dragged INTO (both stripeds are consumed, so neither one owns the
+// center — see applyMove's anchor-rule comment); `partnerPos` is the other
+// swapped cell, which lies on one of the two swept lines and clears
+// regardless. Both are POST-swap cells. The combo overrides each
 // piece's individual sweep direction (two stripeds always make a cross, even if
 // both happened to be row-clearers), matching the genre and the "entire row and
 // column" spec. Blocker cells are filtered out of the clear set — like every
@@ -1526,20 +1554,23 @@ function resolveClearSet(
 // hasLegalMoves treats a striped+striped pair as legal for the same reason.
 function resolveStripedCross(
   board: Board,
-  posA: Position,
-  posB: Position,
+  centerPos: Position,
+  partnerPos: Position,
   spawnPiece: () => Piece
 ): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keys = new Set<string>();
-  for (const p of sweepLinePositions(rows, cols, posA, 'row')) keys.add(`${p.row},${p.col}`);
-  for (const p of sweepLinePositions(rows, cols, posA, 'col')) keys.add(`${p.row},${p.col}`);
+  for (const p of sweepLinePositions(rows, cols, centerPos, 'row')) keys.add(`${p.row},${p.col}`);
+  for (const p of sweepLinePositions(rows, cols, centerPos, 'col')) keys.add(`${p.row},${p.col}`);
   const cleared = keysToClearablePositions(keys, board);
   // Both swapped stripeds are this combo's own triggers — the cross overrides
   // their individual directions, so neither re-fires its own line as a chain.
   // A THIRD striped (or a bomb) lying on the cross is not an origin and chains.
-  const originKeys = new Set<string>([`${posA.row},${posA.col}`, `${posB.row},${posB.col}`]);
+  const originKeys = new Set<string>([
+    `${centerPos.row},${centerPos.col}`,
+    `${partnerPos.row},${partnerPos.col}`,
+  ]);
   // 'bomb' tier — a deliberate combo of two specials is scored at the top
   // tier, a harder/more valuable play than a solo bomb detonation, not a
   // lesser one (see SCORE_TIER_POINTS's doc comment).
@@ -1644,12 +1675,23 @@ function resolveAreaColorCombo(
 }
 
 // Combo 4: an area bomb swapped directly with a striped piece. Produces a
-// plus-shaped blast — the area bomb's own 3x3 block, unioned with the striped
-// piece's full sweep line in its own direction — reusing areaBlastPositions
-// and sweepLinePositions exactly as they already are, rather than hand-rolling
-// new plus-shaped geometry.
+// plus-shaped blast — a 3x3 block unioned with a full sweep line in the striped
+// piece's own direction — reusing areaBlastPositions and sweepLinePositions
+// exactly as they already are, rather than hand-rolling new plus-shaped
+// geometry.
+//
+// BOTH halves anchor on the same `centerPos` (the cell the player dragged into
+// — see applyMove's anchor-rule comment), which is what makes this a genuine
+// centered plus. Anchoring the block and the line on the two pieces' separate
+// cells — as this did before the swap-anchor fix — produced an asymmetric
+// offset union instead, with the line running down the block's edge rather
+// than through its middle. `areaPos`/`stripedPos` are still needed, but only as
+// originKeys: they're the two specials' real POST-swap cells, and both must be
+// marked as this combo's own triggers or expandChainClears would treat
+// whichever one isn't the center as a caught special and re-fire it.
 function resolveAreaStripedCombo(
   board: Board,
+  centerPos: Position,
   areaPos: Position,
   stripedPos: Position,
   spawnPiece: () => Piece
@@ -1659,8 +1701,8 @@ function resolveAreaStripedCombo(
   const stripedPiece = board[stripedPos.row][stripedPos.col];
   const direction: StripeDirection = stripedPiece.direction === 'row' ? 'row' : 'col';
   const keys = new Set<string>();
-  for (const p of areaBlastPositions(rows, cols, areaPos)) keys.add(`${p.row},${p.col}`);
-  for (const p of sweepLinePositions(rows, cols, stripedPos, direction)) keys.add(`${p.row},${p.col}`);
+  for (const p of areaBlastPositions(rows, cols, centerPos)) keys.add(`${p.row},${p.col}`);
+  for (const p of sweepLinePositions(rows, cols, centerPos, direction)) keys.add(`${p.row},${p.col}`);
   const cleared = keysToClearablePositions(keys, board);
   // Both swapped specials are this combo's own triggers — the plus shape
   // overrides the striped piece's line firing independently, so it doesn't
@@ -1672,25 +1714,30 @@ function resolveAreaStripedCombo(
 
 // Combo 5: two area bombs swapped directly into each other. Rather than two
 // separate 3x3 blasts, this fires a single bigger 5x5 blast — centered on
-// `posA` (the position the caller always designates as the anchor, mirroring
-// resolveStripedCross's own posA-centered convention), reusing
+// `centerPos`, which applyMove passes as the cell the player dragged INTO (the
+// same anchor rule resolveStripedCross uses, and for the same reason: both
+// bombs are consumed, so neither one owns the center) — reusing
 // areaBlastPositions' existing geometry with radius=2 instead of building a
-// new shape. Since the two bombs are always adjacent, posB always falls
-// within the 5x5 already, so it's cleared as part of the blast regardless.
+// new shape. Since the two bombs are always adjacent, `partnerPos` always
+// falls within the 5x5 already, so it's cleared as part of the blast
+// regardless. Both are POST-swap cells.
 function resolveAreaAreaCombo(
   board: Board,
-  posA: Position,
-  posB: Position,
+  centerPos: Position,
+  partnerPos: Position,
   spawnPiece: () => Piece
 ): CascadeResolution {
   const rows = board.length;
   const cols = rows > 0 ? board[0].length : 0;
   const keys = new Set<string>();
-  for (const p of areaBlastPositions(rows, cols, posA, 2)) keys.add(`${p.row},${p.col}`);
+  for (const p of areaBlastPositions(rows, cols, centerPos, 2)) keys.add(`${p.row},${p.col}`);
   const cleared = keysToClearablePositions(keys, board);
   // Both swapped bombs are this combo's own triggers — neither re-fires its
   // own solo 3x3 as a chain on top of the bigger blast that already contains it.
-  const originKeys = new Set<string>([`${posA.row},${posA.col}`, `${posB.row},${posB.col}`]);
+  const originKeys = new Set<string>([
+    `${centerPos.row},${centerPos.col}`,
+    `${partnerPos.row},${partnerPos.col}`,
+  ]);
   // 'bomb' tier — same top tier every other combo uses.
   return resolveClearSet(board, cleared, spawnPiece, originKeys, 'bomb');
 }
@@ -1808,7 +1855,7 @@ const MULTI_SPECIAL_THRESHOLD = 2;
 
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -1820,7 +1867,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
   }
 
   // Void cells are holes in the board's shape, never pieces — a swap into or
@@ -1830,7 +1877,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
   // too, so a board is never wrongly judged stuck because of one.
   if (pieceA.type === 'void' || pieceB.type === 'void') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
   }
 
   // Special-piece swaps activate on the swap itself, NOT by forming a match, so
@@ -1865,6 +1912,24 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // it first is the only thing guaranteeing the stronger effect wins.
   // (2) MUST come before (4): two striped pieces don't necessarily form a run, so
   // the ordinary branch would snap them back instead of comboing.
+  //
+  // WHERE each effect fires (the "anchor rule"): a swap-triggered effect whose
+  // geometry is LOCAL performs the swap for real and anchors on a POST-swap
+  // cell, so the effect lands where the player aimed it. The three
+  // position-INDEPENDENT detonations below (solo color bomb, striped+bomb,
+  // area+color) deliberately don't swap at all — their clear set is identical
+  // either way. Getting this wrong is a real, reported bug, not a hypothetical:
+  // every local effect used to anchor on the cell the special had just LEFT, so
+  // dragging an area bomb right blew up one column to its left, and a
+  // striped/area combo cleared a different set depending on which of the two
+  // tiles the player happened to touch first. See engine/DECISIONS.md's
+  // swap-anchor entry.
+  //
+  // For a solo area bomb the anchor is simply "wherever the bomb landed" (the
+  // partner survives the swap as an ordinary piece, so the effect follows the
+  // bomb). For a COMBO both specials are consumed, so neither one owns the
+  // anchor — it's `posB`, the cell the player dragged INTO, which is also where
+  // the dragged piece comes to rest.
   const aArea = pieceA.type === 'area_bomb';
   const bArea = pieceB.type === 'area_bomb';
   const aStriped = pieceA.type === 'striped';
@@ -1874,6 +1939,9 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const aDropdown = pieceA.type === 'dropdown';
   const bDropdown = pieceB.type === 'dropdown';
   let resolved: CascadeResolution;
+  // Set true by every branch that physically exchanges the two cells — see
+  // ApplyMoveResult.swapCommitted for why the presentation layer needs it.
+  let swapCommitted = false;
   if (aDropdown || bDropdown) {
     // A dropdown (escort) piece is immune to every special effect (see
     // matrix.ts's Piece comment and this file's isClearable) — it's never a
@@ -1893,34 +1961,52 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // unconditional-legal implementation — see engine/DECISIONS.md's
     // dropdown-swap-direction entry.
     if (posA.row !== posB.row) {
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
     }
     // Committed, never snapped back — just a plain position swap; the
     // normal cascade loop then checks for both an ordinary match AND a
     // dropdown arrival.
     const swapped = swapPieces(state.board, posA, posB);
+    swapCommitted = true;
     resolved = resolveCascades(swapped, state.spawnPiece);
   } else if (aArea || bArea) {
-    const areaPos = aArea ? posA : posB;
-    const partnerPos = aArea ? posB : posA;
+    // An area bomb's effect is LOCAL, so the swap genuinely matters: stage it
+    // for real, then read every anchor off the settled board. A piece at posA
+    // lands on posB and vice versa, so each special's post-swap cell is simply
+    // "the other position."
+    const swapped = swapPieces(state.board, posA, posB);
+    swapCommitted = true;
+    const areaPos = aArea ? posB : posA;
+    const partnerPos = aArea ? posA : posB;
     const partner = aArea ? pieceB : pieceA;
     if (partner.type === 'color_bomb') {
-      resolved = resolveAreaColorCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+      // Position-independent (it converts by matchType board-wide), so this
+      // reads the same on the swapped board — it just needs the two colorless
+      // bombs' real post-swap cells for its originKeys.
+      resolved = resolveAreaColorCombo(swapped, areaPos, partnerPos, state.spawnPiece);
     } else if (partner.type === 'striped') {
-      resolved = resolveAreaStripedCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+      resolved = resolveAreaStripedCombo(swapped, posB, areaPos, partnerPos, state.spawnPiece);
     } else if (partner.type === 'area_bomb') {
-      resolved = resolveAreaAreaCombo(state.board, areaPos, partnerPos, state.spawnPiece);
+      // Both are area bombs, so areaPos/partnerPos are just posB/posA — pass
+      // them by their combo meaning instead: the 5x5 centers on the aimed cell.
+      resolved = resolveAreaAreaCombo(swapped, posB, posA, state.spawnPiece);
     } else {
-      // area + ordinary: fire the 3x3 blast centered on the bomb, regardless of
-      // what it was swapped with or whether a run would have formed.
-      resolved = resolveAreaBomb(state.board, areaPos, state.spawnPiece);
+      // area + ordinary: the 3x3 fires around wherever the BOMB came to rest.
+      resolved = resolveAreaBomb(swapped, areaPos, state.spawnPiece);
     }
   } else if ((aStriped && bBomb) || (aBomb && bStriped)) {
     const stripedPos = aStriped ? posA : posB;
     const bombPos = aBomb ? posA : posB;
     resolved = resolveStripedBombCombo(state.board, stripedPos, bombPos, state.spawnPiece);
   } else if (aStriped && bStriped) {
-    resolved = resolveStripedCross(state.board, posA, posB, state.spawnPiece);
+    // A cross is local geometry, so it follows the same anchor rule as the
+    // area bomb: stage the swap, then center on posB — the cell the player
+    // dragged into. Both stripeds are consumed, so neither one owns the
+    // center; using posA (the vacated cell) made the same physical pair clear
+    // a different column depending on which tile was touched first.
+    const swapped = swapPieces(state.board, posA, posB);
+    swapCommitted = true;
+    resolved = resolveStripedCross(swapped, posB, posA, state.spawnPiece);
   } else if (aBomb || bBomb) {
     // Solo bomb. If both are bombs either assignment works (resolveColorBomb
     // detonates the whole board regardless).
@@ -1940,8 +2026,9 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // crossing-run entry.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {} };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
     }
+    swapCommitted = true;
     resolved = resolveCascades(swapped, state.spawnPiece);
   }
 
@@ -2102,6 +2189,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     steps: finalSteps,
     multiSpecialFired: maxSpecialsFired >= MULTI_SPECIAL_THRESHOLD,
     chainWaveByPieceId,
+    swapCommitted,
   };
 }
 

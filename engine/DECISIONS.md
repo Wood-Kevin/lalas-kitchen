@@ -5091,3 +5091,55 @@ The Android cloud build quota (EAS free plan) was exhausted, and Android was rea
 **With both fixes applied, the build completed successfully**: `BUILD SUCCESSFUL in 4m 10s`, producing a real signed `app-release.aab` (78.1 MB) for version 1.1.0 / versionCode 12 (auto-incremented remotely via `eas.json`'s `appVersionSource: "remote"`, the same mechanism the iOS builds use). Copied out of WSL to `_assets/art-assets/desktop-artifacts/lalas-kitchen-1.1.0-build12.aab` for the architect to upload to Google Play Console directly — this session did not run `eas submit` for Android, since the architect's own stated intent was "I can just upload it," and Play Console submission is a distinct, separately-confirmed action from `eas build` in this project's workflow (the same "don't generalize one approval to the next action" discipline the iOS submissions already follow). This is the first Android **release** (signed, `bundleRelease`) build this project has ever produced in an agent session — the earlier "First real Android build attempt" entry only ever reached a debug APK (`assembleDebug`).
 
 The WSL toolchain (JDK, Android SDK/NDK/build-tools, native `eas-cli`, the `scripts/wsl-*.sh` scripts) is now real, reusable infrastructure for this project, not a one-off — the next Android build (whether the EAS free-tier quota has reset or not) can reuse it directly via `scripts/wsl-build-android.sh` without repeating any of this setup.
+
+## Swap-anchor: every swap-triggered LOCAL effect now fires where the player aimed it, not where the special started
+
+A real playtest report — "when I move the area bomb to the right the explosion seems like it all goes to the left instead of staying centered" — turned out to be exactly right, and to be a *pattern* rather than one bug. Investigating it surfaced that **every** swap-triggered special effect anchored its geometry on the special's **pre-swap** cell: `applyMove` deliberately skipped `swapPieces` for all of these branches, so the pieces never moved and the effect was computed against the cell the player had just dragged *away from*.
+
+That rule wasn't arbitrary. It was written for the **color bomb**, where it is genuinely true — `resolveColorBomb`'s own comment said "Neither is physically swapped first — both cells clear regardless, so the swap itself is cosmetically irrelevant," and for a whole-board / all-of-one-colour detonation that holds perfectly. The bug is that the shortcut was then **inherited by effects whose geometry is position-dependent**, where it stops holding. This is the exact failure mode `CLAUDE.md`'s Playtest Feedback Protocol names ("when a new feature builds on an old one, check whether the old feature's shortcut still holds") — `resolveAreaBomb`'s doc comment even said "exactly like the color bomb" out loud, so the borrowed reasoning was visible in the code the whole time.
+
+### What was actually wrong, measured against the real engine
+
+Verified before changing anything, by running each case through the real `applyMove` on a 7x7 board and dumping the cells that genuinely cleared:
+
+- **Solo area bomb** — the blast was nailed to the bomb's resting cell and ignored the gesture entirely. Dragging the bomb right, and dragging an ordinary piece left onto it, produced a byte-identical clear — one column left of where the player aimed.
+- **Striped + striped cross** — the vertical arm always landed on the cell being *vacated*, so the **same two pieces cleared a different column depending on which tile the player happened to touch first**.
+- **Area + area 5x5** — the same tap-order dependency, over a 25-cell effect.
+- **Area + striped** — documented as "a plus shape," but it wasn't one: the two halves anchored on their two separate pre-swap cells, so the sweep line ran down the **edge** of the 3x3 block rather than through its middle. An asymmetric offset union, not a plus.
+
+Three effects were confirmed **correct and left byte-identical**, because their clear set genuinely doesn't depend on position: `resolveColorBomb`, `resolveStripedBombCombo`, `resolveAreaColorCombo`.
+
+The decisive control: the **in-match striped sweep** was already right. It runs on the ordinary `swapPieces` path, so a striped piece dragged into a run sweeps the line it *landed* on. The game already contained the correct behaviour — the four swap-triggered branches were the outliers.
+
+### The rule now
+
+**Swap first, then fire at the destination.** A branch whose effect is local stages the swap for real (`swapPieces`) and reads every anchor off the settled board:
+
+- **Solo area bomb** anchors on **wherever the bomb came to rest** — posB when the player dragged the bomb, posA when they dragged an ordinary piece into it. The partner survives the swap as ordinary content, so the effect follows the bomb, which is the physically coherent model (the bomb is an object that moved). Both drag directions now put the bomb on the same cell and blast the same 3x3 — for the right reason instead of by accident.
+- **The three combos** anchor on **posB, the cell the player dragged into**. Both specials are consumed, so neither one "owns" the anchor and there is no follow-the-piece answer; the aimed cell is the only choice that tracks the gesture. `resolveAreaStripedCombo` now anchors **both** halves there, which is what makes it a genuine centered plus for the first time.
+
+**Alternative not taken:** keep the anchors and fix only the visuals (make the piece visibly not move, so the swap reads as a fuse rather than a relocation). Confirmed with the architect as a real fork rather than picked silently. Rejected because it leaves a local 3x3 fundamentally un-aimable — the player could never steer it onto a blocker cluster, which is most of the point of a local effect — and it leaves the striped-cross / area+area tap-order dependency in place, where the same physical pair still clears differently based on an invisible detail.
+
+**Alternative not taken:** re-anchor the geometry *without* staging the swap. Rejected because `originKeys` (the chain-reaction bookkeeping that stops an effect re-firing itself) must reference each special's **real** cell on the board being passed. Decoupling "where the effect fires" from "where the piece is" would have meant two parallel concepts and a live chaining hazard — with the swap staged, anchor and origin coincide for free.
+
+### Scope note: the three position-independent detonations still don't swap
+
+They could, harmlessly, for uniformity. They deliberately don't: their clear set is identical either way, so staging a swap would be pure ceremony and a wider diff for no behavioural gain. `ApplyMoveResult.swapCommitted` reports this honestly rather than pretending every branch behaves the same, and a test pins it (`a position-INDEPENDENT detonation deliberately does NOT stage the swap`) so the distinction that got lost the first time is now asserted, not just narrated.
+
+### The presentation half of the same bug
+
+Fixing the engine alone would have made it *worse*, not better. The first cascade pass is diffed against the **pre-move** board, so a cleared piece's `from` is its pre-swap cell — meaning the bomb would have visibly slid back to its origin and exploded there while the blast landed one cell over. `components/boardDiff.ts`'s new `relocateSwappedClears` corrects the exit position of the two swapped cells (and only those two, and only on pass 0), driven by the engine's `swapCommitted` flag.
+
+`swapCommitted` is **engine data rather than a presentation-layer re-derivation** on purpose: `components/specialEffectAnimation.ts` already re-derives `applyMove`'s branch order once (`resolveSpecialEffectDescriptor`), and a third copy of that decision is precisely the duplication that let this bug drift in the first place — `CLAUDE.md`'s protocol says to collapse a duplicated decision before testing it, not to add another stand-in.
+
+Only `cleared` is remapped. `moved`/`spawned` must keep diffing against the pre-move board: a swapped piece that **survives** (the displaced ordinary piece of an ordinary swap, or a dropdown relocation) genuinely travelled between the two cells, and rewriting its origin would make it teleport instead of slide.
+
+`resolveSpecialEffectDescriptor`'s `striped_cross` origin moved from posA to posB in lockstep with the engine — leaving it behind would have sent the sweep travelling out from a cell the cross no longer clears through.
+
+### Verification
+
+Re-ran the same real-`applyMove` probe after the change: all four effects now land on the aimed cell, area+striped is a genuinely centered plus, and the in-match control is untouched. Test suite 677/677 (up from 667: 6 existing tests that asserted the old anchor by name were rewritten, and 10 new ones added). The new engine tests deliberately drive the **same physical setup from both drag directions** and assert a mirrored result — the shape of assertion that would have caught this originally, where a single-direction test could not.
+
+### Deferred
+
+The three area+special combos still have no `SpecialEffectDescriptor` of their own, so they animate with the generic sweep rather than a distinct identity (`specialEffectAnimation.ts`'s module comment also still described them as deferred snap-backs, which had gone stale — corrected in the same pass). See `DEFERRED_COMPLEXITY.md`.
