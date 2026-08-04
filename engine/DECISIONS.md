@@ -5143,3 +5143,43 @@ Re-ran the same real-`applyMove` probe after the change: all four effects now la
 ### Deferred
 
 The three area+special combos still have no `SpecialEffectDescriptor` of their own, so they animate with the generic sweep rather than a distinct identity (`specialEffectAnimation.ts`'s module comment also still described them as deferred snap-backs, which had gone stale — corrected in the same pass). See `DEFERRED_COMPLEXITY.md`.
+
+## Spawn-anchor: a new special piece is born where the player made the match, not at the run's far left
+
+A second playtest report, immediately after the swap-anchor fix above: *"when the special pieces are created they always default to the far left column of the match. They should be created at the combination point."* Correct — and, like the swap-anchor bug, it's the same underlying failure shape: **special-piece geometry derived from array order rather than from the player's gesture.** Different code path, though. Swap-anchor was `applyMove`'s branches deciding where an existing special FIRES; this is `resolveMatchEffects` deciding where a new special is BORN.
+
+`resolveMatchEffects` took `positions[0]` as the anchor cell for a 4-run's striped piece, a 5-run's color bomb, and a 2x2 square's area bomb. `checkMatches` builds `positions` in pure scan order — left-to-right for a row run, top-to-bottom for a column run — and `checkSquares` reports top-left first. So the anchor was a scan artifact with no relation to the move that made the match.
+
+### It was never right for a straight run — not "usually" wrong, always
+
+The investigation turned up a structural fact worth recording, because it's what makes this a real bug rather than a cosmetic preference:
+
+- A horizontal **4-run can only legally be completed at its 2nd or 3rd cell.** Completing it at either END would require the other three to already be a 3-in-a-row, which cannot exist on a settled board. The anchor was the 1st cell — so it was *never* the completion cell.
+- A **5-run can only ever be completed dead centre**, for the same reason. Its anchor was the 1st cell, so it was reliably exactly two cells off, every single time.
+- A **2x2 square** can be completed at any of its four corners, so the old top-left anchor happened to be correct 1 time in 4.
+
+Vertical runs carry the same bias toward the *top* cell, but gravity then drops the special into the gap the cleared cells left below it, which mostly masks it — which is why the report described the symptom as specifically a *far left column* one.
+
+### The rule now
+
+`swappedCellIn(cells, swapCells)`: when a match contains one of the move's two swapped cells, that cell becomes the anchor — the special appears under the player's finger, on the cell their moved piece came to rest.
+
+**There is never a tie to break, and that rests on a real invariant rather than a preference:** every cell of a run or square shares one matchType, and the two swapped pieces must carry *different* matchTypes — if they matched, swapping them would leave the board's match layout untouched and `applyMove` would have snapped it back as a no-op. So a single match can never contain both swapped cells. (A striped piece carrying the same matchType as its swap partner falls under exactly the same argument.)
+
+`swapCells` is threaded `applyMove` → `resolveCascades` → `resolveMatchEffects`, and applies **only to the first pass of that call**. `resolveClearSet`'s chain-cascade call omits it entirely, since a refill settling after a detonation is not a swap.
+
+**Cascade-formed matches** (every pass after the player's own) have no gesture to follow and fall back to `runCentreIndex` — the run's centre, taking the earlier of the two middles for an even-length run. Confirmed as a fork rather than assumed: the alternative was leaving cascades on the old first-cell anchor, which was rejected because the same left-bias the report describes would stay visible whenever a chain forms a 4- or 5-run. A **2x2 square has no centre cell at all**, so with no swap behind it the top-left convention stands — there is no less-biased cell to prefer.
+
+### Crossing-runs are deliberately exempt — and it costs nothing
+
+`checkCrossShapes` reports the crossing cell as `positions[0]`, and that is left untouched (a confirmed architect choice). It was never the scan-order artifact the runs suffered from: for a cross the intersection genuinely *is* the combination point.
+
+Better still, the exemption turns out to be **provably equivalent** to swap-anchoring rather than merely defensible — a fact the test-writing surfaced, not something assumed up front. A cross needs both arms exactly 3, so the intersection is the only cell it can ever be completed at: filling any other cell last would mean the perpendicular arm was already a complete 3-run before the move, impossible on a settled board. The intersection anchor and the completion cell always name the same cell. This is asserted in the tests, not just argued.
+
+### One correctness detail
+
+The run/square loops previously cleared "every cell except index 0" by index. With a variable anchor they skip **by position** instead. The existing "an anchor cell is never also gapped" deletion at the end of `resolveMatchEffects` would have caught it either way, but leaving the anchor out of `tierByKey` here keeps `specialClearedKeys` honest: the anchor didn't clear, so it must not count as a special clear when `applyAdjacentDamage` decides whether a `specialOnly` (sealed jar) blocker takes a hit.
+
+### Verification
+
+Real-`applyMove` probe over five scenarios, each asserted legal pre-move, confirming the spawn column moved from the run's far left to the completion cell in every case. Live in the real running app: a hand-built board whose only productive move completes a 4-run at its 3rd cell, played as a real two-tap swap, producing accessibility label `"Striped tomato, sweeps its row, row 4, column 3"` — row 3, column 2 zero-indexed, the completion cell — with moves 20→19 and the target crediting 3. Test suite 683/683 (6 existing tests that asserted the old anchor rewritten, 6 new ones added). See `docs/verification/spawn-anchor/`, which also discloses what wasn't covered: only the 4-run case was driven live, and the dev renderer became unstable enough that no clean post-move screenshot could be captured.

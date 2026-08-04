@@ -574,15 +574,19 @@ describe('applyMove — striped pieces', () => {
 
     const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
 
-    // Exactly one striped piece exists, where the run's anchor cell was.
+    // Exactly one striped piece exists, on the cell the player completed the
+    // match at — (0,2), where the swapped-up 'A' came to rest — NOT the run's
+    // leftmost cell (0,0). See DECISIONS.md's spawn-anchor entry.
     expect(countStriped(result.state.board)).toBe(1);
-    const striped = result.state.board[0][0];
+    const striped = result.state.board[0][2];
     expect(striped.type).toBe('striped');
     expect(striped.matchType).toBe('A');
     // A horizontal 4-run makes a row-clearing striped piece.
     expect(striped.direction).toBe('row');
-    // It kept the id of the ordinary piece it was converted from.
-    expect(striped.id).toBe('0-0');
+    // It kept the id of the piece it was converted from — here the one the
+    // player dragged up out of (1,2), which is what makes the special appear
+    // under their finger.
+    expect(striped.id).toBe('1-2');
 
     // Only the other three cells of the run cleared (the anchor became
     // striped, it wasn't cleared), so the objective credits 3, not 4.
@@ -759,12 +763,15 @@ describe('applyMove — color bombs', () => {
 
     const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
 
-    // Exactly one color bomb, at the run's anchor cell — and it is NOT a
-    // striped piece (the 4-run outcome) sitting alongside it.
+    // Exactly one color bomb, on the cell the player completed the match at —
+    // (0,2), where the swapped-up 'A' came to rest — NOT the run's leftmost
+    // cell (0,0). A 5-run can only ever be completed dead centre, so the old
+    // first-cell anchor was ALWAYS two cells off. See DECISIONS.md's
+    // spawn-anchor entry. It is also NOT a striped piece (the 4-run outcome).
     expect(countColorBomb(result.state.board)).toBe(1);
-    const bomb = result.state.board[0][0];
+    const bomb = result.state.board[0][2];
     expect(bomb.type).toBe('color_bomb');
-    expect(bomb.id).toBe('0-0'); // kept the id of the cell it was converted from
+    expect(bomb.id).toBe('1-2'); // kept the id of the piece the player moved
     // Colorless by design: no matchType (so it can't form an ordinary run) and
     // no striped `direction`.
     expect(bomb.matchType).toBeUndefined();
@@ -2873,15 +2880,17 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(countType(result.state.board, 'area_bomb')).toBe(1);
     expect(countType(result.state.board, 'striped')).toBe(0);
     expect(countType(result.state.board, 'color_bomb')).toBe(0);
-    // It's the top-left anchor cell (id '0-0'), now COLORLESS (drops matchType,
-    // like a color bomb — it's swap-activated, not matched), with no striped
-    // direction. Gravity may have dropped it from row 0, so it's found by id.
-    const bomb = findById(result.state.board, '0-0');
+    // It spawns on the cell the player completed the square at — (1,1), where
+    // the dragged 'A' (id '1-2') came to rest — not the square's top-left
+    // corner. See DECISIONS.md's spawn-anchor entry. It's now COLORLESS (drops
+    // matchType, like a color bomb — it's swap-activated, not matched), with no
+    // striped direction. Gravity may have dropped it, so it's found by id.
+    const bomb = findById(result.state.board, '1-2');
     expect(bomb?.type).toBe('area_bomb');
     expect(bomb?.matchType).toBeUndefined();
     expect(bomb?.direction).toBeUndefined();
     // The other three A cells cleared (the anchor was converted, not cleared).
-    for (const id of ['0-1', '1-0', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
+    for (const id of ['0-0', '0-1', '1-0']) expect(hasId(result.state.board, id)).toBe(false);
     // Only 3 grid pieces cleared, and the objective credits 3 (anchor excluded),
     // exactly like a 4-run spawning a striped piece credits 3. The three cleared
     // cells still carried matchType 'A', so the colorless anchor doesn't change
@@ -3359,13 +3368,18 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     const result = applyMove(stateWith(board, 'A'), { row: 1, col: 1 }, { row: 2, col: 1 });
 
     expect(countType(result.state.board, 'area_bomb')).toBe(1);
-    // The anchor is the square's top-left cell (0,0), untouched by this swap.
-    const bomb = findById(result.state.board, '0-0');
+    // The anchor is (1,1) — the cell the player completed the shape at, holding
+    // the donor piece (id '2-1') they dragged up from (2,1) — not the square's
+    // top-left corner. See DECISIONS.md's spawn-anchor entry. (1,1) is covered
+    // by the row-1 run too, so this also exercises the "an anchor cell is never
+    // also gapped" rule: the run adds it to the clear set, the anchor takes it
+    // back out.
+    const bomb = findById(result.state.board, '2-1');
     expect(bomb?.type).toBe('area_bomb');
     expect(bomb?.matchType).toBeUndefined();
-    // The other 4 cells cleared: the run's 3 cells (1,0)/(1,1 = the donor,
-    // id '2-1')/(1,2), plus the square's remaining corner (0,1).
-    for (const id of ['0-1', '1-0', '2-1', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
+    // The other 4 cells cleared: the square's remaining three corners
+    // (0,0)/(0,1)/(1,0), plus the run's third cell (1,2).
+    for (const id of ['0-0', '0-1', '1-0', '1-2']) expect(hasId(result.state.board, id)).toBe(false);
     expect(result.state.objectives[0].currentCount).toBe(4);
     expect(survivingGridPieces(result.state.board)).toBe(25 - 4);
     expect(result.state.movesRemaining).toBe(9);
@@ -3401,6 +3415,207 @@ describe('applyMove — area bombs (2x2 square trigger)', () => {
     expect(result.state.objectives[0].currentCount).toBe(6);
   });
 });
+
+// ---------------------------------------------------------------------------
+// WHERE a match spawns its special piece — the "spawn anchor" (see
+// gameState.ts's swappedCellIn and DECISIONS.md's spawn-anchor entry).
+//
+// The regression these guard: `positions` is built in pure scan order, so the
+// old `positions[0]` anchor put every straight run's special at its far
+// left/top no matter where the player actually made the match. That was never
+// merely often wrong for a run — it was wrong EVERY time, because a horizontal
+// 4-run can only legally be completed at its 2nd or 3rd cell (completing it at
+// an end would need the other three to already be a 3-run, impossible on a
+// settled board) and a 5-run only ever dead centre.
+// ---------------------------------------------------------------------------
+describe('applyMove — where a newly spawned special lands', () => {
+  const distinctBoard = (rows: number, cols: number): Board =>
+    Array.from({ length: rows }, (_, r) =>
+      Array.from({ length: cols }, (_, c) => piece(`c${r}${c}`, `${r}-${c}`))
+    );
+  const distinctSpawns = (): (() => Piece) =>
+    queueSpawnPiece(Array.from({ length: 60 }, (_, i) => `s${i}`));
+  const findById = (board: Board, id: string): Piece | undefined =>
+    board.flat().find((p) => p.id === id);
+  const countType = (board: Board, type: string): number =>
+    board.flat().filter((p) => p.type === type).length;
+  const posOf = (board: Board, id: string): Position | undefined => {
+    for (let r = 0; r < board.length; r++) {
+      for (let c = 0; c < board[r].length; c++) if (board[r][c].id === id) return { row: r, col: c };
+    }
+    return undefined;
+  };
+  const stateWith = (board: Board, spawnPiece: () => Piece = distinctSpawns()): GameState => ({
+    board,
+    movesRemaining: 10,
+    lives: 5,
+    objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+    status: 'in_progress',
+    pauseReason: null,
+    totalCleared: {},
+    layerCells: {},
+    spawnPiece,
+  });
+
+  test('a 4-run spawns its striped piece on the cell the player completed it at, not the run leftmost', () => {
+    const board = distinctBoard(5, 6);
+    // Run will be row 3, cols 1-4. Pre-filled: cols 1, 2 and 4 — deliberately
+    // NOT three in a row, so this is a board that could genuinely exist in play.
+    board[3][1] = piece('A', 'left');
+    board[3][2] = piece('A', 'mid');
+    board[3][4] = piece('A', 'right');
+    board[2][3] = piece('A', 'donor');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    // Drag the donor DOWN into (3,3) — the run's third cell.
+    const result = applyMove(stateWith(board), { row: 2, col: 3 }, { row: 3, col: 3 });
+
+    expect(countType(result.state.board, 'striped')).toBe(1);
+    const striped = findById(result.state.board, 'donor');
+    expect(striped?.type).toBe('striped');
+    expect(striped?.direction).toBe('row');
+    // Column is the decisive axis: gravity only moves pieces vertically, so the
+    // spawn column IS the anchor's column, untouched by any falling.
+    expect(posOf(result.state.board, 'donor')?.col).toBe(3);
+    // The run's leftmost cell cleared like any other non-anchor cell — it is no
+    // longer privileged.
+    expect(findById(result.state.board, 'left')).toBeUndefined();
+  });
+
+  test('the other legal completion cell of the same 4-run spawns there instead — the anchor tracks the gesture', () => {
+    const board = distinctBoard(5, 6);
+    // Same run (row 3, cols 1-4), completed at col 2 this time.
+    board[3][1] = piece('A', 'left');
+    board[3][3] = piece('A', 'mid');
+    board[3][4] = piece('A', 'right');
+    board[2][2] = piece('A', 'donor');
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board), { row: 2, col: 2 }, { row: 3, col: 2 });
+
+    expect(countType(result.state.board, 'striped')).toBe(1);
+    expect(posOf(result.state.board, 'donor')?.col).toBe(2);
+  });
+
+  test('a 5-run spawns its color bomb dead centre, where it is always completed', () => {
+    const board = distinctBoard(5, 6);
+    // Run will be row 3, cols 0-4. A 5-run's ONLY legal completion cell is its
+    // middle: removing any other cell leaves a 3-run behind, which can't exist
+    // on a settled board. So the old first-cell anchor was always 2 cells off.
+    board[3][0] = piece('A', 'a0');
+    board[3][1] = piece('A', 'a1');
+    board[3][3] = piece('A', 'a3');
+    board[3][4] = piece('A', 'a4');
+    board[2][2] = piece('A', 'donor');
+    expect(checkMatches(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board), { row: 2, col: 2 }, { row: 3, col: 2 });
+
+    expect(countType(result.state.board, 'color_bomb')).toBe(1);
+    const bomb = findById(result.state.board, 'donor');
+    expect(bomb?.type).toBe('color_bomb');
+    expect(bomb?.matchType).toBeUndefined();
+    expect(posOf(result.state.board, 'donor')?.col).toBe(2);
+    expect(findById(result.state.board, 'a0')).toBeUndefined();
+  });
+
+  test('a 2x2 square spawns its area bomb on the corner the player completed, not always the top-left', () => {
+    const board = distinctBoard(5, 6);
+    // Square {(2,1),(2,2),(3,1),(3,2)}; the player completes the BOTTOM-RIGHT
+    // corner, the 3-in-4 case the old top-left anchor always got wrong.
+    board[2][1] = piece('A', 'tl');
+    board[2][2] = piece('A', 'tr');
+    board[3][1] = piece('A', 'bl');
+    board[4][2] = piece('A', 'donor');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const result = applyMove(stateWith(board), { row: 4, col: 2 }, { row: 3, col: 2 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    const bomb = findById(result.state.board, 'donor');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(posOf(result.state.board, 'donor')?.col).toBe(2);
+    // The top-left corner cleared like any other non-anchor cell.
+    expect(findById(result.state.board, 'tl')).toBeUndefined();
+  });
+
+  test('a CASCADE-formed 4-run has no swap to follow, so it spawns at the run centre — never the far left', () => {
+    const board = distinctBoard(5, 6);
+    // Pass 0 is an ordinary 3-match of B in the TOP row (cols 2-4), completed
+    // by dragging a B up from (1,3). Its three cleared cells then refill from
+    // the top with three A's (the spawn queue is dictated, not random), which
+    // together with the pre-placed A at (0,1) forms a 4-run at cols 1-4 on
+    // PASS 1 — a genuine cascade, with no swapped cell in it and brand-new
+    // piece ids throughout.
+    board[0][1] = piece('A', 'preplaced');
+    board[0][2] = piece('B', 'b1');
+    board[0][4] = piece('B', 'b2');
+    board[1][3] = piece('B', 'trigger');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkSquares(board)).toHaveLength(0);
+
+    const spawns = queueSpawnPiece(['A', 'A', 'A', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6']);
+    const result = applyMove(stateWith(board, spawns), { row: 1, col: 3 }, { row: 0, col: 3 });
+
+    expect(countType(result.state.board, 'striped')).toBe(1);
+    const striped = result.state.board.flat().find((p) => p.type === 'striped') as Piece;
+    // Centre of a cols 1-4 run, taking the earlier of the two middles: col 2.
+    // The old first-cell anchor would have put it at col 1.
+    expect(posOf(result.state.board, striped.id)?.col).toBe(2);
+    // It really was cascade-spawned: the striped piece is one of the refill's
+    // own pieces, not the piece the player dragged.
+    expect(striped.id).not.toBe('trigger');
+  });
+
+  test('a crossing-run can ONLY be completed at its intersection, so its anchor already IS the completion cell', () => {
+    // Why crosses are exempt from swap-anchoring, and why that exemption costs
+    // nothing rather than being an arbitrary carve-out: a cross needs BOTH arms
+    // exactly 3, so the intersection is the only cell it can ever be completed
+    // at. Filling any other cell last would mean the perpendicular arm was
+    // already a full 3-run before the move — impossible on a settled board.
+    // positions[0] (the intersection) therefore already equals the cell the
+    // player completed the match at.
+    //
+    // A T-shape: row arm (2,1)-(2,3), column arm (2,2)-(4,2), intersection
+    // (2,2). The donor waits at (1,2), just outside the shape.
+    const board = distinctBoard(5, 5);
+    board[2][1] = piece('A', 'armL');
+    board[2][3] = piece('A', 'armR');
+    board[3][2] = piece('A', 'armD1');
+    board[4][2] = piece('A', 'armD2');
+    board[1][2] = piece('A', 'donor');
+    expect(checkMatches(board)).toHaveLength(0);
+    expect(checkCrossShapes(board)).toHaveLength(0);
+
+    // Drag the donor DOWN into the intersection — the only completing move.
+    const result = applyMove(stateWith(board), { row: 1, col: 2 }, { row: 2, col: 2 });
+
+    expect(countType(result.state.board, 'area_bomb')).toBe(1);
+    // The bomb IS the donor piece — which is the whole point: the donor only
+    // ever occupied the intersection, so the intersection anchor and the
+    // completion cell name the same cell here. (Its row then changes: the
+    // column arm below it cleared, so it falls. Column 2 is the intersection's
+    // own column and gravity never moves a piece sideways.)
+    const bomb = findById(result.state.board, 'donor');
+    expect(bomb?.type).toBe('area_bomb');
+    expect(posOf(result.state.board, 'donor')?.col).toBe(2);
+
+    // The structural claim above, asserted rather than just argued: leave the
+    // same shape missing an ARM TIP instead of its intersection, and the board
+    // already carries a match before any move — so this position can never be
+    // reached in real play.
+    const tipMissing = distinctBoard(5, 5);
+    tipMissing[2][1] = piece('A', 'armL');
+    tipMissing[2][2] = piece('A', 'centre');
+    tipMissing[3][2] = piece('A', 'armD1');
+    tipMissing[4][2] = piece('A', 'armD2');
+    // (2,3) — the row arm's tip — is the only cell left to fill.
+    expect(checkMatches(tipMissing).length).toBeGreaterThan(0);
+  });
+});
+
 
 describe('applyMove — area bombs (L/T/plus crossing-run trigger)', () => {
   // Same pattern as the 2x2-square block above (distinct grid, explicit
@@ -3519,15 +3734,16 @@ describe('applyMove — area bombs (L/T/plus crossing-run trigger)', () => {
 
     // The crossing candidate involved a 4-long arm, so it stood down entirely
     // — the confirmed precedence rule. The 4-run's own striped spawn fires
-    // exactly as it does today, at the run's own leftmost cell, unaffected by
-    // the perpendicular exactly-3 arm's existence.
+    // unaffected by the perpendicular exactly-3 arm's existence, now on the
+    // cell the player completed the match at (2,2) — holding the donor piece
+    // (id '1-2') dragged down from (1,2) — rather than the run's leftmost cell.
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
     expect(countType(result.state.board, 'striped')).toBe(1);
-    const striped = findById(result.state.board, '2-1');
+    const striped = findById(result.state.board, '1-2');
     expect(striped?.type).toBe('striped');
     expect(striped?.direction).toBe('row');
     expect(striped?.matchType).toBe('A');
-    for (const id of ['1-2', '2-3', '2-4', '3-2', '4-2']) expect(hasId(result.state.board, id)).toBe(false);
+    for (const id of ['2-1', '2-3', '2-4', '3-2', '4-2']) expect(hasId(result.state.board, id)).toBe(false);
     expect(result.state.objectives[0].currentCount).toBe(5);
     expect(result.state.movesRemaining).toBe(9);
   });
@@ -3548,7 +3764,9 @@ describe('applyMove — area bombs (L/T/plus crossing-run trigger)', () => {
 
     expect(countType(result.state.board, 'area_bomb')).toBe(0);
     expect(countType(result.state.board, 'color_bomb')).toBe(1);
-    const bomb = findById(result.state.board, '2-0');
+    // Spawns on the completion cell (2,2) — holding the donor piece (id '1-2')
+    // dragged down from (1,2) — not the 5-run's leftmost cell (2,0).
+    const bomb = findById(result.state.board, '1-2');
     expect(bomb?.type).toBe('color_bomb');
     expect(bomb?.matchType).toBeUndefined();
     expect(result.state.objectives[0].currentCount).toBe(6);

@@ -860,6 +860,44 @@ interface CascadeResolution {
   chainWaveByPieceId: Record<string, number>;
 }
 
+// WHERE a match spawns its special piece — the "spawn anchor," the sibling of
+// applyMove's anchor rule for where an already-existing special FIRES (see
+// engine/DECISIONS.md's spawn-anchor entry).
+//
+// A match's `positions` array is built in pure scan order — left-to-right for a
+// row run, top-to-bottom for a column run — so taking `positions[0]`, as this
+// used to, spawned every straight run's special at its far left (or top)
+// regardless of where the player actually made the match. That was never
+// merely *often* wrong for a run, it was wrong every single time: a horizontal
+// 4-run can only legally be completed at its 2nd or 3rd cell (completing it at
+// either END would require the other three to already be a 3-run, which can't
+// exist on a settled board), and a 5-run only ever dead centre — so the first
+// cell is never the cell the player swapped.
+//
+// `swapCells` is the move's two swapped cells, passed only for the pass that IS
+// the player's swap (see resolveCascades). When this match contains one of
+// them, that cell wins: the special appears where the moved piece came to rest,
+// under the player's finger.
+//
+// There is never a tie to break, and this relies on a real invariant rather
+// than a preference: every cell of a run or square shares one matchType, and
+// the two swapped pieces must carry DIFFERENT matchTypes — if they matched,
+// swapping them would leave the board's match layout untouched and applyMove
+// would have snapped it back as a no-op. So a single match can never contain
+// both swapped cells.
+function swappedCellIn(cells: Position[], swapCells: Position[] | undefined): Position | undefined {
+  if (!swapCells) return undefined;
+  return cells.find((p) => swapCells.some((s) => s.row === p.row && s.col === p.col));
+}
+
+// Fallback spawn cell for a straight run with no swap behind it (every cascade
+// pass after the player's own): the run's CENTRE, not its first cell, so a
+// falling-pieces match has no left/top bias either. An even-length run has two
+// middles and this takes the earlier one (a 4-run spawns on its 2nd cell).
+function runCentreIndex(length: number): number {
+  return Math.floor((length - 1) / 2);
+}
+
 // The special piece an anchor cell is converted into this pass. A striped
 // piece carries its sweep direction; a color bomb carries nothing (it's
 // colorless — see matrix.ts's Piece comment); an area bomb is now also colorless
@@ -920,7 +958,10 @@ function resolveMatchEffects(
   board: Board,
   matches: Match[],
   squares: Square[],
-  crosses: CrossShape[]
+  crosses: CrossShape[],
+  // The move's two swapped cells, passed ONLY for the pass that is the player's
+  // own swap — see swappedCellIn above and resolveCascades' own param.
+  swapCells?: Position[]
 ): {
   clearedPositions: Position[];
   anchors: Array<{ pos: Position } & AnchorSpec>;
@@ -1040,16 +1081,29 @@ function resolveMatchEffects(
     // never appear in a run's cells in the first place.
     const striped = cells.filter((p) => board[p.row][p.col].type === 'striped');
 
+    // Every cell of the run clears EXCEPT the one becoming the special — which
+    // is no longer always cells[0], so this skips by position rather than by
+    // index. (The "an anchor cell is never also gapped" deletion at the end of
+    // this function would catch it anyway, but leaving the anchor out of
+    // tierByKey here keeps specialClearedKeys honest: the anchor didn't clear,
+    // so it must not count as a special clear for blocker damage.)
+    const clearAllBut = (anchor: Position, tier: ScoreTier): void => {
+      for (const p of cells) {
+        if (p.row === anchor.row && p.col === anchor.col) continue;
+        addClear(p.row, p.col, tier);
+      }
+    };
+
     if (striped.length > 0) {
       fireStripedTriggersAndClearAll(striped, cells);
     } else if (cells.length === 5) {
-      const anchor = cells[0];
+      const anchor = swappedCellIn(cells, swapCells) ?? cells[runCentreIndex(cells.length)];
       anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'color_bomb' });
-      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col, 'bomb');
+      clearAllBut(anchor, 'bomb');
     } else if (cells.length === 4) {
-      const anchor = cells[0];
+      const anchor = swappedCellIn(cells, swapCells) ?? cells[runCentreIndex(cells.length)];
       anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'striped', direction: match.orientation });
-      for (let i = 1; i < cells.length; i++) addClear(cells[i].row, cells[i].col, 'special');
+      clearAllBut(anchor, 'special');
     } else if (cells.length >= 6) {
       // A 6+ run is rarer and bigger than the 5-run that spawns a color bomb,
       // so it scores at least as well — the 'bomb' tier, not lumped in with a
@@ -1080,6 +1134,12 @@ function resolveMatchEffects(
   // cross's arms are always exactly-length-3 runs, so the plain run-length
   // rule alone wouldn't exclude them).
   for (const cross of crosses) {
+    // Deliberately NOT swap-anchored, unlike the runs above and the squares
+    // below (a confirmed architect choice, not an oversight): positions[0] is
+    // the crossing cell, where the two arms actually meet, which genuinely IS
+    // this shape's combination point — it was never the scan-order artifact
+    // that made straight runs spawn at their far left. See DECISIONS.md's
+    // spawn-anchor entry.
     const anchor = cross.positions[0];
     // A live striped piece anywhere in the cross already fired its own sweep
     // via the run loop above (whichever arm's Match contained it) — so the
@@ -1121,10 +1181,14 @@ function resolveMatchEffects(
       fireStripedTriggersAndClearAll(stripedCorners, square.positions);
       continue;
     }
-    const anchor = square.positions[0];
+    // A 2x2 has no centre cell, so with no swap behind it the top-left
+    // convention stands — unlike a straight run, there's no less-biased cell to
+    // prefer. A swap-formed square still spawns under the player's finger.
+    const anchor = swappedCellIn(square.positions, swapCells) ?? square.positions[0];
     anchorByKey.set(keyOf(anchor.row, anchor.col), { kind: 'area_bomb' });
-    for (let i = 1; i < square.positions.length; i++) {
-      addClear(square.positions[i].row, square.positions[i].col, 'special');
+    for (const p of square.positions) {
+      if (p.row === anchor.row && p.col === anchor.col) continue;
+      addClear(p.row, p.col, 'special');
     }
   }
 
@@ -1184,7 +1248,14 @@ function resolveMatchEffects(
 function resolveCascades(
   board: Board,
   spawnPiece: () => Piece,
-  startPassIndex: number = 0
+  startPassIndex: number = 0,
+  // The move's two swapped cells, so a special this move spawns lands on the
+  // cell the player's moved piece came to rest on (see swappedCellIn). Applies
+  // ONLY to this call's FIRST pass — every later pass is a cascade of falling
+  // pieces with no gesture behind it, and falls back to the match's centre.
+  // Omitted entirely by resolveClearSet's chain-cascade call, which is a refill
+  // settling after a detonation, not a swap.
+  swapCells?: Position[]
 ): CascadeResolution {
   let currentBoard = board;
   let cascadeCount = 0;
@@ -1235,7 +1306,9 @@ function resolveCascades(
       specialsFired,
       tierByKey,
       chainWaveByPieceId: passChainWaves,
-    } = resolveMatchEffects(currentBoard, matches, squares, crosses);
+      // Only this call's first pass is the player's swap; cascadeCount was
+      // incremented just above, so it reads 1 on that pass.
+    } = resolveMatchEffects(currentBoard, matches, squares, crosses, cascadeCount === 1 ? swapCells : undefined);
     maxSpecialsFired = Math.max(maxSpecialsFired, specialsFired);
     Object.assign(chainWaveByPieceId, passChainWaves);
 
@@ -1968,7 +2041,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // dropdown arrival.
     const swapped = swapPieces(state.board, posA, posB);
     swapCommitted = true;
-    resolved = resolveCascades(swapped, state.spawnPiece);
+    resolved = resolveCascades(swapped, state.spawnPiece, 0, [posA, posB]);
   } else if (aArea || bArea) {
     // An area bomb's effect is LOCAL, so the swap genuinely matters: stage it
     // for real, then read every anchor off the settled board. A piece at posA
@@ -2029,7 +2102,10 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
       return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
     }
     swapCommitted = true;
-    resolved = resolveCascades(swapped, state.spawnPiece);
+    // The ordinary match path — the one that actually spawns specials from
+    // runs and squares. Passing the swapped cells is what puts a newly forged
+    // special under the player's finger instead of at the run's far left.
+    resolved = resolveCascades(swapped, state.spawnPiece, 0, [posA, posB]);
   }
 
   const {
