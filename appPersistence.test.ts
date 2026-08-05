@@ -35,6 +35,8 @@ import {
   generatedShapeId,
   generatedTargetCount,
   isClearanceObjectiveLevel,
+  isEscortObjectiveLevel,
+  generatedDropdownPositions,
   isScoreObjectiveLevel,
   grantInstantLife,
   livesAfterLoss,
@@ -523,14 +525,14 @@ describe('isScoreObjectiveLevel', () => {
     expect(isScoreObjectiveLevel(2)).toBe(false);
   });
 
-  test('on-cadence levels starting at the threshold (3, then every 3rd)', () => {
+  test('on-cadence levels starting at the threshold (3, then every 5th)', () => {
     expect(isScoreObjectiveLevel(3)).toBe(true);
-    expect(isScoreObjectiveLevel(6)).toBe(true);
-    expect(isScoreObjectiveLevel(9)).toBe(true);
+    expect(isScoreObjectiveLevel(8)).toBe(true);
+    expect(isScoreObjectiveLevel(13)).toBe(true);
   });
 
   test('off-cadence levels get no score objective', () => {
-    for (const levelNumber of [4, 5, 7, 8, 10, 11]) {
+    for (const levelNumber of [4, 5, 6, 7, 9, 10, 11, 12]) {
       expect(isScoreObjectiveLevel(levelNumber)).toBe(false);
     }
   });
@@ -582,14 +584,14 @@ describe('isClearanceObjectiveLevel', () => {
     expect(isClearanceObjectiveLevel(4)).toBe(false);
   });
 
-  test('on-cadence levels starting at the threshold (5, then every 4th)', () => {
+  test('on-cadence levels starting at the threshold (5, then every 6th)', () => {
     expect(isClearanceObjectiveLevel(5)).toBe(true);
-    expect(isClearanceObjectiveLevel(9)).toBe(true);
-    expect(isClearanceObjectiveLevel(13)).toBe(true);
+    expect(isClearanceObjectiveLevel(11)).toBe(true);
+    expect(isClearanceObjectiveLevel(17)).toBe(true);
   });
 
   test('off-cadence levels get no clearance objective', () => {
-    for (const levelNumber of [6, 7, 8, 10, 11, 12]) {
+    for (const levelNumber of [6, 7, 8, 9, 10, 12, 13, 14]) {
       expect(isClearanceObjectiveLevel(levelNumber)).toBe(false);
     }
   });
@@ -716,27 +718,29 @@ describe('buildGeneratedLevelConfig', () => {
   });
 
   test('grows the piece-type pool and shares the target total across two objectives', () => {
-    // Level 10 -> generated level number 7 -> 3 + floor(6/3) = 5 types,
-    // which clears MIN_TYPES_FOR_SECOND_OBJECTIVE (5), so this level now
-    // asks for two distinct objectives. This level is also shaped (rotation[4]
-    // — level 7's steps-since-threshold, 6, floors to 3, offset by
-    // SHAPE_ROTATION_OFFSET (1) to (3+1)%6 = 4, now that BOARD_SHAPE_ROTATION
-    // is length 6 — at the same 8x6 board), so the shared total below is
-    // generatedTargetCount(7, ratio), not the unscaled 26 a plain rectangle
-    // would get. That total is the TOTAL burden shared across the
-    // objectives, not a per-objective quota — divided by 2, not doubled.
-    // An earlier version of this test asserted the doubled total and so
-    // enshrined the compounding bug (a two-objective level demanding double
-    // an equivalent single-objective one) as intended behavior — see
-    // engine/DECISIONS.md's target-sharing entry.
-    const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[4]](8, 6);
+    // Level 12 -> generated level number 9 -> 5 types, which clears
+    // MIN_TYPES_FOR_SECOND_OBJECTIVE (5), so this level asks for two distinct
+    // objectives. 9 is deliberately off ALL THREE non-collect cadences (score
+    // 3/5, clearance 5/6, escort 7/8) — each of those replaces the objectives
+    // array outright, so a collect-shaped assertion needs a level none of them
+    // claims. (This test used to use generated level 7, which is now an escort
+    // level.) It's also shaped (rotation[5] — level 9's steps-since-threshold,
+    // 8, halves to 4, offset by SHAPE_ROTATION_OFFSET (1) to (4+1)%6 = 5), so
+    // the shared total below is generatedTargetCount(9, ratio), not the
+    // unscaled figure a plain rectangle would get. That total is the TOTAL
+    // burden shared across the objectives, not a per-objective quota —
+    // divided by 2, not doubled. An earlier version of this test asserted the
+    // doubled total and so enshrined the compounding bug (a two-objective
+    // level demanding double an equivalent single-objective one) as intended
+    // behavior — see engine/DECISIONS.md's target-sharing entry.
+    const config = buildGeneratedLevelConfig(12, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[5]](8, 6);
     const ratio = playableCellRatio(8, 6, voidCells);
-    const perObjective = Math.ceil(generatedTargetCount(7, ratio) / 2);
+    const perObjective = Math.ceil(generatedTargetCount(9, ratio) / 2);
     expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E']);
     expect(config.objectives).toEqual([
-      { targetMatchType: 'B', targetCount: perObjective },
-      { targetMatchType: 'C', targetCount: perObjective },
+      { targetMatchType: 'D', targetCount: perObjective },
+      { targetMatchType: 'E', targetCount: perObjective },
     ]);
   });
 
@@ -761,15 +765,15 @@ describe('buildGeneratedLevelConfig', () => {
   test('never targets the same piece type twice on a level with two objectives', () => {
     // Scans well past the two-objective threshold — every level in range
     // must have distinct targetMatchTypes across its own objectives array,
-    // regardless of how the piece-type pool has shrunk by that point. Both
-    // 'score' and 'clearance' objectives only ever appear alone
-    // (objectiveCount === 1 — see isScoreObjectiveLevel/
-    // isClearanceObjectiveLevel's own comments), so neither can ever be the
-    // duplicate-target case this test actually guards; skip them rather
-    // than asserting on their (deliberately absent) targetMatchType.
+    // regardless of how the piece-type pool has shrunk by that point. The
+    // 'score', 'clearance' and 'escort' types each REPLACE the objectives
+    // array outright and carry no targetMatchType at all, so none of them can
+    // ever be the duplicate-target case this test actually guards; skip them
+    // rather than asserting on their (deliberately absent) targetMatchType.
     for (let levelIndex = 4; levelIndex <= 60; levelIndex++) {
       const config = buildGeneratedLevelConfig(levelIndex, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-      if (config.objectives.length === 1 && (config.objectives[0].type === 'score' || config.objectives[0].type === 'clearance')) continue;
+      const soleType = config.objectives.length === 1 ? config.objectives[0].type : undefined;
+      if (soleType === 'score' || soleType === 'clearance' || soleType === 'escort') continue;
       const targetTypes = config.objectives.map((o) => {
         // Only reachable for a level NOT skipped above — i.e. objectiveCount
         // 2 or a single 'collect' entry — so a 'score'/'clearance'/'escort'
@@ -886,12 +890,13 @@ describe('buildGeneratedLevelConfig', () => {
   // with every objective's targetMatchType drawn from it.
   test('a two-objective level still carries the full generatedPieceTypeCount pool, not just its objective types', () => {
     const ALL_TYPES = ['tomato', 'lemon', 'herb', 'garlic', 'chili', 'spoon'];
-    // levelIndex 11 -> generated level number 8 -> two objectives (typeCount
+    // levelIndex 12 -> generated level number 9 -> two objectives (typeCount
     // has cleared MIN_TYPES_FOR_SECOND_OBJECTIVE) but still only 5 of 6
-    // piece types (generatedPieceTypeCount(8, 6) = 3 + floor(7/3) = 5) — a
-    // real case where objectiveCount (2) and pieceTypeIds.length (5) must
-    // clearly differ.
-    const config = buildGeneratedLevelConfig(11, 3, ALL_TYPES, 8, 6);
+    // piece types (generatedPieceTypeCount(9, 6) = 5) — a real case where
+    // objectiveCount (2) and pieceTypeIds.length (5) must clearly differ.
+    // 9 is off all three non-collect cadences (score 3/5, clearance 5/6,
+    // escort 7/8); the generated level 8 this used to use is now a score level.
+    const config = buildGeneratedLevelConfig(12, 3, ALL_TYPES, 8, 6);
     expect(config.objectives).toHaveLength(2);
     expect(config.pieceTypeIds).toEqual(['tomato', 'lemon', 'herb', 'garlic', 'chili']);
     expect(config.pieceTypeIds.length).toBeGreaterThan(config.objectives.length);
@@ -1878,5 +1883,147 @@ describe('backfillUnlockedRecipeCards — one-time catch-up for pre-feature prog
     const result = backfillUnlockedRecipeCards(FULL_RECIPE_CARDS, completedThrough28, []);
     expect(result).toEqual(['card_1', 'card_3', 'card_6', 'card_10', 'card_15', 'card_21', 'card_28']);
     expect(result).toHaveLength(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Escort ('dropdown') objectives on generated levels. Before this, the escort
+// mechanic existed on exactly ONE level in the whole game — the hand-built
+// "Delivery Day" — which taught it with its own one-time tutorial card and
+// then never appeared again, because buildGeneratedLevelConfig had no concept
+// of dropdownPositions at all.
+// ---------------------------------------------------------------------------
+describe('isEscortObjectiveLevel', () => {
+  test('on-cadence levels starting at the threshold (7, then every 8th)', () => {
+    expect(isEscortObjectiveLevel(7)).toBe(true);
+    expect(isEscortObjectiveLevel(15)).toBe(true);
+    expect(isEscortObjectiveLevel(23)).toBe(true);
+  });
+
+  test('nothing before the threshold — escort is the last of the three types to arrive', () => {
+    for (const levelNumber of [1, 2, 3, 4, 5, 6]) {
+      expect(isEscortObjectiveLevel(levelNumber)).toBe(false);
+    }
+  });
+});
+
+describe('generatedDropdownPositions', () => {
+  test('one per column, and never two in the same column (they would block each other falling)', () => {
+    const positions = generatedDropdownPositions(7, 8, 5);
+    expect(positions.length).toBeGreaterThan(1);
+    expect(new Set(positions.map((p) => p.col)).size).toBe(positions.length);
+  });
+
+  test('on a plain board every piece starts at the very top, with the whole column to fall through', () => {
+    for (const position of generatedDropdownPositions(7, 8, 5)) {
+      expect(position.row).toBe(0);
+    }
+  });
+
+  test('never lands on a void cell — createGameState converts the cell in place, so a void target would punch a hole in the board shape', () => {
+    // A column fully voided except a tall segment low down, plus one entirely
+    // voided column, is the shape that would break a naive "row 0" rule.
+    const voidCells: Position[] = [
+      { row: 0, col: 0 }, { row: 1, col: 0 }, { row: 2, col: 0 },
+      { row: 0, col: 1 }, { row: 1, col: 1 }, { row: 2, col: 1 }, { row: 3, col: 1 },
+      { row: 4, col: 1 }, { row: 5, col: 1 }, { row: 6, col: 1 }, { row: 7, col: 1 },
+    ];
+    const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
+    const positions = generatedDropdownPositions(7, 8, 5, voidCells);
+    expect(positions.length).toBeGreaterThan(0);
+    for (const position of positions) {
+      expect(voidKeys.has(`${position.row},${position.col}`)).toBe(false);
+    }
+    // The fully-voided column can never host one.
+    expect(positions.some((p) => p.col === 1)).toBe(false);
+  });
+
+  test('skips a column whose only segment is too short to fall through — a piece there would arrive instantly, collecting itself for free', () => {
+    // Column 0 is playable only at row 0 (a one-cell segment: its top IS its
+    // bottom), so it must not be chosen even though row 0 is "the top".
+    const voidCells: Position[] = [
+      { row: 1, col: 0 }, { row: 2, col: 0 }, { row: 3, col: 0 },
+      { row: 4, col: 0 }, { row: 5, col: 0 }, { row: 6, col: 0 }, { row: 7, col: 0 },
+    ];
+    expect(generatedDropdownPositions(7, 8, 5, voidCells).some((p) => p.col === 0)).toBe(false);
+  });
+
+  test('is deterministic — the same level always places the same pieces', () => {
+    expect(generatedDropdownPositions(15, 8, 5)).toEqual(generatedDropdownPositions(15, 8, 5));
+  });
+});
+
+describe('buildGeneratedLevelConfig — escort levels', () => {
+  const ALL_TYPES = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const BLOCKERS = [{ id: 'jar', hitsToClear: 1 }];
+  // levelIndex 18 with 11 hand-built levels -> generated level number 7, the
+  // first escort level.
+  const escortConfig = () => buildGeneratedLevelConfig(18, 11, ALL_TYPES, 8, 5, BLOCKERS, false, 6);
+
+  test('places a single escort objective and the dropdown pieces it is derived from', () => {
+    const config = escortConfig();
+    expect(config.objectives).toEqual([{ type: 'escort' }]);
+    expect(config.dropdownPositions?.length).toBeGreaterThan(0);
+  });
+
+  test('never places blockers — a blocker below a dropdown strands it permanently', () => {
+    // A blocker is immovable and is NOT a segment boundary the way a void is,
+    // so a dropdown above one can never reach the bottom of its column unless
+    // the player happens to clear the blocker first. With blocker positions
+    // chosen by generateLevel's own seeded RNG, an escort level with blockers
+    // could be dealt genuinely unwinnable.
+    const config = escortConfig();
+    expect(config.blockerCount ?? 0).toBe(0);
+  });
+
+  test('is always a plain rectangle, even on a shape-cadence level', () => {
+    // Voids cut columns into short segments and disqualify whole columns,
+    // working directly against a mechanic that is entirely about vertical
+    // travel. Generated level 7 IS on the shape cadence, so this would carry
+    // voidCells if escort didn't suppress them.
+    expect(generatedShapeId(7)).toBeDefined();
+    expect(escortConfig().voidCells).toBeUndefined();
+  });
+
+  test('gets a more generous move budget than the ordinary generated floor', () => {
+    // Escorting is slow: a dropdown only descends when the cells beneath it
+    // clear. Matches the hand-built "Delivery Day" budget rather than the
+    // ramp's MIN_MOVES floor.
+    const config = escortConfig();
+    expect(config.movesLimit).toBeGreaterThanOrEqual(24);
+  });
+
+  test('an escort level and a clearance level never collide into the same level', () => {
+    for (let levelIndex = 12; levelIndex <= 80; levelIndex++) {
+      const config = buildGeneratedLevelConfig(levelIndex, 11, ALL_TYPES, 8, 5, BLOCKERS, false, 6);
+      expect(config.objectives.length).toBe(
+        config.objectives.some((o) => o.type === 'escort' || o.type === 'clearance' || o.type === 'score')
+          ? 1
+          : config.objectives.length
+      );
+      if (config.objectives.some((o) => o.type === 'escort')) {
+        expect(config.layerCells).toBeUndefined();
+      }
+    }
+  });
+
+  test('all three non-collect types actually occur now, and collect stays the clear default', () => {
+    // The regression this whole change exists to fix: score and clearance were
+    // gated behind objectiveCount === 1, which stopped being satisfiable once
+    // the ramp-continuity fix started generated level 1 at 6 piece types. Both
+    // were unreachable on EVERY generated level, forever.
+    const kinds: Record<string, number> = {};
+    for (let levelIndex = 12; levelIndex <= 51; levelIndex++) {
+      const config = buildGeneratedLevelConfig(levelIndex, 11, ALL_TYPES, 8, 5, BLOCKERS, false, 6);
+      const kind = config.objectives.length === 1 ? config.objectives[0].type ?? 'collect' : 'collect';
+      kinds[kind] = (kinds[kind] ?? 0) + 1;
+    }
+    expect(kinds.score ?? 0).toBeGreaterThan(0);
+    expect(kinds.clearance ?? 0).toBeGreaterThan(0);
+    expect(kinds.escort ?? 0).toBeGreaterThan(0);
+    // Plain collect levels still outnumber all three specials combined.
+    expect(kinds.collect).toBeGreaterThan(
+      (kinds.score ?? 0) + (kinds.clearance ?? 0) + (kinds.escort ?? 0)
+    );
   });
 });

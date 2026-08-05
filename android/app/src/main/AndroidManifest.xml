@@ -1,9 +1,21 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <!-- Kept: INTERNET (ads + OTA updates), VIBRATE (the haptics toggle). The
+       stock Expo template also declared READ_EXTERNAL_STORAGE,
+       WRITE_EXTERNAL_STORAGE and SYSTEM_ALERT_WINDOW; none of them is used by
+       any code in this app, and Play surfaces the last one as "draw over other
+       apps", so they were removed rather than shipped unexplained. -->
   <uses-permission android:name="android.permission.INTERNET"/>
-  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-  <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
-  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  <!-- expo-audio's own manifest declares RECORD_AUDIO and a microphone
+       foreground service, because the library also supports recording. This app
+       only ever constructs an AudioPlayer (services/expoAudioSoundService.ts) —
+       it never records anything — so both are merged out. Without this, Play
+       lists "Microphone" on the store page for a match-3 game, which is both
+       untrue and a real install deterrent.
+       The media-playback service is deliberately LEFT IN PLACE: this app does
+       genuinely play audio through expo-audio, and whether the library starts
+       that service internally could not be verified without a device. -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -12,6 +24,11 @@
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
+    <!-- Merged out alongside the RECORD_AUDIO permission above: expo-audio
+         declares this service with foregroundServiceType="microphone", and a
+         microphone foreground service needs its own Play Console justification
+         that this app could never honestly give. -->
+    <service android:name="expo.modules.audio.service.AudioRecordingService" tools:node="remove"/>
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>

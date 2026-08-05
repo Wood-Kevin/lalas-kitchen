@@ -106,12 +106,26 @@ const CORNER_SHOWCASE_VOIDS: Position[] = cutCornersVoids(8, 5);
 
 const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
+    // The very first level, and it used to be by far the tightest thing in the
+    // game: at 15 tomatoes in 20 moves, a greedy solver evaluating EVERY legal
+    // swap on every turn needed 19 of those 20 moves, identically across 6
+    // runs, and never scored above one star. A player who came here to relax
+    // was being asked to match a search bot on move one, and to spend a life
+    // when she didn't.
+    //
+    // The measurements also showed which lever actually mattered: raising the
+    // move limit to 24 changed nothing at all (still 19 moves used), because
+    // the binding constraint is how often a tomato match exists on the board,
+    // not how many turns are available. Dropping the target to 12 brought it
+    // to 13 moves. Both are applied — the lower target does the real work, and
+    // the wider budget turns the remainder into genuine breathing room (the bot
+    // finishes with 11 moves to spare) instead of a photo finish.
     seed: 1,
     rows: 8,
     cols: 5,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
-    movesLimit: 20,
-    objectives: [{ targetMatchType: skinConfig.pieceTypes[0].id, targetCount: 15 }],
+    movesLimit: 24,
+    objectives: [{ targetMatchType: skinConfig.pieceTypes[0].id, targetCount: 12 }],
     displayName: 'Tomato Toss',
   },
   {

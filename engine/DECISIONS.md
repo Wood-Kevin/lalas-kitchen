@@ -5183,3 +5183,57 @@ The run/square loops previously cleared "every cell except index 0" by index. Wi
 ### Verification
 
 Real-`applyMove` probe over five scenarios, each asserted legal pre-move, confirming the spawn column moved from the run's far left to the completion cell in every case. Live in the real running app: a hand-built board whose only productive move completes a 4-run at its 3rd cell, played as a real two-tap swap, producing accessibility label `"Striped tomato, sweeps its row, row 4, column 3"` — row 3, column 2 zero-indexed, the completion cell — with moves 20→19 and the target crediting 3. Test suite 683/683 (6 existing tests that asserted the old anchor rewritten, 6 new ones added). See `docs/verification/spawn-anchor/`, which also discloses what wasn't covered: only the 4-run case was driven live, and the dev renderer became unstable enough that no clean post-move screenshot could be captured.
+
+## Pre-submission playability pass: a dead objective system, an unreachable star tier, and a first level tuned against a search bot
+
+A broad "scan the game for anything else that needs fixing before both store submissions" turned up one store-config item and three genuine playability problems, none of which were on anyone's list. The three playability findings are recorded together because they were found the same way — by *measuring* the game rather than reading it — and because two of them only became visible once the first was.
+
+### 1. Score and clearance objectives had become unreachable — forever
+
+Simulating `buildGeneratedLevelConfig` across levels 12-300 showed **every single generated level was two `collect` objectives**. Not rarely score, not rarely clearance: never, at any level number.
+
+The mechanism is a collision between two independently correct changes:
+
+- `useScoreObjective` / `useClearanceObjective` both additionally required `objectiveCount === 1`.
+- `generatedObjectiveCount` returns 2 as soon as `typeCount >= 5`.
+- The earlier **generated-ramp-continuity** fix started generated level 1 at the hand-built queue's full 6 piece types, so `typeCount` is 6 from the first generated level onward.
+
+So `objectiveCount` is 2 on every generated level, and both gates were permanently false. Each change was right on its own; nobody checked them against each other. This is precisely the failure mode `CLAUDE.md`'s Playtest Feedback Protocol names, and the stale reasoning was still sitting in the code: a comment explaining the target split says "two objectives only ever appear once the target has saturated (both need levelNumber >= 7)", which stopped being true the moment continuity landed.
+
+**The guard was scope-limiting, not a design rule.** `isScoreObjectiveLevel`'s own original comment said mixing into a multi-objective level "was never asked for" — an explicit statement of scope, not of principle. And there is no actual mixing to worry about: a score/clearance/escort objective **replaces** the objectives array outright. The difficulty reasoning behind the second collect objective doesn't transfer either — `generatedObjectiveCount` adds it so 3+ piece types stay "neutral" and a level can't clear in ~3 moves, which is specific to matchType-gated collect targets; score isn't matchType-gated at all.
+
+**Fixed** by dropping the guard, and widening the cadences to compensate (score 3 -> 5, clearance 4 -> 6) so `collect` stays the clear default. Measured mix over 40 generated levels: 23 collect, 8 score, 5 clearance, 4 escort.
+
+**Alternative not taken:** revert or soften the ramp-continuity fix so early generated levels have one objective again. Rejected because it only restores score/clearance for roughly the first six generated levels and then they stop again — that's the older behaviour, not a fix.
+
+### 2. Escort was a mechanic the player could never encounter twice
+
+`dropdownPositions` appeared **nowhere** in `appPersistence.ts`. The escort mechanic existed on exactly one level in the game, the hand-built "Delivery Day", which teaches it with its own one-time tutorial card and then never appears again. Teaching something with a dedicated card and then never using it is worse than not teaching it at all.
+
+Now generator-wired (`isEscortObjectiveLevel`, `generatedDropdownPositions`), gated later than the other two (level 7, every 8th) because it's the most unusual of the three. Three constraints on it are load-bearing rather than cosmetic, and two were discovered by investigation rather than assumed:
+
+- **No blockers, ever.** A dropdown is collected at the bottom of its own column segment, and unlike a void a blocker is *not* a segment boundary — it's immovable content inside one. A blocker anywhere below a dropdown strands it permanently unless the player happens to clear it by adjacent damage first. Blocker positions come from `generateLevel`'s own seeded RNG and are genuinely unknown at config time, so an escort level with blockers could be dealt unwinnable. Same problem clearance already solves the same way.
+- **Never shaped.** The mechanic is entirely about vertical travel, and voids work against it twice: they cut columns into short segments and disqualify columns outright. Checked as geometry, not inferred from play — on the two shaped escort levels in the first 40, only 2 of 5 columns had a tall enough segment at all, and the qualifying pieces started within a couple of cells of their own collection point.
+- **Top of the column's TALLEST segment, not its topmost playable cell.** These look equivalent and aren't: on a shaped board a column can open with a one-cell segment where the top cell *is* the bottom cell, and the piece would spawn already-arrived and collect itself for free on the first cascade.
+
+### 3. Three stars was unreachable, and level 1 was tuned against nobody
+
+Both found by building a greedy solver that plays the real engine — enumerating every legal swap each turn and taking the one that most advances the objectives.
+
+**Three stars:** the threshold was two thirds of the move budget unused. Across ~25 playthroughs of hand-built and generated levels the solver earned three stars **zero times**, finishing wins with roughly 10-40% of the budget left. Even hand-built level 1 capped out at one star for it. A tier nobody can reach isn't a stretch goal, it's a permanently empty slot on the level map. Moved to **half** the budget unused; the 2-star threshold measured well calibrated and is untouched.
+
+**Level 1** was the sharpest result: 15 tomatoes in 20 moves took the solver **19 of 20 moves, identically across 6 runs**, never above one star. The first level of a game built for someone who plays to relax was asking her to match an exhaustive search on move one, and costing a life when she didn't.
+
+The measurements also identified the right lever, which was not the obvious one: raising the move limit to 24 changed nothing at all (still 19 moves used), because the binding constraint is how often a tomato match exists on the board, not how many turns are available. Dropping the target to 12 brought it to 13 moves. Both applied — the target does the real work, the wider budget turns the remainder into breathing room rather than a photo finish. Levels 2 and 3 measured with comfortable margin already and were left alone.
+
+### The solver is NOT a valid instrument for escort levels — established, not assumed
+
+While tuning escort difficulty the solver started losing every escort level. Rather than tune against it, the obvious control was run: **the solver loses the shipped, live-verified hand-built "Delivery Day" 3 times out of 3.** One-move lookahead cannot plan the sustained digging-under-one-column that escorting needs, even with a descent gradient added to its scoring.
+
+So escort difficulty is the one lever in this pass anchored on precedent rather than measurement: 2 dropdowns growing to 3, and a 24-move floor, both taken directly from "Delivery Day" — the only validated escort data point that exists. Disclosed in `DEFERRED_COMPLEXITY.md` rather than presented as verified. The solver's results for *collect* levels remain sound (it wins those consistently), which is what the star and level-1 conclusions rest on.
+
+### Android permissions the game never used
+
+Separately, extracting the manifest from the AAB that actually shipped showed four permissions the game has no use for: `RECORD_AUDIO` (from `expo-audio`, which also supports recording — this app only ever constructs an `AudioPlayer`), plus `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` and `SYSTEM_ALERT_WINDOW` from the stock Expo template. `RECORD_AUDIO` is the notable one: Google Play lists **Microphone** on the store page for a match-3 game, which is both untrue and a real install deterrent. All four removed, along with expo-audio's microphone foreground service. The media-playback service is deliberately left in place — this app does genuinely play audio, and whether the library starts that service internally could not be verified without a device.
+
+Also verified and explicitly NOT changed, to stop them being "fixed" later: the Android AdMob App ID is correctly wired (via the **root-level** `react-native-google-mobile-ads` key in app.json, which `app-json.gradle` reads and injects as a manifest placeholder — load-bearing despite Expo warning that it ignores the key), and the release build is signed with an EAS-managed keystore, not the debug key the template's `signingConfig signingConfigs.debug` line implies.

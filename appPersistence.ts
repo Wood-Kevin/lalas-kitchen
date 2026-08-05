@@ -836,16 +836,16 @@ export function generatedTargetCount(
 // CADENCE (3) keeps it an occasional flavor, not a replacement for
 // 'collect' objectives in general.
 const SCORE_OBJECTIVE_MIN_LEVEL_NUMBER = 3;
-const SCORE_OBJECTIVE_CADENCE = 3;
+// Widened from 3 to 5 alongside the objectiveCount guard removal below. With
+// the guard gone this gate finally reaches real levels, and at every-3rd a
+// score level would have been the single most common objective type in the
+// game; every-5th keeps 'collect' the clear default while still bringing score
+// around often enough to stay familiar.
+const SCORE_OBJECTIVE_CADENCE = 5;
 
-// Deliberately only ever consulted by buildGeneratedLevelConfig when
-// objectiveCount === 1 (see generatedObjectiveCount below) — a generated
-// level's multi-objective case (levelNumber >= 7, several distinct
-// targetMatchTypes) is a separate, already-solved question, and mixing a
-// score objective into that array was never asked for; keeping this
-// function itself objectiveCount-agnostic (it just answers "is this
-// levelNumber a score-flavored one," not "should THIS level use it") keeps
-// that guard at the one real call site instead of being duplicated here.
+// Answers only "is this levelNumber a score-flavored one," never "should THIS
+// level use it" — the decision lives at the one real call site
+// (buildGeneratedLevelConfig) rather than being duplicated here.
 export function isScoreObjectiveLevel(levelNumber: number): boolean {
   if (levelNumber < SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) return false;
   return (levelNumber - SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) % SCORE_OBJECTIVE_CADENCE === 0;
@@ -1068,15 +1068,130 @@ export function generatedShapeId(levelNumber: number): BoardShapeId | undefined 
 // the BOARD looks like, hidden layers under specific tiles, not just a HUD
 // number), so it stays rarer.
 const CLEARANCE_MIN_LEVEL_NUMBER = 5;
-const CLEARANCE_CADENCE = 4;
+// Widened from 4 to 6 for the same reason SCORE_OBJECTIVE_CADENCE went 3 -> 5:
+// these gates only started reaching real levels once the objectiveCount guard
+// was removed, and at their original cadences the three non-collect types
+// together would have outnumbered plain collect levels.
+const CLEARANCE_CADENCE = 6;
 
-// Only ever consulted by buildGeneratedLevelConfig when `!useScoreObjective
-// && objectiveCount === 1` — a 'clearance' objective never mixes with
-// 'score' or a second 'collect' target, the exact same "objective types
-// never combine" rule isScoreObjectiveLevel's own call site establishes.
+// A 'clearance' objective never mixes with 'score', 'escort' or a 'collect'
+// target — it REPLACES the level's objectives entirely. The priority order
+// among the three (score, then clearance, then escort) lives at the one call
+// site in buildGeneratedLevelConfig.
 export function isClearanceObjectiveLevel(levelNumber: number): boolean {
   if (levelNumber < CLEARANCE_MIN_LEVEL_NUMBER) return false;
   return (levelNumber - CLEARANCE_MIN_LEVEL_NUMBER) % CLEARANCE_CADENCE === 0;
+}
+
+// --- Escort ('dropdown') objectives -----------------------------------------
+// The escort mechanic was hand-built-only until now: "Delivery Day" (App.tsx's
+// LEVEL_QUEUE, the 11th and last hand-built level) taught it with its own
+// one-time tutorial card, and then no generated level ever placed a dropdown
+// piece again — a mechanic the player was taught and could then never
+// encounter a second time. Introduced later than score/clearance because it's
+// the most unusual of the three (a piece that must be ESCORTED rather than
+// matched), so it gets a couple of ordinary levels after the hand-built queue
+// before reappearing.
+const ESCORT_MIN_LEVEL_NUMBER = 7;
+const ESCORT_CADENCE = 8;
+
+export function isEscortObjectiveLevel(levelNumber: number): boolean {
+  if (levelNumber < ESCORT_MIN_LEVEL_NUMBER) return false;
+  return (levelNumber - ESCORT_MIN_LEVEL_NUMBER) % ESCORT_CADENCE === 0;
+}
+
+// How many dropdown pieces a generated escort level places, and where.
+// Calibrated against the one hand-built precedent, "Delivery Day": two
+// dropdowns on an 8x5 board, both in the TOP row so there's real distance to
+// work them down across the level's move budget.
+//
+// Placement rules, each load-bearing rather than cosmetic:
+//  - one dropdown per column at most, spread across the board, so two pieces
+//    never stack in the same column and block each other's descent;
+//  - always the TOP cell of the TALLEST non-void segment in that column. A
+//    dropdown is collected at the bottom of its own segment (matrix.ts's
+//    dropdownArrivals), so the top of the tallest segment is the cell with the
+//    most travel ahead of it. Taking the topmost playable cell instead looked
+//    equivalent but isn't: on a shaped board a column can open with a
+//    ONE-CELL segment (playable, void, void, playable...), where the top cell
+//    is also the bottom cell — the piece would spawn already-arrived and be
+//    collected for free on the first cascade;
+//  - segments shorter than ESCORT_MIN_SEGMENT_HEIGHT are skipped entirely, so
+//    a level never asks the player to escort a piece that has nowhere to fall;
+//  - void cells are skipped implicitly by walking segments — createGameState
+//    converts the chosen cell in place (see its dropdownPositions loop), so
+//    targeting a void would silently punch a hole in the board's shape.
+// A column with no segment tall enough contributes nothing; if no column
+// qualifies at all the level simply gets no dropdowns, and the caller's
+// objectives array falls back to the ordinary collect shape.
+// How many pieces to escort. Anchored deliberately on the hand-built
+// "Delivery Day" (2 dropdowns, 24 moves, this same 8x5 board) rather than on
+// simulation: a greedy solver written to measure difficulty here turned out to
+// LOSE that shipped, live-verified level 3 times out of 3, so it is not a valid
+// instrument for this objective type — escorting needs sustained digging under
+// one column, which one-move lookahead can't plan. Escort difficulty is
+// therefore the one lever in this file NOT backed by measurement; see
+// DEFERRED_COMPLEXITY.md. Grows by one every second escort level, capped at one
+// per column (a second dropdown in the same column would stack and block the
+// first's descent).
+const ESCORT_BASE_DROPDOWN_COUNT = 2;
+const ESCORT_MAX_DROPDOWN_COUNT = 3;
+// Escorting is slow work: a dropdown only descends when the cells beneath it
+// clear, so a piece starting at the top of an 8-row column needs several
+// deliberate moves of digging, and two pieces in different columns rarely
+// share those clears. The generated ramp's ordinary floor (MIN_MOVES, 18) was
+// measured as too tight for that — a greedy bot lost 3 of 4 escort levels at
+// 18 moves. The hand-built precedent the player has already played,
+// "Delivery Day", gives 2 dropdowns a 24-move budget on this same 8-row board;
+// generated escort levels get the same floor rather than a fresh guess.
+const ESCORT_MIN_MOVES = 24;
+const ESCORT_MIN_SEGMENT_HEIGHT = 3;
+
+function escortDropdownCount(levelNumber: number): number {
+  const step = Math.floor((levelNumber - ESCORT_MIN_LEVEL_NUMBER) / (ESCORT_CADENCE * 2));
+  return Math.min(ESCORT_MAX_DROPDOWN_COUNT, ESCORT_BASE_DROPDOWN_COUNT + step);
+}
+
+export function generatedDropdownPositions(
+  levelNumber: number,
+  rows: number,
+  cols: number,
+  voidCells: Position[] = []
+): Position[] {
+  const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
+  // Per column, the top cell of its tallest non-void segment.
+  const candidates: Position[] = [];
+  for (let col = 0; col < cols; col++) {
+    let best: { top: number; height: number } | undefined;
+    let row = 0;
+    while (row < rows) {
+      if (voidKeys.has(`${row},${col}`)) {
+        row++;
+        continue;
+      }
+      const segStart = row;
+      while (row < rows && !voidKeys.has(`${row},${col}`)) row++;
+      const height = row - segStart;
+      if (!best || height > best.height) best = { top: segStart, height };
+    }
+    if (best && best.height >= ESCORT_MIN_SEGMENT_HEIGHT) {
+      candidates.push({ row: best.top, col });
+    }
+  }
+  if (candidates.length === 0) return [];
+
+  const count = Math.min(escortDropdownCount(levelNumber), candidates.length);
+  const stride = Math.max(1, Math.floor(candidates.length / count));
+  // Rotated by levelNumber so successive escort levels don't always use the
+  // same two columns — the same deterministic offset trick generatedLayerCells
+  // uses, not a random draw.
+  const offset = levelNumber % candidates.length;
+  const chosen: Position[] = [];
+  for (let i = 0; chosen.length < count && i < candidates.length; i++) {
+    const candidate = candidates[(offset + i * stride) % candidates.length];
+    if (!chosen.some((p) => p.col === candidate.col)) chosen.push(candidate);
+  }
+  return chosen;
 }
 
 // Which cells get a hidden layer, on a clearance-gated generated level.
@@ -1208,7 +1323,25 @@ export function buildGeneratedLevelConfig(
   // logic already exclude void cells structurally (see engine/generator.ts
   // and engine/gameState.ts's stepDenialZone, both void-aware from the
   // hand-built showcase level onward).
-  const shapeId = generatedShapeId(levelNumber);
+  // Which of the three non-'collect' objective types (if any) claims this
+  // level. Decided from levelNumber alone, and needed BEFORE the board shape
+  // below because an escort level deliberately suppresses the shape.
+  const useScoreObjective = isScoreObjectiveLevel(levelNumber);
+  const useClearanceObjective = !useScoreObjective && isClearanceObjectiveLevel(levelNumber);
+  const useEscortObjective =
+    !useScoreObjective && !useClearanceObjective && isEscortObjectiveLevel(levelNumber);
+
+  // An escort level is always a plain rectangle, even on a shape-cadence
+  // level. The mechanic is entirely about VERTICAL TRAVEL — a dropdown is
+  // collected at the bottom of its own column segment — and voids work against
+  // it twice over: they cut columns into short segments (so a piece has barely
+  // any distance to fall) and they disqualify columns outright, leaving fewer
+  // places to put pieces. This is board GEOMETRY, checked directly rather than
+  // inferred from play: on the two shaped escort levels in the first 40, only
+  // 2 of 5 columns had a segment tall enough to qualify at all, and the pieces
+  // that did fit started within a couple of cells of their own collection
+  // point. Every other level type keeps its shape exactly as before.
+  const shapeId = useEscortObjective ? undefined : generatedShapeId(levelNumber);
   const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](rows, cols) : undefined;
   const playableRatio = playableCellRatio(rows, cols, voidCells);
 
@@ -1230,27 +1363,43 @@ export function buildGeneratedLevelConfig(
   // this splits cleanly to 13 + 13 on a full board (scaled down together by
   // playableRatio on a shaped one).
   const perObjectiveTarget = Math.ceil(generatedTargetCount(levelNumber, playableRatio, breather) / objectiveCount);
-  // A 'score' objective only ever replaces a level's single 'collect'
-  // objective (objectiveCount === 1) — never mixed alongside a second,
-  // distinct-matchType 'collect' objective, which is a separate, already-
-  // solved multi-objective question this wasn't asked to touch. See
-  // isScoreObjectiveLevel's own comment for why the gate is levelNumber-only.
-  const useScoreObjective = objectiveCount === 1 && isScoreObjectiveLevel(levelNumber);
-  // A 'clearance' objective follows the exact same "only ever alone" rule as
-  // 'score' above — !useScoreObjective keeps the two from ever both firing
-  // on the same on-cadence level (their thresholds/cadences differ, 3/3 vs.
-  // 5/4, so they COULD otherwise coincide; 'score' wins deterministically
-  // when they do, simply by being checked first).
-  const useClearanceObjective =
-    !useScoreObjective && objectiveCount === 1 && isClearanceObjectiveLevel(levelNumber);
+  // Each of the three non-'collect' objective types REPLACES the level's
+  // objectives outright — none of them is ever mixed into the collect array,
+  // so the priority chain below (score, then clearance, then escort) is the
+  // only tie-break needed when two cadences land on the same level.
+  //
+  // These used to additionally require `objectiveCount === 1`, which quietly
+  // made all of them unreachable: generatedObjectiveCount returns 2 as soon as
+  // typeCount >= 5, and once the ramp-continuity fix started generated level 1
+  // at the hand-built queue's full 6 types, objectiveCount was 2 on EVERY
+  // generated level forever. Score and clearance therefore never fired once in
+  // real play, despite their gates and tuning all being correct — two
+  // independently right changes that were never checked against each other.
+  //
+  // The guard was scope-limiting rather than a design rule in the first place
+  // (isScoreObjectiveLevel's original comment said mixing "was never asked
+  // for"), and the difficulty reasoning behind the second collect objective
+  // doesn't transfer: generatedObjectiveCount adds it so 3+ piece types stay
+  // "neutral" and levels can't clear in ~3 moves, which is a concern specific
+  // to matchType-gated collect targets. A score objective isn't matchType-
+  // gated at all, and clearance/escort target fixed cells and pieces. So the
+  // guard is gone; the cadences were widened instead (see each gate above) so
+  // 'collect' stays the clear default. The three booleans themselves are
+  // computed further up, since the shape decision depends on them.
+  const dropdownPositions = useEscortObjective
+    ? generatedDropdownPositions(levelNumber, rows, cols, voidCells)
+    : undefined;
+
   const objectives = useScoreObjective
     ? [{ type: 'score' as const, targetCount: generatedScoreTarget(levelNumber, playableRatio, breather) }]
     : useClearanceObjective
       ? [{ type: 'clearance' as const }]
-      : Array.from({ length: objectiveCount }, (_, i) => ({
-          targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
-          targetCount: perObjectiveTarget,
-        }));
+      : useEscortObjective
+        ? [{ type: 'escort' as const }]
+        : Array.from({ length: objectiveCount }, (_, i) => ({
+            targetMatchType: pieceTypeIds[(levelNumber - 1 + i) % pieceTypeIds.length],
+            targetCount: perObjectiveTarget,
+          }));
   const layerCells = useClearanceObjective
     ? generatedLayerCells(levelNumber, rows, cols, voidCells, breather)
     : undefined;
@@ -1266,7 +1415,20 @@ export function buildGeneratedLevelConfig(
   // genuinely unknown here, so a layered cell can't be guaranteed to avoid
   // one; sidestepped by simply not placing blockers on these levels at all,
   // the same no-blockers shape the hand-built "Dusty Counter" already uses).
-  const blockerCount = useClearanceObjective ? 0 : chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
+  //
+  // Forced to 0 on an escort level for a harder reason than tidiness: a
+  // dropdown piece is collected only when it reaches the bottom of its own
+  // column segment (matrix.ts's dropdownArrivals), and a blocker is immovable
+  // and is NOT a segment boundary the way a void is — so a blocker anywhere
+  // below a dropdown leaves that piece permanently stranded unless the player
+  // happens to clear the blocker by adjacent damage first. With blocker
+  // positions unknown here (same seeded-RNG problem as clearance), an escort
+  // level with blockers could be dealt genuinely unwinnable. Board SHAPES stay
+  // allowed: dropdownArrivals is segment-aware, so a dropdown in a shaped
+  // column collects at the bottom of its own pocket, and
+  // generatedDropdownPositions already skips void cells.
+  const blockerCount =
+    useClearanceObjective || useEscortObjective ? 0 : chosenBlocker ? generatedBlockerCount(levelNumber) : 0;
 
   // The spread mechanic only means anything with blockers to spread FROM, so
   // it's enabled solely on a gated level that actually placed a zone — never on
@@ -1279,7 +1441,9 @@ export function buildGeneratedLevelConfig(
     rows,
     cols,
     pieceTypeIds,
-    movesLimit: generatedMovesLimit(levelNumber, playableRatio, breather),
+    movesLimit: useEscortObjective
+      ? Math.max(ESCORT_MIN_MOVES, generatedMovesLimit(levelNumber, playableRatio, breather))
+      : generatedMovesLimit(levelNumber, playableRatio, breather),
     objectives,
     ...(blockerCount > 0 && chosenBlocker
       ? {
@@ -1292,5 +1456,9 @@ export function buildGeneratedLevelConfig(
     ...(denialSpread ? { denialSpread: true } : {}),
     ...(voidCells ? { voidCells } : {}),
     ...(layerCells && layerCells.length > 0 ? { layerCells } : {}),
+    // An 'escort' objective's targetCount is derived by createGameState from
+    // this list's length, never hand-authored — the same "can't drift out of
+    // sync" contract 'clearance' uses with layerCells.
+    ...(dropdownPositions && dropdownPositions.length > 0 ? { dropdownPositions } : {}),
   };
 }

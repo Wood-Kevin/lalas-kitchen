@@ -8,9 +8,9 @@ describe('computeStarRating', () => {
     expect(computeStarRating(12, 15)).toBe(3);
   });
 
-  test('a middling surplus (1/3 up to 2/3 unused) earns 2 stars', () => {
+  test('a middling surplus (1/3 up to 1/2 unused) earns 2 stars', () => {
     expect(computeStarRating(5, 15)).toBe(2); // exactly the 1/3 boundary
-    expect(computeStarRating(9, 15)).toBe(2);
+    expect(computeStarRating(7, 15)).toBe(2); // 0.47, just under the 1/2 boundary
   });
 
   test('a thin surplus (under 1/3 unused) earns 1 star', () => {
@@ -28,12 +28,15 @@ describe('computeStarRating', () => {
     expect(computeStarRating(20, 20)).toBe(3);
   });
 
+  // The 3-star bar sits at HALF the budget unused, not two thirds — measured,
+  // not chosen: a greedy bot evaluating every legal swap earned three stars
+  // zero times across ~25 playthroughs under the old 2/3 rule. See
+  // computeStarRating's own doc comment.
   test('sensible results across a realistic range of moves-remaining ratios on a 20-move level', () => {
     expect(computeStarRating(20, 20)).toBe(3);
-    expect(computeStarRating(15, 20)).toBe(3);
     expect(computeStarRating(14, 20)).toBe(3); // 0.70
-    expect(computeStarRating(13, 20)).toBe(2); // 0.65, just under 2/3
-    expect(computeStarRating(10, 20)).toBe(2); // 0.50
+    expect(computeStarRating(10, 20)).toBe(3); // 0.50, exactly the 3-star boundary
+    expect(computeStarRating(9, 20)).toBe(2); // 0.45, just under it
     expect(computeStarRating(7, 20)).toBe(2); // 0.35
     expect(computeStarRating(6, 20)).toBe(1); // 0.30, just under 1/3
     expect(computeStarRating(0, 20)).toBe(1);
