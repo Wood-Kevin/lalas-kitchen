@@ -5398,3 +5398,47 @@ here. Recording that because the rejected-alternative note was itself the
 obstacle to reaching the right answer two attempts earlier.
 
 Still not verified by a human. 703/703 tests.
+
+### Follow-up 2: the match must finish settling before it disappears
+
+Real play, after the spring landed: "still feels off. The match needs to settle
+then disappear."
+
+That is a precise description of a real ordering bug the spring introduced.
+Reanimated's spring `duration` is a **perceptual** duration — the piece is still
+travelling back from its overshoot after that budget is spent. A measured swap
+makes the gap concrete: perceptual duration 300ms, peak overshoot at ~t+85ms,
+still visibly moving until ~t+250ms. But the clear was held for exactly the
+perceptual duration, so the pop began while the tile was still coming back from
+its overshoot — the match dissolving mid-bounce instead of coming to rest and
+then going.
+
+The travel work already had the right *shape* (nothing clears until the swap
+lands); it just measured "landed" with the wrong clock. Two clocks are now
+derived from one constant in `cascadeTiming.ts`:
+
+- `SPRING_SETTLE_FACTOR` (1.5) + `springSettleMs(perceptual)`.
+- The spring is still given the **perceptual** duration (`swapDurationMs`), so
+  the slide's own pacing is unchanged.
+- Everything that waits on "the swap has landed" — every clear in the first
+  pass (`Tile.tsx`'s `settle`, replacing `travel` at all 12 delay sites), the
+  next pass's start, and the terminal-overlay hold (`Board.tsx`'s
+  `passSettleMs`) — waits for the **full settle** instead.
+
+A tile that never moved still passes 0, and `springSettleMs(0)` is 0, so every
+ordinary cascade/sweep/blast/blocker clear keeps its exact previous timing.
+
+**Verification is weaker for this change than for the two before it, and that is
+disclosed rather than glossed.** 706/706 tests pass, including three new cases
+pinning `springSettleMs` (a moving tile waits longer than its perceptual
+duration; a non-moving tile waits for nothing; the two clocks scale together so
+tuning `swapDurationMs` can't desynchronise them). But no live frame trace was
+captured: the automated browser tab stopped rendering the board entirely —
+`boardArea` never measured, so `tileSize` stayed 0 and the tile map produced
+nothing. That was checked against the possibility of being self-inflicted by
+reverting to the previous commit and reloading: **HEAD renders an empty board in
+that tab too**, so it is an environment/ResizeObserver artifact of the
+automation context, not a regression (the same build renders correctly in a real
+browser session and in the player's own screen recording). The arithmetic here
+is derived from earlier real measurements of the same spring, not from a trace
+of this build.

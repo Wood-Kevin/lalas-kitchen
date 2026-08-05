@@ -18,6 +18,7 @@ import {
   BLOCKER_CLEAR_HIGHLIGHT_MS,
   SWEEP_GLOW_POP_MS,
   SUPERCOMBO_FLASH_PULSE_MS,
+  springSettleMs,
 } from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -702,10 +703,15 @@ export function ExitingTile({
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
-  // How long this tile spends travelling before any of its clear animation
-  // starts. Zero for every clear except a swapped-and-cleared cell, and every
-  // branch below is written so that zero leaves its timing byte-identical.
+  // travel = the swap spring's PERCEPTUAL duration (how long the slide is
+  // given); settle = how long that spring actually needs to come to rest,
+  // overshoot included. The clear waits for `settle`, not `travel`, so the
+  // piece is genuinely still before it begins to disappear rather than
+  // dissolving on its way back from the overshoot. Both are 0 for every clear
+  // except a swapped cell, and every branch below is written so that 0 leaves
+  // its timing byte-identical to before travel existed.
   const travel = travelMs ?? 0;
+  const settle = springSettleMs(travel);
   // Animated position, so a swapped-and-cleared tile can slide to the cell the
   // player moved it to instead of being remounted there. A non-travelling tile
   // starts and ends at the same cell, so these stay constant and this is the
@@ -765,7 +771,7 @@ export function ExitingTile({
     // tile's animation completely unwrapped, so the overwhelmingly common case
     // (every clear that isn't one of the two swapped cells) is unchanged.
     const afterTravel = <T,>(animation: T): T =>
-      travel > 0 ? (withDelay(travel, animation as never) as T) : animation;
+      settle > 0 ? (withDelay(settle, animation as never) as T) : animation;
     if (isPowderBurst) {
       // Puff outward from the bag on the same clock as the clear (durationMs):
       // a quick swell to full, then an ease-out expansion past the tile's
@@ -798,14 +804,14 @@ export function ExitingTile({
       // calm-not-frantic constraint and SWEEP_TILE_STAGGER_MS's rationale).
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
       highlightOpacity.value = withDelay(
-        travel + sweepDelayMs,
+        settle + sweepDelayMs,
         withSequence(
           withTiming(0.5, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       scale.value = withDelay(
-        travel + sweepDelayMs,
+        settle + sweepDelayMs,
         withSequence(
           withTiming(1.15, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
@@ -814,10 +820,10 @@ export function ExitingTile({
       // Hold fully opaque through the brighten so the pop is visible on a solid
       // tile, then fade during the shrink.
       opacity.value = withDelay(
-        travel + sweepDelayMs + SWEEP_GLOW_POP_MS,
+        settle + sweepDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
-      const timeout = setTimeout(onExited, travel + sweepDelayMs + durationMs);
+      const timeout = setTimeout(onExited, settle + sweepDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
     if (radialDelayMs !== undefined) {
@@ -830,24 +836,24 @@ export function ExitingTile({
       // same shrink every cleared tile gets.
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
       highlightOpacity.value = withDelay(
-        travel + radialDelayMs,
+        settle + radialDelayMs,
         withSequence(
           withTiming(0.55, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       scale.value = withDelay(
-        travel + radialDelayMs,
+        settle + radialDelayMs,
         withSequence(
           withTiming(1.3, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       opacity.value = withDelay(
-        travel + radialDelayMs + SWEEP_GLOW_POP_MS,
+        settle + radialDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
-      const timeout = setTimeout(onExited, travel + radialDelayMs + durationMs);
+      const timeout = setTimeout(onExited, settle + radialDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
     if (isBlockerClear) {
@@ -870,15 +876,15 @@ export function ExitingTile({
         )
       );
       opacity.value = withDelay(
-        travel + BLOCKER_CLEAR_HIGHLIGHT_MS,
+        settle + BLOCKER_CLEAR_HIGHLIGHT_MS,
         withTiming(0, { duration: durationMs })
       );
-      const timeout = setTimeout(onExited, travel + BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
+      const timeout = setTimeout(onExited, settle + BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
       return () => clearTimeout(timeout);
     }
     opacity.value = afterTravel(withTiming(0, { duration: durationMs }));
     scale.value = afterTravel(withTiming(0, { duration: durationMs }));
-    const timeout = setTimeout(onExited, travel + durationMs);
+    const timeout = setTimeout(onExited, settle + durationMs);
     return () => clearTimeout(timeout);
     // Runs once on mount — an exiting tile never changes position, duration,
     // or its blocker-clear flag.

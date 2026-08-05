@@ -32,6 +32,28 @@ export function cascadeFallDurationMs(cascadeFallSpeed: CascadeFallSpeed): numbe
   return CASCADE_FALL_DURATIONS_MS[cascadeFallSpeed] ?? CASCADE_FALL_DURATIONS_MS.medium;
 }
 
+// Tile movement runs as a spring (Tile.tsx's SWAP_DAMPING_RATIO), and
+// Reanimated's spring `duration` is a PERCEPTUAL duration — the real motion,
+// including the overshoot settling back, runs about 1.5x longer. A measured
+// swap makes the gap concrete: perceptual duration 300ms, peak overshoot at
+// ~t+85ms, but still visibly moving until ~t+250ms and not numerically at
+// rest until later still.
+//
+// That distinction is load-bearing, not trivia. A cleared tile must finish
+// settling BEFORE it starts to disappear — real play: "the match needs to
+// settle then disappear." Holding the clear for only the perceptual duration
+// starts the pop while the piece is still travelling back from its overshoot,
+// which reads as the match dissolving mid-bounce. So the spring is given the
+// perceptual duration and every clear that waits on it is held for the full
+// settle: same constant, two different clocks, derived in one place.
+export const SPRING_SETTLE_FACTOR = 1.5;
+
+// How long a cleared tile waits for its swap spring to come fully to rest
+// before its own clear animation may begin. 0 for a tile that never moved.
+export function springSettleMs(perceptualMs: number): number {
+  return perceptualMs > 0 ? Math.round(perceptualMs * SPRING_SETTLE_FACTOR) : 0;
+}
+
 // A blocker can clear several cascade steps away from the match a player
 // actually tapped, with nothing else on screen drawing the eye there first
 // (see engine/DECISIONS.md's adjacent-damage entry — this is a presentation

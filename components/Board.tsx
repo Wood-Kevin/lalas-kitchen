@@ -47,6 +47,7 @@ import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import {
   cascadeFallDurationMs,
   terminalOverlayHoldMs,
+  springSettleMs,
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
@@ -875,6 +876,13 @@ export function Board({
       // piece that completed it had arrived. The swap is one gesture; the pass
       // that resolves it is one beat.
       const passTravelMs = i === 0 && swapCommitted ? swapDurationMs : 0;
+      // What the SCHEDULE waits for. passTravelMs is the spring's perceptual
+      // duration — the slide's own budget — but the spring is still travelling
+      // back from its overshoot after that, so anything gated on "the swap has
+      // landed" must wait for the full settle instead. Real play: "the match
+      // needs to settle then disappear." See cascadeTiming.ts's
+      // SPRING_SETTLE_FACTOR.
+      const passSettleMs = springSettleMs(passTravelMs);
 
       // Only the first pass carries the just-tapped pair, which uses the
       // snappier swap duration; every later pass is a passive fall.
@@ -920,11 +928,11 @@ export function Board({
             // has to shift with them or the beat between the two collapses by
             // exactly the swap duration. Same reasoning chainHoldMs already
             // applies for a staged chain's late links.
-            cascadeStepIntervalMs + passAnimation.chainHoldMs + passTravelMs
+            cascadeStepIntervalMs + passAnimation.chainHoldMs + passSettleMs
           )
         );
       } else {
-        finalPassChainHoldMs = passAnimation.chainHoldMs + passTravelMs;
+        finalPassChainHoldMs = passAnimation.chainHoldMs + passSettleMs;
         commitFinalState();
       }
     };

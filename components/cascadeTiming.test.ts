@@ -2,6 +2,7 @@ import {
   cascadeFallDurationMs,
   planCascadeAnimation,
   terminalOverlayHoldMs,
+  springSettleMs,
 } from './cascadeTiming';
 
 describe('cascadeFallDurationMs', () => {
@@ -60,5 +61,26 @@ describe('planCascadeAnimation', () => {
     // The last pass gets the exact play time every earlier pass already gets
     // before the next one starts — no bespoke shorter/longer terminal delay.
     expect(terminalOverlayHoldMs(INTERVAL)).toBe(INTERVAL);
+  });
+});
+
+describe('springSettleMs (a swap must finish settling before its match clears)', () => {
+  test('a moving tile waits longer than the spring\'s perceptual duration', () => {
+    // Reanimated treats a spring's `duration` as PERCEPTUAL; the overshoot is
+    // still travelling back after that. Holding the clear for only the
+    // perceptual value pops the match mid-bounce.
+    expect(springSettleMs(300)).toBe(450);
+    expect(springSettleMs(300)).toBeGreaterThan(300);
+  });
+
+  test('a tile that never moved waits for nothing at all', () => {
+    // Every clear except a swapped cell passes 0 here, which is what keeps
+    // ordinary cascade/sweep/blast clears byte-identical to before travel existed.
+    expect(springSettleMs(0)).toBe(0);
+  });
+
+  test('scales linearly, so tuning swapDurationMs keeps the two clocks in step', () => {
+    expect(springSettleMs(200)).toBe(300);
+    expect(springSettleMs(400)).toBe(600);
   });
 });
