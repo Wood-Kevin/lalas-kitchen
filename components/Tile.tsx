@@ -19,8 +19,11 @@ import {
   SWEEP_GLOW_POP_MS,
   SUPERCOMBO_FLASH_PULSE_MS,
   springSettleMs,
-  SWAP_DAMPING_RATIO,
-  FALL_DAMPING_RATIO,
+  TILE_MOVE_DAMPING_RATIO,
+  SQUASH_SCALE_X,
+  SQUASH_SCALE_Y,
+  SQUASH_DOWN_MS,
+  SQUASH_RECOVER_MS,
 } from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -85,12 +88,6 @@ export interface TileProps {
   // and to piecesMatch/matching in general (the piece underneath stays fully
   // ordinary/matchable).
   layersRemaining?: number;
-  // Which kind of motion this tile is performing, which selects how firmly it
-  // settles. A swap is the player's own gesture over one tile and gets the
-  // generous overshoot; a gravity fall can cross most of the board, where that
-  // same overshoot scales up into a floaty bounce (see cascadeTiming.ts's two
-  // damping ratios). Defaults to a fall, since most moving tiles are falling.
-  settleFirmly?: boolean;
   // How long this tile waits before starting its drop, so columns don't all
   // land on the same frame (cascadeTiming.ts's columnDropDelayMs). Only ever
   // set for falls and spawns — a swap must answer the player instantly.
@@ -145,7 +142,6 @@ export function Tile({
   powderWisp,
   hint,
   layersRemaining,
-  settleFirmly = true,
   dropDelayMs = 0,
   onPress,
   dragTargeted,
@@ -165,18 +161,25 @@ export function Tile({
   // via the normal row/col path once Board applies the move.
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
+  // The squash-and-stretch landing beat — see cascadeTiming.ts's SQUASH_*
+  // constants for why this exists instead of a bigger spring overshoot.
+  const scaleX = useSharedValue(1);
+  const scaleY = useSharedValue(1);
+  // Skips the squash on this component's very first render (mount is not a
+  // landing — enterFromRow already handles a spawn's own fade/slide-in — and
+  // firing a squash before the tile has ever been seen at rest would read as
+  // an unmotivated flinch). Every render after that DID move, since this
+  // effect only re-runs on a genuine [row, col] change.
+  const hasSettledOnce = useSharedValue(false);
 
   useEffect(() => {
-    const settle = {
-      duration: durationMs,
-      dampingRatio: settleFirmly ? FALL_DAMPING_RATIO : SWAP_DAMPING_RATIO,
-    };
+    const move = { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO };
     // The column stagger delays only the grid move. A swap passes 0 here, so
     // the tile the player just pushed still starts on the very next frame.
     const stagger = <T,>(animation: T): T =>
       dropDelayMs > 0 ? (withDelay(dropDelayMs, animation as never) as T) : animation;
-    rowShared.value = stagger(withSpring(row, settle));
-    colShared.value = stagger(withSpring(col, settle));
+    rowShared.value = stagger(withSpring(row, move));
+    colShared.value = stagger(withSpring(col, move));
     opacity.value = withTiming(1, { duration: durationMs });
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
@@ -188,10 +191,33 @@ export function Tile({
     // few frames earlier than the grid slide, so the tile briefly retreated
     // toward its origin before sliding out to the destination. A no-op (0 → 0)
     // on every non-drag render, which is every render for a tapped swap.
-    // Never staggered and never firm: this is the player's own finger offset
-    // folding home, which is a swap by definition.
-    dragX.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
-    dragY.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
+    dragX.value = withSpring(0, { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+    dragY.value = withSpring(0, { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+
+    // The landing beat: fires once position arrives — dropDelayMs (the
+    // column's own head start) plus durationMs (the move itself) — so a
+    // staggered fall squashes when IT lands, not when column 0 does. Squash
+    // is scale-only: it never touches rowShared/colShared, so the tile can
+    // never visually leave its own grid cell, which is the whole point of
+    // moving the "juice" here from position overshoot.
+    if (hasSettledOnce.value) {
+      const landingDelay = dropDelayMs + durationMs;
+      scaleY.value = withDelay(
+        landingDelay,
+        withSequence(
+          withTiming(SQUASH_SCALE_Y, { duration: SQUASH_DOWN_MS }),
+          withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+        )
+      );
+      scaleX.value = withDelay(
+        landingDelay,
+        withSequence(
+          withTiming(SQUASH_SCALE_X, { duration: SQUASH_DOWN_MS }),
+          withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+        )
+      );
+    }
+    hasSettledOnce.value = true;
     // Only a change of TARGET CELL retriggers this. durationMs is deliberately
     // not a dependency: it's read fresh whenever the effect does run, so a tile
     // that moves always animates at the duration in force for that move — but a
@@ -263,11 +289,11 @@ export function Tile({
             // threshold nudge, so it has a much smaller distance to cover.
             dragX.value = withSpring(0, {
               duration: DRAG_RETURN_MS,
-              dampingRatio: SWAP_DAMPING_RATIO,
+              dampingRatio: TILE_MOVE_DAMPING_RATIO,
             });
             dragY.value = withSpring(0, {
               duration: DRAG_RETURN_MS,
-              dampingRatio: SWAP_DAMPING_RATIO,
+              dampingRatio: TILE_MOVE_DAMPING_RATIO,
             });
           }
         }),
@@ -281,7 +307,15 @@ export function Tile({
     width: tileSize,
     height: tileSize,
     opacity: opacity.value,
-    transform: [{ translateX: dragX.value }, { translateY: dragY.value }],
+    // scale applies AFTER translate (array order), so the squash distorts the
+    // tile about its own centre regardless of where the drag offset has
+    // placed it — the two transforms never fight each other.
+    transform: [
+      { translateX: dragX.value },
+      { translateY: dragY.value },
+      { scaleX: scaleX.value },
+      { scaleY: scaleY.value },
+    ],
     // Lift the actively-dragged tile above its neighbours so its follow-offset
     // is never occluded by an adjacent tile.
     zIndex: dragX.value !== 0 || dragY.value !== 0 ? 2 : 0,
@@ -347,40 +381,35 @@ const DRAG_RETURN_MS = 120;
 // a SPRING rather than a timing curve, so all of them share one physical feel
 // as well as one clock.
 //
-// This is the third attempt, and the first two are why the comment is long.
+// This is the fourth attempt at getting this motion right, and the history is
+// worth keeping here rather than only in engine/DECISIONS.md, since it
+// explains why position now does something that might look under-designed at
+// a glance (no overshoot at all) until you know what was tried first.
 // Reanimated's default Easing.inOut(Easing.quad) read as a snap at 140ms.
-// Replacing it with a tail-weighted bezier(0.33, 0, 0.15, 1) was an
-// over-correction that front-loaded the travel into a burst and then crawled:
-// at 220ms over one 90px tile the real per-frame deltas were
-//   1.9, 7.8, 16.2, 18.7, 14.2, 10.0, 7.1, 5.1, 3.6, 2.5, 1.6, 0.9, 0.4
-// — 64% of the distance in the first five frames (~83ms), the rest creeping
-// sub-pixel. A duration is not a measure of how long motion is VISIBLE, and
-// real play still read that as tiles "jumping into place." An even bezier
-// fixed the distribution, but a timing curve of any shape stops dead on
-// arrival, which is not how this genre moves.
+// A tail-weighted bezier(0.33, 0, 0.15, 1) front-loaded the travel into a
+// burst and then crawled sub-pixel. An even bezier fixed the distribution but
+// still stopped dead on arrival. A duration-based spring with a soft
+// dampingRatio (0.62, tuned to overshoot exactly one tile's worth) fixed
+// THAT — until real play reported it as "bounces like crazy... not a smooth
+// settle," because a tile sliding past its own grid cell and briefly
+// overlapping its neighbour is a structurally different, worse-looking thing
+// than a spring overshooting in open space, regardless of how small the
+// overshoot number is.
 //
-// The brief is explicit: "move like Royal Match or Candy Crush." Those games
-// use spring physics — the tile carries momentum, overshoots its cell very
-// slightly, and settles back. That small settle is the entire difference
-// between "a tile was translated" and "a tile was thrown into place," and no
-// bezier produces it. An earlier note here rejected springs as too bouncy for
-// CLAUDE.md's calm-not-frantic constraint; that judgment is overridden by a
-// direct architect instruction, and a dampingRatio this high is a soft settle
-// rather than a bounce anyway.
+// So position now runs CRITICALLY DAMPED (dampingRatio 1 — TILE_MOVE_DAMPING_
+// RATIO in cascadeTiming.ts): the fastest possible arrival with zero
+// overshoot, so a tile never visually leaves its own cell. The "juice" this
+// genre's tiles clearly have moved to SQUASH-AND-STRETCH instead (the scaleX/
+// scaleY block in the position effect below) — a brief scale distortion on
+// arrival that stays entirely inside the tile's footprint. This is the actual
+// standard technique for impact in 2D game feel, and it was the missing
+// piece across three rounds of damping-ratio tuning: the bounce was never a
+// duration or ratio problem, it was the wrong axis.
 //
-// dampingRatio 1 is critically damped (no overshoot at all); below 1
-// overshoots. 0.72 was measured on the real app at only 3.3px past target on
-// an 86px tile — a real settle, but too subtle to read as the landing this
-// genre has. 0.62 roughly doubles it while still settling in ONE pass, with
-// no oscillation: a piece thrown into place, not a piece on a rubber band.
-// It now lives in cascadeTiming.ts alongside FALL_DAMPING_RATIO, because a
-// spring's overshoot scales with distance and a gravity drop therefore needs
-// a firmer one — see that file for the measured numbers.
-//
-// Reanimated treats `duration` as PERCEPTUAL duration (actual settle runs
-// ~1.5x longer), which is the right pairing for passTravelMs: the clear
-// begins as the tile visually lands, while the last of the settle finishes
-// underneath it.
+// cascadeTiming.ts's springSettleMs still gates a cleared tile's pop on this
+// tile finishing its landing beat (durationMs + the squash's own duration),
+// for the same reason established when settle-then-clear was first built:
+// real play, "the match needs to settle then disappear."
 
 // The small corner badge that tells a player, at a glance, whether a striped
 // piece will sweep its row or its column before they commit the move. It
@@ -784,8 +813,8 @@ export function ExitingTile({
   // when this tile actually has somewhere to travel from.
   useEffect(() => {
     if (travel > 0) {
-      exitRow.value = withSpring(row, { duration: travel, dampingRatio: SWAP_DAMPING_RATIO });
-      exitCol.value = withSpring(col, { duration: travel, dampingRatio: SWAP_DAMPING_RATIO });
+      exitRow.value = withSpring(row, { duration: travel, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+      exitCol.value = withSpring(col, { duration: travel, dampingRatio: TILE_MOVE_DAMPING_RATIO });
     }
     // A given exiting tile's travel never changes for its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps

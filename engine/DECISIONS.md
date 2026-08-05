@@ -5570,3 +5570,93 @@ that also fell loses it while its partner keeps it; both can lose it
 simultaneously; a cleared tapped piece defaults harmlessly (it never reads this
 set — `ExitingTile` is driven by its own `travelMs`); and the distance check is
 Manhattan, not "only a straight vertical fall". 717/717 total.
+
+### Follow-up 5: three rounds of damping-ratio tuning never converged — the axis was wrong, not the number
+
+Real play, after the distance-aware swap/fall fix: "Still doesn't feel smooth
+like other games in the genere."
+
+This is the fourth report on the same motion, and the third round of tuning a
+spring's damping ratio specifically (0.72 too subtle -> 0.62 -> a distance-aware
+0.62/0.80 split). Three attempts at the same lever without convergence is
+itself a signal: the problem was never the NUMBER, it was the AXIS.
+
+**The actual reasoning, not another guess.** A spring's overshoot happens in
+open space — nothing else is watching where the object "should" be. A tile on
+a strict grid is different: overshoot means it visibly slides past its own
+cell boundary and briefly overlaps its neighbour's, which reads as the grid
+itself flexing, not as a satisfying settle. That is true regardless of how
+small the overshoot number is — 7px felt wrong, and the distance-aware fix
+that correctly scoped it to exactly one tile of travel (Follow-up 4) *also*
+didn't fix the report, which rules out "the overshoot is happening on the
+wrong pieces" as the explanation and leaves "the overshoot itself is the wrong
+technique" as the remaining one.
+
+Checked against how this genre (Candy Crush, Royal Match, and 2D game feel
+generally — the squash-and-stretch technique traces to classical animation
+principles, not to match-3 specifically) actually produces "juicy" impact:
+position moves cleanly to the target with no overshoot, and the impact reads
+through a brief SCALE distortion instead — a squash-and-stretch that stays
+entirely inside the tile's own footprint. The bounce was never a duration or
+damping-ratio problem; it was on the wrong axis (position instead of scale).
+
+**Fixed by removing position overshoot entirely and adding squash-and-stretch
+as its replacement.**
+
+- `TILE_MOVE_DAMPING_RATIO = 1` (critically damped — the fastest possible
+  arrival with zero overshoot) now drives every tile motion: the live tile's
+  grid move, the drag-fold-home, the drag-cancel spring, and the swapped-and-
+  cleared exiting tile's travel. `SWAP_DAMPING_RATIO`/`FALL_DAMPING_RATIO`
+  (Follow-up 3's distance-aware split) are gone — there is no longer a
+  firm-vs-soft distinction to make, since neither motion overshoots.
+- `Tile.tsx` gained `scaleX`/`scaleY` shared values and a landing beat: once
+  a tile's position arrives (`dropDelayMs + durationMs` after the effect
+  fires), it compresses to `SQUASH_SCALE_Y` (0.82) / stretches to
+  `SQUASH_SCALE_X` (1.14) over `SQUASH_DOWN_MS` (70ms), then springs back to
+  1/1 over `SQUASH_RECOVER_MS` (130ms) — critically damped again, so the
+  recovery itself doesn't reintroduce a new bounce. Gated on `hasSettledOnce`
+  so the tile's very first render (mount, not a landing) never fires an
+  unmotivated flinch.
+- The scale transform is applied AFTER translate in the transform array, so
+  it distorts about the tile's own centre regardless of any live drag offset
+  — position and squash never fight each other.
+- `springSettleMs` changes from multiplicative (perceptual × 1.5, modelling a
+  spring's real settle time past its nominal duration) to additive
+  (`perceptualMs + SQUASH_TOTAL_MS`, 200ms) — the clear now waits for the
+  move to finish AND the landing beat to finish playing, which is the same
+  "settle then disappear" contract established in Follow-up 2, just pointed
+  at the new mechanism.
+- `boardDiff.ts`'s `resolveSwapMotionIds` (Follow-up 4) is UNCHANGED in
+  behaviour and still needed: even with no overshoot, a tapped piece that fell
+  several rows within the same pass should still get the fall's duration and
+  column stagger, not the swap's instant, unstaggered one — that distinction
+  was never really about damping ratio, only layered on top of it. Its
+  comment was updated to say so; its tests and logic are untouched.
+- `Board.tsx` no longer passes a `settleFirmly` prop (removed from `Tile.tsx`
+  entirely, since the fall/swap distinction it drove no longer exists) and no
+  longer derives a shortened `fallSpringMs` — with nothing to overshoot,
+  falls simply run the same `cascadeDurationMs` beat every other cascade pass
+  already uses.
+
+Six cascadeTiming tests updated/replaced: `springSettleMs`'s two assertions
+now check the additive relationship instead of the ×1.5 one; the old "fall
+settles more firmly than swap" damping-ratio comparison is replaced with three
+new tests asserting critical damping (ratio exactly 1), a genuine two-axis
+squash (Y compresses, X stretches — compressing without a correlated stretch
+would just read as shrinking), and that `SQUASH_TOTAL_MS` stays the honest sum
+of its two phases. 718/718 total.
+
+**Verification is code-reasoning and tests only, disclosed rather than
+implied otherwise — no live trace this round.** The automated browser tab
+still cannot render the board (the standing `boardArea`/`onLayout`
+environment limitation, already confirmed in Follow-up 2 to reproduce on a
+clean HEAD checkout and unrelated to this session's code), and this attempt
+additionally found the player actively mid-session on the shared save
+(lives 5 -> 4, a live "Busy Stovetop" score level in progress) — continuing
+to drive programmatic taps against a real, currently-played save would risk
+interfering with actual play, so no further automated interaction was
+attempted. This is the one round in this investigation where the fix rests
+on established animation-design reasoning (squash-and-stretch is standard
+technique, not a guess) plus unit tests, rather than a frame trace confirming
+the specific numbers feel right — that confirmation can only come from the
+person actually playing it.

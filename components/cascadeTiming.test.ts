@@ -5,8 +5,12 @@ import {
   springSettleMs,
   columnDropDelayMs,
   COLUMN_DROP_STAGGER_MS,
-  SWAP_DAMPING_RATIO,
-  FALL_DAMPING_RATIO,
+  TILE_MOVE_DAMPING_RATIO,
+  SQUASH_SCALE_X,
+  SQUASH_SCALE_Y,
+  SQUASH_DOWN_MS,
+  SQUASH_RECOVER_MS,
+  SQUASH_TOTAL_MS,
 } from './cascadeTiming';
 
 describe('cascadeFallDurationMs', () => {
@@ -68,12 +72,13 @@ describe('planCascadeAnimation', () => {
   });
 });
 
-describe('springSettleMs (a swap must finish settling before its match clears)', () => {
-  test('a moving tile waits longer than the spring\'s perceptual duration', () => {
-    // Reanimated treats a spring's `duration` as PERCEPTUAL; the overshoot is
-    // still travelling back after that. Holding the clear for only the
-    // perceptual value pops the match mid-bounce.
-    expect(springSettleMs(300)).toBe(450);
+describe('springSettleMs (a swap must finish its landing beat before its match clears)', () => {
+  test('a moving tile waits the move duration plus the full squash beat', () => {
+    // Position no longer overshoots (TILE_MOVE_DAMPING_RATIO is critically
+    // damped), but the squash-and-stretch landing beat still plays AFTER
+    // arrival, so the clear must wait for that too — holding for only the
+    // move duration would pop the match mid-squash.
+    expect(springSettleMs(300)).toBe(300 + SQUASH_TOTAL_MS);
     expect(springSettleMs(300)).toBeGreaterThan(300);
   });
 
@@ -83,9 +88,13 @@ describe('springSettleMs (a swap must finish settling before its match clears)',
     expect(springSettleMs(0)).toBe(0);
   });
 
-  test('scales linearly, so tuning swapDurationMs keeps the two clocks in step', () => {
-    expect(springSettleMs(200)).toBe(300);
-    expect(springSettleMs(400)).toBe(600);
+  test('adds the same fixed squash beat regardless of move duration', () => {
+    // Additive, not multiplicative: the squash is a fixed-length beat, not a
+    // fraction of the move — a slow fall and a fast swap both get exactly
+    // SQUASH_TOTAL_MS tacked on, not a proportional settle tail.
+    expect(springSettleMs(200)).toBe(200 + SQUASH_TOTAL_MS);
+    expect(springSettleMs(400)).toBe(400 + SQUASH_TOTAL_MS);
+    expect(springSettleMs(400) - springSettleMs(200)).toBe(200);
   });
 });
 
@@ -110,15 +119,28 @@ describe('columnDropDelayMs (a refill should travel, not land as one slab)', () 
   });
 });
 
-describe('fall vs swap settle (overshoot scales with distance)', () => {
-  test('a falling piece settles more firmly than a swapped one', () => {
-    // A swap travels one tile; a fall can cross the board, where the swap's
-    // generous overshoot would scale into a floaty bounce.
-    expect(FALL_DAMPING_RATIO).toBeGreaterThan(SWAP_DAMPING_RATIO);
+describe('tile motion has no position overshoot; squash carries the "juice" instead', () => {
+  // See engine/DECISIONS.md's swap-smoothness Follow-up 5: three rounds of
+  // tuning a spring's damping ratio (including a distance-aware swap/fall
+  // split, once real here) never converged, because a tile sliding past its
+  // own grid cell and back is a structurally worse-looking thing than a
+  // spring overshooting in open space, independent of how small the overshoot
+  // is. Position is now critically damped for every motion; the previous
+  // swap-vs-fall damping distinction no longer exists to test.
+  test('position motion is critically damped — no overshoot, for any distance', () => {
+    expect(TILE_MOVE_DAMPING_RATIO).toBe(1);
   });
 
-  test('both stay under 1, so neither is critically damped into a dead stop', () => {
-    expect(SWAP_DAMPING_RATIO).toBeLessThan(1);
-    expect(FALL_DAMPING_RATIO).toBeLessThan(1);
+  test('the squash compresses on one axis and widens on the other, not both the same way', () => {
+    // A real squash-and-stretch: compressing on Y without any correlated X
+    // stretch reads as the tile merely shrinking, not squishing.
+    expect(SQUASH_SCALE_Y).toBeLessThan(1);
+    expect(SQUASH_SCALE_X).toBeGreaterThan(1);
+  });
+
+  test('the squash total is the sum of its two phases, so tuning either stays honest', () => {
+    // Guards against the two constants and their sum drifting apart if only
+    // one is edited later — springSettleMs relies on the total being exact.
+    expect(SQUASH_TOTAL_MS).toBe(SQUASH_DOWN_MS + SQUASH_RECOVER_MS);
   });
 });

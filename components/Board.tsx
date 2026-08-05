@@ -49,7 +49,6 @@ import {
   terminalOverlayHoldMs,
   springSettleMs,
   columnDropDelayMs,
-  SPRING_SETTLE_FACTOR,
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
@@ -878,12 +877,12 @@ export function Board({
       // piece that completed it had arrived. The swap is one gesture; the pass
       // that resolves it is one beat.
       const passTravelMs = i === 0 && swapCommitted ? swapDurationMs : 0;
-      // What the SCHEDULE waits for. passTravelMs is the spring's perceptual
-      // duration — the slide's own budget — but the spring is still travelling
-      // back from its overshoot after that, so anything gated on "the swap has
-      // landed" must wait for the full settle instead. Real play: "the match
-      // needs to settle then disappear." See cascadeTiming.ts's
-      // SPRING_SETTLE_FACTOR.
+      // What the SCHEDULE waits for. passTravelMs is the swap's position-move
+      // budget, but the tile still has its squash-and-stretch landing beat to
+      // play after arriving (position no longer overshoots — see Tile.tsx's
+      // TILE_MOVE_DAMPING_RATIO), so anything gated on "the swap has fully
+      // landed" must wait for that too. Real play: "the match needs to settle
+      // then disappear." See cascadeTiming.ts's springSettleMs.
       const passSettleMs = springSettleMs(passTravelMs);
 
       // Only the first pass carries the just-tapped pair, which uses the
@@ -1233,19 +1232,16 @@ export function Board({
                 }
                 // Is this tile moving because the PLAYER moved it, or because
                 // gravity did? The same check already picked the duration; it
-                // now also picks how firmly the tile settles and whether it
-                // waits for its column's turn. A swap is one tile of travel
-                // answering a gesture: immediate, generous settle. A fall can
-                // cross the board: staggered by column, and firm on landing,
-                // because a spring's overshoot scales with distance (see
-                // cascadeTiming.ts's two damping ratios).
+                // now also picks whether it waits for its column's turn. A
+                // swap is one tile of travel answering a gesture: immediate.
+                // A fall can cross the board: staggered by column, so a
+                // refill travels rather than landing as one flat slab. Both
+                // motions are critically damped now (see cascadeTiming.ts's
+                // TILE_MOVE_DAMPING_RATIO) — position never overshoots either
+                // way, so there's no longer a firm-vs-soft distinction to make
+                // here, only a timing one.
                 const isSwapMotion = !!snapBack || swapDurationIds.has(piece.id);
-                // Falls run their spring over a shorter PERCEPTUAL duration so
-                // the real settle (~1.5x) finishes inside the same
-                // cascadeDurationMs beat the cascade schedule is built on,
-                // rather than still wobbling when the next pass starts.
-                const fallSpringMs = Math.round(cascadeDurationMs / SPRING_SETTLE_FACTOR);
-                const duration = isSwapMotion ? swapDurationMs : fallSpringMs;
+                const duration = isSwapMotion ? swapDurationMs : cascadeDurationMs;
                 const isSpawn = spawnedIds.has(piece.id);
 
                 return (
@@ -1261,7 +1257,6 @@ export function Board({
                     selected={!!selected && selected.row === r && selected.col === c}
                     accessibilityLabel={describeTileForAccessibility(piece, r, c)}
                     durationMs={duration}
-                    settleFirmly={!isSwapMotion}
                     dropDelayMs={isSwapMotion ? 0 : columnDropDelayMs(c)}
                     enterFromRow={isSpawn ? r - 2 : undefined}
                     // Only a striped piece carries a direction; every other

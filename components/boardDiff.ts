@@ -140,14 +140,19 @@ export function relocateSwappedClears(
 // also triggered a multi-row fall for this exact piece" — only its actual
 // displacement can.
 //
-// This matters because a spring's overshoot scales with distance travelled.
-// The swap's spring is tuned for one tile (see Tile.tsx's SWAP_DAMPING_RATIO)
-// — a small, deliberate settle. Giving that same spring a piece that actually
-// fell three or four rows produces a visibly wild recoil at a much higher
-// apparent speed, which is a real, reported symptom ("bounces like crazy and
-// is fast") a frame trace of a busy multi-piece cascade couldn't cleanly
-// isolate on its own — this is the code-level mechanism, verified directly
-// against resolveCascades rather than inferred from the trace.
+// This still matters even though tile position no longer overshoots at all
+// (see Tile.tsx's TILE_MOVE_DAMPING_RATIO): the swap and fall durations are
+// still different (a swap answers a gesture instantly; a fall runs on the
+// cascade's own beat), and only a fall gets the column stagger. Giving a
+// piece that actually travelled three or four gravity-driven rows the swap's
+// fast, unstaggered duration would still look wrong — unnaturally quick for
+// the distance, and landing in lockstep with every other cell in the pass
+// instead of travelling like the rest of the refill. An earlier version of
+// this fix was also written to protect against a spring-overshoot distinction
+// that no longer exists (position never overshoots now); the duration/stagger
+// distinction it was layered on top of is real on its own — this is the
+// code-level mechanism, verified directly against resolveCascades rather than
+// inferred from a trace.
 //
 // `moved` is the same-pass diff's own moved list (diffBoards' output against
 // the pre-move board), so no new data is computed — only interpreted

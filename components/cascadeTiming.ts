@@ -16,12 +16,11 @@ import { CascadeFallSpeed } from './skinConfig';
 // just watching." That has since been revisited and reversed: leaving it
 // behind made the swap 3.4x faster than every motion around it — the one
 // snappy thing in a deliberately calm game — and real play reported exactly
-// that. It is now 300 (config.json) and, after two failed timing curves, runs
-// as a spring so the swap both reads as a real transition and lands the way
-// this genre's pieces land. See
-// docs/verification/swap-smoothness/ and Tile.tsx's SWAP_DAMPING_RATIO —
-// tile movement is a spring now, not a timing curve, so this value is the
-// spring's PERCEPTUAL duration (it settles ~1.5x longer).
+// that. It is now 300 (config.json) and, after three failed motion designs
+// (a timing curve, a better timing curve, then an overshooting spring), runs
+// as a CRITICALLY DAMPED spring plus a squash-and-stretch landing beat — see
+// Tile.tsx's TILE_MOVE_DAMPING_RATIO and docs/verification/swap-smoothness/
+// for why position itself no longer overshoots at all.
 const CASCADE_FALL_DURATIONS_MS: Record<CascadeFallSpeed, number> = {
   slow: 500,
   medium: 480,
@@ -32,47 +31,55 @@ export function cascadeFallDurationMs(cascadeFallSpeed: CascadeFallSpeed): numbe
   return CASCADE_FALL_DURATIONS_MS[cascadeFallSpeed] ?? CASCADE_FALL_DURATIONS_MS.medium;
 }
 
-// Tile movement runs as a spring (Tile.tsx's SWAP_DAMPING_RATIO), and
-// Reanimated's spring `duration` is a PERCEPTUAL duration — the real motion,
-// including the overshoot settling back, runs about 1.5x longer. A measured
-// swap makes the gap concrete: perceptual duration 300ms, peak overshoot at
-// ~t+85ms, but still visibly moving until ~t+250ms and not numerically at
-// rest until later still.
+// Tile POSITION never overshoots — this is a deliberate reversal of three
+// earlier attempts in this same investigation (see engine/DECISIONS.md's
+// swap-smoothness entries), and the reasoning is worth keeping close to the
+// code it explains, not just in the decision log.
 //
-// That distinction is load-bearing, not trivia. A cleared tile must finish
-// settling BEFORE it starts to disappear — real play: "the match needs to
-// settle then disappear." Holding the clear for only the perceptual duration
-// starts the pop while the piece is still travelling back from its overshoot,
-// which reads as the match dissolving mid-bounce. So the spring is given the
-// perceptual duration and every clear that waits on it is held for the full
-// settle: same constant, two different clocks, derived in one place.
-export const SPRING_SETTLE_FACTOR = 1.5;
+// A spring's overshoot is proportional to distance travelled, so any single
+// damping ratio that looks right for a one-tile swap looks proportionally
+// wilder on a multi-row fall (Follow-up 3), and even correctly scoped to
+// exactly one tile of travel, real play still reported it as "bounces like
+// crazy... not a smooth settle" (Follow-up 4) — because a tile sliding PAST
+// its own grid cell and back is a structurally different thing from a spring
+// overshooting in open space. It briefly overlaps its neighbour's cell,
+// which reads as the grid itself flexing, not as a satisfying settle. No
+// damping ratio fixes that; the position motion itself has to stop exactly
+// at the cell.
+//
+// So position now runs on a CRITICALLY DAMPED spring (dampingRatio 1 — the
+// fastest response with zero overshoot), and the "juice" moves to
+// SQUASH-AND-STRETCH instead: a brief scale distortion that stays entirely
+// inside the tile's own footprint, played on arrival. This is the standard
+// technique this genre (and 2D game feel generally) actually uses for
+// impact — see Tile.tsx's squash block — and it was the missing piece across
+// three rounds of damping-ratio tuning: the bounce was never a duration or
+// ratio problem, it was the wrong axis (position instead of scale).
+export const TILE_MOVE_DAMPING_RATIO = 1;
 
-// How long a cleared tile waits for its swap spring to come fully to rest
-// before its own clear animation may begin. 0 for a tile that never moved.
+// The squash-and-stretch landing beat: a quick compress-and-widen the instant
+// a tile arrives, springing back to its normal shape. Values are a real,
+// deliberate exaggeration (this genre's tiles squish noticeably, not
+// subtly) but stay well short of anything read as damage or alarm — a soft
+// cartoon "thud," per CLAUDE.md's calm-not-frantic constraint, not a shake.
+export const SQUASH_SCALE_Y = 0.82;
+export const SQUASH_SCALE_X = 1.14;
+// The compress phase is quick (impact should read as sudden); the recover
+// phase is a touch slower so the return to normal shape is visible rather
+// than snapping back invisibly fast.
+export const SQUASH_DOWN_MS = 70;
+export const SQUASH_RECOVER_MS = 130;
+export const SQUASH_TOTAL_MS = SQUASH_DOWN_MS + SQUASH_RECOVER_MS;
+
+// How long a moved tile waits, after arriving, before its clear animation (or
+// anything else gated on "this tile is done") may begin — the position move
+// itself has no overshoot to wait out anymore, but the squash landing beat
+// still needs to finish playing first (real play: "the match needs to settle
+// then disappear" — see Follow-up 2). 0 for a tile that never moved, so every
+// ordinary cascade/sweep/blast/blocker clear keeps its prior timing exactly.
 export function springSettleMs(perceptualMs: number): number {
-  return perceptualMs > 0 ? Math.round(perceptualMs * SPRING_SETTLE_FACTOR) : 0;
+  return perceptualMs > 0 ? perceptualMs + SQUASH_TOTAL_MS : 0;
 }
-
-// Tile motion is a spring, and a spring's overshoot is PROPORTIONAL TO THE
-// DISTANCE IT TRAVELS. That is fine for a swap — one tile of travel, so the
-// soft settle stays small and deliberate — and wrong for a gravity drop, which
-// can cover most of the board. Measured: dampingRatio 0.62 overshoots 8.3%, so
-// a one-tile swap lands 7px past its cell (correct, that's the feel), but a
-// five-row fall would sail ~36px — nearly half a tile — past its resting place
-// and bounce back. That is the "loose, floating" cascade a real playtest
-// described, and it was introduced by giving falls the swap's spring.
-//
-// So the two motions get two damping ratios. Overshoot for a damping ratio z is
-// exp(-pi*z / sqrt(1 - z^2)):
-//   0.62 -> 8.3%  a real, visible settle. The player's own gesture; see
-//                 Tile.tsx's SWAP_DAMPING_RATIO note for why it's this soft.
-//   0.80 -> 1.5%  a firm landing with just a hint of give. On that same
-//                 five-row fall it's ~6px, proportionate instead of floaty.
-// Falling pieces should land, not wobble; only the piece the player pushed
-// gets the generous settle.
-export const SWAP_DAMPING_RATIO = 0.62;
-export const FALL_DAMPING_RATIO = 0.8;
 
 // Columns do not all drop on the same frame. Every other multi-tile effect in
 // this game already travels — the sweep staggers per tile, the bomb ripples
