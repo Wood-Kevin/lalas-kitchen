@@ -5660,3 +5660,79 @@ on established animation-design reasoning (squash-and-stretch is standard
 technique, not a guess) plus unit tests, rather than a frame trace confirming
 the specific numbers feel right — that confirmation can only come from the
 person actually playing it.
+
+### Follow-up 6: a drag-committed swap retreated all the way back — a gesture-object race, not an animation-feel problem
+
+Real play, after the squash-and-stretch mechanism change: "the piece still
+jumps back when I drag it to swap." A clarifying question narrowed this to
+the important, specific case: a drag that DOES form a match — a legal move —
+"retreats all the way back after releasing the drag to make the match." Not a
+mid-slide stutter, not the intentional illegal-swap snap-back reading as more
+jarring after the squash change — a genuinely legal move visibly undoing
+itself on release. This is a correctness bug, not a feel/tuning question, and
+none of the last several rounds of spring/damping work could have caused or
+fixed it.
+
+**The mechanism, found by reading the render/gesture wiring, not guessing.**
+`Board.tsx` passes `onDragMove`/`onDragEnd` to `Tile` as inline arrow
+functions (`onDragMove={(dx, dy) => handleDragMove({ row: r, col: c }, dx,
+dy)}`), recreated fresh on every one of Board's own renders. `Tile.tsx`'s
+`pan` gesture (`Gesture.Pan()...`) was built inside a `useMemo` whose
+dependency array included those two props directly — so any Board render
+that produces new `onDragMove`/`onDragEnd` references invalidates the memo
+and rebuilds the entire gesture object.
+
+Board genuinely re-renders **during an active drag**, not just between
+moves: `handleDragMove` calls `setDragTarget(...)` on every finger movement
+(to drive the live neighbour highlight), and `handleDragEnd` unconditionally
+calls `setDragTarget(null)` as its very first line on every release — a real,
+guaranteed state change whenever a drag had a live target, which is every
+drag a player actually intends to commit. That means the gesture object is
+liable to be torn down and rebuilt near-continuously through a drag, and —
+critically — exactly at the moment `onEnd`/`onFinalize` are firing to decide
+the release, since that unconditional `setDragTarget(null)` fires in the same
+breath as the commit decision. A gesture config recreated mid-finalize is a
+concrete, well-known class of instability: whichever of the old/new gesture
+instances ends up handling the release can see a reset or stale translation,
+which drives `resolveDragTarget` to `null` and springs the drag offset back
+to 0 — regardless of what the JS-thread `attemptSwap`/`applyMove` logic
+separately decides. The visible result is exactly "retreats all the way
+back": the tile's own drag offset resets to zero via the gesture's own
+built-in return-spring, independent of whether the underlying move actually
+registered.
+
+**Fixed with the standard "stable ref to the latest callback" pattern**, not
+by touching Board's logic (which is correct — the churn is an unavoidable,
+legitimate consequence of driving a live highlight and clearing it on
+release, not a bug in Board itself). `Tile.tsx` now keeps `onDragMoveRef`/
+`onDragEndRef`, updated with a plain assignment on every render (cheap, no
+effect needed, always current), and two wrapper functions
+(`stableOnDragMove`/`stableOnDragEnd`) created ONCE via `useCallback` with an
+empty dependency array — these never change identity, so `pan`'s `useMemo`
+no longer has any reason to invalidate due to Board's own render churn. The
+worklets' `runOnJS(...)` calls and the `useMemo`'s own dependency array both
+switched to the stable wrappers. Reading a ref's `.current` here is safe
+specifically because it only ever happens inside the wrapper function AFTER
+`runOnJS` has already hopped back to the JS thread — never inside the
+worklet itself — so there is no UI/JS-thread shared-memory concern a plain
+ref would otherwise raise (worklets on native run in their own memory space;
+a ref read directly inside one wouldn't reliably see JS-thread updates).
+
+**Verification is narrower than usual, and disclosed as such.** 718/718
+tests pass, but this repo has no component-render/gesture-simulation harness
+(confirmed — no `Tile.test.tsx` exists, consistent with CLAUDE.md's own
+disclosed testing-philosophy gap for hooks/JSX components), so the fix itself
+cannot be unit-tested; it rests on the mechanism above being correctly
+identified from the render/gesture-handler wiring, and on the standard
+"stable callback ref" pattern being a well-established, low-risk fix for
+exactly this class of problem (memoized child re-creating expensive objects
+due to parent-supplied inline callback churn) independent of whether this
+exact mechanism is the ONLY contributor. No live trace was attempted this
+round: this is a native/web gesture-recognizer timing interaction that a
+synthetic PointerEvent dispatch (this session's only available live-testing
+method, and disclosed earlier as possibly not faithfully replicating real
+touch/pan gesture-handler sequencing) could not be trusted to reproduce or
+disprove, and the automated browser's board-render environment limitation
+remains standing regardless. This is the one fix in the whole investigation
+whose confirmation can only come from the real device/browser this was
+reported on.

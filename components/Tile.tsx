@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from './AppText';
 import Animated, {
@@ -230,6 +230,41 @@ export function Tile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, col]);
 
+  // Board passes onDragMove/onDragEnd as brand-new inline arrow functions on
+  // every one of ITS renders — and it genuinely re-renders mid-gesture, since
+  // handleDragMove calls setDragTarget on every finger movement (for the live
+  // highlight) and handleDragEnd unconditionally calls setDragTarget(null) as
+  // its very first line on every release. If either callback sat directly in
+  // `pan`'s dependency array below, the gesture object itself would be torn
+  // down and rebuilt on nearly every frame of an active drag — and, worse,
+  // exactly at the moment of release, since that unconditional setDragTarget
+  // fires right as onEnd/onFinalize are running. A gesture config recreated
+  // mid-finalize is a real, concrete mechanism for a drag that appears to
+  // "jump back": whichever of the old/new gesture instances actually receives
+  // onFinalize's callback may see a reset or stale translation, driving
+  // resolveDragTarget to null and springing the offset back to 0 regardless
+  // of what the JS-thread swap logic decides.
+  //
+  // The fix is the standard "stable ref to the latest callback" pattern: the
+  // refs update on every render (a plain assignment, not an effect — cheap,
+  // and always current by the time anything reads them), while the two
+  // wrapper functions below are created ONCE and never change identity, so
+  // `pan`'s useMemo never has a reason to invalidate due to Board's own
+  // render churn. Reading a ref's `.current` here is safe specifically
+  // because it only ever happens INSIDE the runOnJS-invoked wrapper — i.e.,
+  // already back on the JS thread — never inside the worklet itself, so
+  // there is no UI/JS-thread shared-memory concern.
+  const onDragMoveRef = useRef(onDragMove);
+  const onDragEndRef = useRef(onDragEnd);
+  onDragMoveRef.current = onDragMove;
+  onDragEndRef.current = onDragEnd;
+  const stableOnDragMove = useCallback((dx: number, dy: number) => {
+    onDragMoveRef.current?.(dx, dy);
+  }, []);
+  const stableOnDragEnd = useCallback((dx: number, dy: number) => {
+    onDragEndRef.current?.(dx, dy);
+  }, []);
+
   // A pan that only activates after a few px of travel, so a plain tap never
   // triggers it and falls straight through to the Pressable below — that's
   // what keeps tap-to-select fully intact. onUpdate/onEnd run on the UI
@@ -250,11 +285,11 @@ export function Tile({
           const clamp = tileSize;
           dragX.value = Math.max(-clamp, Math.min(clamp, event.translationX));
           dragY.value = Math.max(-clamp, Math.min(clamp, event.translationY));
-          if (onDragMove) runOnJS(onDragMove)(event.translationX, event.translationY);
+          runOnJS(stableOnDragMove)(event.translationX, event.translationY);
         })
         .onEnd((event) => {
           'worklet';
-          if (onDragEnd) runOnJS(onDragEnd)(event.translationX, event.translationY);
+          runOnJS(stableOnDragEnd)(event.translationX, event.translationY);
         })
         .onFinalize((event) => {
           'worklet';
@@ -297,7 +332,19 @@ export function Tile({
             });
           }
         }),
-    [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY, rowShared, colShared, rows, cols, dragSwapThresholdPx]
+    [
+      dragEnabled,
+      tileSize,
+      stableOnDragMove,
+      stableOnDragEnd,
+      dragX,
+      dragY,
+      rowShared,
+      colShared,
+      rows,
+      cols,
+      dragSwapThresholdPx,
+    ]
   );
 
   const animatedStyle = useAnimatedStyle(() => ({
