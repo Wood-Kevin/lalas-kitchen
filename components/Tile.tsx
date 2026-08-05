@@ -19,6 +19,8 @@ import {
   SWEEP_GLOW_POP_MS,
   SUPERCOMBO_FLASH_PULSE_MS,
   springSettleMs,
+  SWAP_DAMPING_RATIO,
+  FALL_DAMPING_RATIO,
 } from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -83,6 +85,16 @@ export interface TileProps {
   // and to piecesMatch/matching in general (the piece underneath stays fully
   // ordinary/matchable).
   layersRemaining?: number;
+  // Which kind of motion this tile is performing, which selects how firmly it
+  // settles. A swap is the player's own gesture over one tile and gets the
+  // generous overshoot; a gravity fall can cross most of the board, where that
+  // same overshoot scales up into a floaty bounce (see cascadeTiming.ts's two
+  // damping ratios). Defaults to a fall, since most moving tiles are falling.
+  settleFirmly?: boolean;
+  // How long this tile waits before starting its drop, so columns don't all
+  // land on the same frame (cascadeTiming.ts's columnDropDelayMs). Only ever
+  // set for falls and spawns — a swap must answer the player instantly.
+  dropDelayMs?: number;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -133,6 +145,8 @@ export function Tile({
   powderWisp,
   hint,
   layersRemaining,
+  settleFirmly = true,
+  dropDelayMs = 0,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -153,8 +167,16 @@ export function Tile({
   const dragY = useSharedValue(0);
 
   useEffect(() => {
-    rowShared.value = withSpring(row, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
-    colShared.value = withSpring(col, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
+    const settle = {
+      duration: durationMs,
+      dampingRatio: settleFirmly ? FALL_DAMPING_RATIO : SWAP_DAMPING_RATIO,
+    };
+    // The column stagger delays only the grid move. A swap passes 0 here, so
+    // the tile the player just pushed still starts on the very next frame.
+    const stagger = <T,>(animation: T): T =>
+      dropDelayMs > 0 ? (withDelay(dropDelayMs, animation as never) as T) : animation;
+    rowShared.value = stagger(withSpring(row, settle));
+    colShared.value = stagger(withSpring(col, settle));
     opacity.value = withTiming(1, { duration: durationMs });
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
@@ -166,6 +188,8 @@ export function Tile({
     // few frames earlier than the grid slide, so the tile briefly retreated
     // toward its origin before sliding out to the destination. A no-op (0 → 0)
     // on every non-drag render, which is every render for a tapped swap.
+    // Never staggered and never firm: this is the player's own finger offset
+    // folding home, which is a swap by definition.
     dragX.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
     dragY.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
     // Only a change of TARGET CELL retriggers this. durationMs is deliberately
@@ -349,12 +373,14 @@ const DRAG_RETURN_MS = 120;
 // an 86px tile — a real settle, but too subtle to read as the landing this
 // genre has. 0.62 roughly doubles it while still settling in ONE pass, with
 // no oscillation: a piece thrown into place, not a piece on a rubber band.
+// It now lives in cascadeTiming.ts alongside FALL_DAMPING_RATIO, because a
+// spring's overshoot scales with distance and a gravity drop therefore needs
+// a firmer one — see that file for the measured numbers.
 //
 // Reanimated treats `duration` as PERCEPTUAL duration (actual settle runs
 // ~1.5x longer), which is the right pairing for passTravelMs: the clear
 // begins as the tile visually lands, while the last of the settle finishes
 // underneath it.
-const SWAP_DAMPING_RATIO = 0.62;
 
 // The small corner badge that tells a player, at a glance, whether a striped
 // piece will sweep its row or its column before they commit the move. It

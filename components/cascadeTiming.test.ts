@@ -3,6 +3,10 @@ import {
   planCascadeAnimation,
   terminalOverlayHoldMs,
   springSettleMs,
+  columnDropDelayMs,
+  COLUMN_DROP_STAGGER_MS,
+  SWAP_DAMPING_RATIO,
+  FALL_DAMPING_RATIO,
 } from './cascadeTiming';
 
 describe('cascadeFallDurationMs', () => {
@@ -82,5 +86,39 @@ describe('springSettleMs (a swap must finish settling before its match clears)',
   test('scales linearly, so tuning swapDurationMs keeps the two clocks in step', () => {
     expect(springSettleMs(200)).toBe(300);
     expect(springSettleMs(400)).toBe(600);
+  });
+});
+
+describe('columnDropDelayMs (a refill should travel, not land as one slab)', () => {
+  test('the leftmost column drops immediately', () => {
+    expect(columnDropDelayMs(0)).toBe(0);
+  });
+
+  test('each column to the right waits one more stagger step', () => {
+    expect(columnDropDelayMs(1)).toBe(COLUMN_DROP_STAGGER_MS);
+    expect(columnDropDelayMs(4)).toBe(4 * COLUMN_DROP_STAGGER_MS);
+  });
+
+  test('the whole ripple stays short enough to read as one cascade, not a wave', () => {
+    // Widest board this game builds is 5 columns; the end-to-end offset must
+    // stay well inside a single cascade beat (cascadeFallDurationMs 480).
+    expect(columnDropDelayMs(4)).toBeLessThan(cascadeFallDurationMs('medium') / 4);
+  });
+
+  test('a negative column can never produce a negative delay', () => {
+    expect(columnDropDelayMs(-1)).toBe(0);
+  });
+});
+
+describe('fall vs swap settle (overshoot scales with distance)', () => {
+  test('a falling piece settles more firmly than a swapped one', () => {
+    // A swap travels one tile; a fall can cross the board, where the swap's
+    // generous overshoot would scale into a floaty bounce.
+    expect(FALL_DAMPING_RATIO).toBeGreaterThan(SWAP_DAMPING_RATIO);
+  });
+
+  test('both stay under 1, so neither is critically damped into a dead stop', () => {
+    expect(SWAP_DAMPING_RATIO).toBeLessThan(1);
+    expect(FALL_DAMPING_RATIO).toBeLessThan(1);
   });
 });

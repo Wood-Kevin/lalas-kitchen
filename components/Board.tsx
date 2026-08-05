@@ -48,6 +48,8 @@ import {
   cascadeFallDurationMs,
   terminalOverlayHoldMs,
   springSettleMs,
+  columnDropDelayMs,
+  SPRING_SETTLE_FACTOR,
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
@@ -1226,8 +1228,21 @@ export function Board({
                     displayCol = snapBack.a.col;
                   }
                 }
-                const duration =
-                  snapBack || swapDurationIds.has(piece.id) ? swapDurationMs : cascadeDurationMs;
+                // Is this tile moving because the PLAYER moved it, or because
+                // gravity did? The same check already picked the duration; it
+                // now also picks how firmly the tile settles and whether it
+                // waits for its column's turn. A swap is one tile of travel
+                // answering a gesture: immediate, generous settle. A fall can
+                // cross the board: staggered by column, and firm on landing,
+                // because a spring's overshoot scales with distance (see
+                // cascadeTiming.ts's two damping ratios).
+                const isSwapMotion = !!snapBack || swapDurationIds.has(piece.id);
+                // Falls run their spring over a shorter PERCEPTUAL duration so
+                // the real settle (~1.5x) finishes inside the same
+                // cascadeDurationMs beat the cascade schedule is built on,
+                // rather than still wobbling when the next pass starts.
+                const fallSpringMs = Math.round(cascadeDurationMs / SPRING_SETTLE_FACTOR);
+                const duration = isSwapMotion ? swapDurationMs : fallSpringMs;
                 const isSpawn = spawnedIds.has(piece.id);
 
                 return (
@@ -1243,6 +1258,8 @@ export function Board({
                     selected={!!selected && selected.row === r && selected.col === c}
                     accessibilityLabel={describeTileForAccessibility(piece, r, c)}
                     durationMs={duration}
+                    settleFirmly={!isSwapMotion}
+                    dropDelayMs={isSwapMotion ? 0 : columnDropDelayMs(c)}
                     enterFromRow={isSpawn ? r - 2 : undefined}
                     // Only a striped piece carries a direction; every other
                     // piece passes undefined, so Tile renders no badge. This

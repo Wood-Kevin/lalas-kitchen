@@ -5442,3 +5442,68 @@ automation context, not a regression (the same build renders correctly in a real
 browser session and in the player's own screen recording). The arithmetic here
 is derived from earlier real measurements of the same spring, not from a trace
 of this build.
+
+### Follow-up 3: falls needed their own spring, and columns needed to travel
+
+An outside review (Gemini) of a gameplay recording suggested three fixes. Two
+rested on a premise that does not hold for this codebase and were not taken; the
+third was right twice over, and one half of it identified a regression this
+session had introduced.
+
+**Not taken, and why — the premise was wrong.** The review assumed "a web-based
+rendering loop (HTML5 Canvas, SVG, or DOM elements with CSS transitions/
+requestAnimationFrame)" that "directly updates position coordinates every tick."
+Verified against the code: this is React Native + Expo shipping to iOS/Android
+(web is a dev preview only), there are **no** manual `requestAnimationFrame`
+loops anywhere in the render layer, and positions are Reanimated shared values
+driven by `withSpring` on the UI thread.
+
+1. *Implement lerp* (`currentX += (targetX - currentX) * factor`) would be a
+   regression, not a fix. It is exponential smoothing: frame-rate dependent,
+   asymptotic (never actually arrives, so it needs an epsilon snap that
+   reintroduces a snap), and — decisively — it has no overshoot and decelerates
+   forever. Its per-frame profile is `18.7, 14.2, 10.0, 7.1, 5.1...`: precisely
+   the burst-then-crawl shape measured and rejected in Follow-up 1 as the cause
+   of "jumping into place."
+2. *Add GSAP or a rAF tween manager.* GSAP animates DOM/CSS; on iOS and Android
+   there is no DOM, so it cannot drive these tiles on the shipping platform.
+   Reanimated already is the tween manager and runs on the UI thread on native,
+   where a rAF-based manager stutters whenever JS is busy. Adding a
+   native-incompatible dependency is also exactly how this project broke its own
+   web bundle twice (the AdMob SDK, then `react-native-svg`).
+3. *Stagger the cascade* — taken, see below.
+
+**Taken (a): falls get their own damping — fixing this session's own
+regression.** A spring's overshoot is proportional to distance travelled. Giving
+every tile the swap's `dampingRatio` 0.62 was right for a swap (one tile, 8.3%,
+a measured 7px settle) and wrong for gravity: a five-row fall would sail ~36px —
+nearly half a tile — past its resting place and bounce back. That is exactly the
+"loose, floating, physics-like cascade" the review described in the recording,
+and it was introduced by Follow-up 2's spring. `FALL_DAMPING_RATIO` is 0.8
+(~1.5% overshoot, ~6px on that same five-row fall — a firm landing with a hint
+of give). Falls also run their spring over `cascadeDurationMs /
+SPRING_SETTLE_FACTOR`, so the real ~1.5x settle finishes inside the same
+480ms beat the cascade schedule is built on instead of still wobbling when the
+next pass begins.
+
+**Taken (b): per-column drop stagger.** Genuinely not implemented before. Every
+other multi-tile effect in this game already travels — `SWEEP_TILE_STAGGER_MS`
+per tile, `COLOR_BOMB_WAVE_MS` outward, `CHAIN_LINK_STAGGER_MS` per link,
+`cascadeStepIntervalMs` between passes — but a gravity refill landed every
+column on the same frame, reading as one flat slab. `COLUMN_DROP_STAGGER_MS` is
+25ms (100ms end to end on the widest 5-column board): a gentle ripple, not a
+visible wave. Applied to falls and spawns only, never to a swap — delaying the
+piece the player just pushed would make the game feel laggy exactly where
+responsiveness matters most. `Board.tsx`'s existing swap/fall discriminator
+(`swapDurationIds`, already used to pick the duration) now also picks the
+damping and the stagger, so there is one decision, not three.
+
+**Verification: tests only, disclosed.** 712/712, including six new cases
+(the stagger's zero/step/bound/negative behaviour, and that falls settle more
+firmly than swaps while neither is critically damped). No live trace: the
+automated browser tab still renders an empty board — `boardArea` never measures,
+so `tileSize` stays 0 — which was confirmed in Follow-up 2 to reproduce on HEAD
+as well, so it is an automation-environment artifact rather than a regression.
+The overshoot figures here are computed from the standard damping-ratio formula
+`exp(-pi*z/sqrt(1-z^2))`, whose 0.62 case matches the 8.3% actually measured on
+the real app earlier this session.

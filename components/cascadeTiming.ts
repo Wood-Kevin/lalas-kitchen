@@ -54,6 +54,44 @@ export function springSettleMs(perceptualMs: number): number {
   return perceptualMs > 0 ? Math.round(perceptualMs * SPRING_SETTLE_FACTOR) : 0;
 }
 
+// Tile motion is a spring, and a spring's overshoot is PROPORTIONAL TO THE
+// DISTANCE IT TRAVELS. That is fine for a swap — one tile of travel, so the
+// soft settle stays small and deliberate — and wrong for a gravity drop, which
+// can cover most of the board. Measured: dampingRatio 0.62 overshoots 8.3%, so
+// a one-tile swap lands 7px past its cell (correct, that's the feel), but a
+// five-row fall would sail ~36px — nearly half a tile — past its resting place
+// and bounce back. That is the "loose, floating" cascade a real playtest
+// described, and it was introduced by giving falls the swap's spring.
+//
+// So the two motions get two damping ratios. Overshoot for a damping ratio z is
+// exp(-pi*z / sqrt(1 - z^2)):
+//   0.62 -> 8.3%  a real, visible settle. The player's own gesture; see
+//                 Tile.tsx's SWAP_DAMPING_RATIO note for why it's this soft.
+//   0.80 -> 1.5%  a firm landing with just a hint of give. On that same
+//                 five-row fall it's ~6px, proportionate instead of floaty.
+// Falling pieces should land, not wobble; only the piece the player pushed
+// gets the generous settle.
+export const SWAP_DAMPING_RATIO = 0.62;
+export const FALL_DAMPING_RATIO = 0.8;
+
+// Columns do not all drop on the same frame. Every other multi-tile effect in
+// this game already travels — the sweep staggers per tile, the bomb ripples
+// outward, chain links fire in sequence — but a gravity refill landed every
+// column simultaneously, which reads as one flat slab rather than a cascade.
+// A small per-column offset gives it the same sense of travel, matching how
+// this genre's drops actually read.
+//
+// Deliberately small: 25ms over a 5-wide board is 100ms end to end, a gentle
+// left-to-right ripple rather than a visible wave. It is applied ONLY to falls
+// and spawns, never to a swap — the piece a player just moved must answer
+// instantly, and delaying it by column would make the game feel laggy in
+// exactly the place responsiveness matters most.
+export const COLUMN_DROP_STAGGER_MS = 25;
+
+export function columnDropDelayMs(col: number): number {
+  return Math.max(0, col) * COLUMN_DROP_STAGGER_MS;
+}
+
 // A blocker can clear several cascade steps away from the match a player
 // actually tapped, with nothing else on screen drawing the eye there first
 // (see engine/DECISIONS.md's adjacent-damage entry — this is a presentation
