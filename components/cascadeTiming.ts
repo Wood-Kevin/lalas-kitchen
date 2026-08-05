@@ -16,9 +16,12 @@ import { CascadeFallSpeed } from './skinConfig';
 // just watching." That has since been revisited and reversed: leaving it
 // behind made the swap 3.4x faster than every motion around it — the one
 // snappy thing in a deliberately calm game — and real play reported exactly
-// that. It is now 220 (config.json), with a shared settle curve, so the swap
-// sits in the same register as the pop it triggers. See
-// docs/verification/swap-smoothness/ and Tile.tsx's SWAP_EASING.
+// that. It is now 300 (config.json) and, after two failed timing curves, runs
+// as a spring so the swap both reads as a real transition and lands the way
+// this genre's pieces land. See
+// docs/verification/swap-smoothness/ and Tile.tsx's SWAP_DAMPING_RATIO —
+// tile movement is a spring now, not a timing curve, so this value is the
+// spring's PERCEPTUAL duration (it settles ~1.5x longer).
 const CASCADE_FALL_DURATIONS_MS: Record<CascadeFallSpeed, number> = {
   slow: 500,
   medium: 480,

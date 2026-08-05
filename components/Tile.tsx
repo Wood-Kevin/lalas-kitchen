@@ -9,6 +9,7 @@ import Animated, {
   withDelay,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -151,8 +152,8 @@ export function Tile({
   const dragY = useSharedValue(0);
 
   useEffect(() => {
-    rowShared.value = withTiming(row, { duration: durationMs, easing: SWAP_EASING });
-    colShared.value = withTiming(col, { duration: durationMs, easing: SWAP_EASING });
+    rowShared.value = withSpring(row, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
+    colShared.value = withSpring(col, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
     opacity.value = withTiming(1, { duration: durationMs });
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
@@ -164,8 +165,8 @@ export function Tile({
     // few frames earlier than the grid slide, so the tile briefly retreated
     // toward its origin before sliding out to the destination. A no-op (0 → 0)
     // on every non-drag render, which is every render for a tapped swap.
-    dragX.value = withTiming(0, { duration: durationMs, easing: SWAP_EASING });
-    dragY.value = withTiming(0, { duration: durationMs, easing: SWAP_EASING });
+    dragX.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
+    dragY.value = withSpring(0, { duration: durationMs, dampingRatio: SWAP_DAMPING_RATIO });
     // Only a change of TARGET CELL retriggers this. durationMs is deliberately
     // not a dependency: it's read fresh whenever the effect does run, so a tile
     // that moves always animates at the duration in force for that move — but a
@@ -231,12 +232,18 @@ export function Tile({
             dragSwapThresholdPx
           );
           if (!target) {
-            // Same settle curve as every other swap motion, so a cancelled
-            // drag eases home the way a committed one lands. Kept shorter than
+            // Same spring as every other tile motion, so a cancelled drag
+            // settles home the way a committed one lands. Kept shorter than
             // swapDurationMs on purpose: this only ever undoes a below-
             // threshold nudge, so it has a much smaller distance to cover.
-            dragX.value = withTiming(0, { duration: DRAG_RETURN_MS, easing: SWAP_EASING });
-            dragY.value = withTiming(0, { duration: DRAG_RETURN_MS, easing: SWAP_EASING });
+            dragX.value = withSpring(0, {
+              duration: DRAG_RETURN_MS,
+              dampingRatio: SWAP_DAMPING_RATIO,
+            });
+            dragY.value = withSpring(0, {
+              duration: DRAG_RETURN_MS,
+              dampingRatio: SWAP_DAMPING_RATIO,
+            });
           }
         }),
     [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY, rowShared, colShared, rows, cols, dragSwapThresholdPx]
@@ -310,22 +317,43 @@ const DRAG_ACTIVATION_SLOP = 6;
 // How long the follow-offset takes to ease back to rest on release.
 const DRAG_RETURN_MS = 120;
 
-// The curve every swap slide runs on — the live tile's grid move, the drag
-// offset folding home, and a swapped-then-cleared tile's travel (ExitingTile
-// below), so all three halves of one gesture share one shape as well as one
-// clock. Reanimated's default is Easing.inOut(Easing.quad), which is
-// SYMMETRIC: it accelerates exactly as hard as it decelerates, and a real
-// frame trace of the old 140ms swap measured per-frame deltas of
-// 3,8,13,19,19,14,10,4 px — a hard burst through the middle and an abrupt
-// arrival, which is what read as "snappy" rather than smooth. This bezier
-// keeps a gentle start (a tile at rest should ease into motion, so an
-// out-only curve like Easing.out(cubic) is wrong here — it starts at full
-// speed and reads as a yank) but gives a much longer decelerating tail, so
-// the tile settles into its cell instead of arriving at speed. Calm, and no
-// overshoot: a spring's bounce would fight CLAUDE.md's calm-not-frantic
-// constraint and wouldn't hold a fixed duration the cascade clock can plan
-// around.
-const SWAP_EASING = Easing.bezier(0.33, 0, 0.15, 1);
+// Every tile movement — the live tile's grid move, the drag offset folding
+// home, and a swapped-then-cleared tile's travel (ExitingTile below) — runs as
+// a SPRING rather than a timing curve, so all of them share one physical feel
+// as well as one clock.
+//
+// This is the third attempt, and the first two are why the comment is long.
+// Reanimated's default Easing.inOut(Easing.quad) read as a snap at 140ms.
+// Replacing it with a tail-weighted bezier(0.33, 0, 0.15, 1) was an
+// over-correction that front-loaded the travel into a burst and then crawled:
+// at 220ms over one 90px tile the real per-frame deltas were
+//   1.9, 7.8, 16.2, 18.7, 14.2, 10.0, 7.1, 5.1, 3.6, 2.5, 1.6, 0.9, 0.4
+// — 64% of the distance in the first five frames (~83ms), the rest creeping
+// sub-pixel. A duration is not a measure of how long motion is VISIBLE, and
+// real play still read that as tiles "jumping into place." An even bezier
+// fixed the distribution, but a timing curve of any shape stops dead on
+// arrival, which is not how this genre moves.
+//
+// The brief is explicit: "move like Royal Match or Candy Crush." Those games
+// use spring physics — the tile carries momentum, overshoots its cell very
+// slightly, and settles back. That small settle is the entire difference
+// between "a tile was translated" and "a tile was thrown into place," and no
+// bezier produces it. An earlier note here rejected springs as too bouncy for
+// CLAUDE.md's calm-not-frantic constraint; that judgment is overridden by a
+// direct architect instruction, and a dampingRatio this high is a soft settle
+// rather than a bounce anyway.
+//
+// dampingRatio 1 is critically damped (no overshoot at all); below 1
+// overshoots. 0.72 was measured on the real app at only 3.3px past target on
+// an 86px tile — a real settle, but too subtle to read as the landing this
+// genre has. 0.62 roughly doubles it while still settling in ONE pass, with
+// no oscillation: a piece thrown into place, not a piece on a rubber band.
+//
+// Reanimated treats `duration` as PERCEPTUAL duration (actual settle runs
+// ~1.5x longer), which is the right pairing for passTravelMs: the clear
+// begins as the tile visually lands, while the last of the settle finishes
+// underneath it.
+const SWAP_DAMPING_RATIO = 0.62;
 
 // The small corner badge that tells a player, at a glance, whether a striped
 // piece will sweep its row or its column before they commit the move. It
@@ -724,8 +752,8 @@ export function ExitingTile({
   // when this tile actually has somewhere to travel from.
   useEffect(() => {
     if (travel > 0) {
-      exitRow.value = withTiming(row, { duration: travel, easing: SWAP_EASING });
-      exitCol.value = withTiming(col, { duration: travel, easing: SWAP_EASING });
+      exitRow.value = withSpring(row, { duration: travel, dampingRatio: SWAP_DAMPING_RATIO });
+      exitCol.value = withSpring(col, { duration: travel, dampingRatio: SWAP_DAMPING_RATIO });
     }
     // A given exiting tile's travel never changes for its lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps

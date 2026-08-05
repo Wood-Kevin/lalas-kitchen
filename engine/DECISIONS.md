@@ -5328,3 +5328,73 @@ brief, not a playtested value — and this game is built for one specific player
 single-pass match now takes ~670ms end to end versus ~380ms before, which is
 intentional and matches the 480ms cascade beat, but it is genuinely slower per
 move. Her opinion is worth more than another trace.
+
+### Follow-up: two failed timing curves, and why the answer was a spring
+
+The fix above landed and real play still reported the same two things: swaps
+"feel too fast" and tiles "still look like they are jumping into place, not
+transitioning." A 60fps screen recording settled it — and the interesting part is
+that the recording proved the fix WAS live and working, which is what forced a
+real diagnosis instead of another guess.
+
+**Confirming which build was on screen, from the video alone.** Sampling the
+board region and measuring total sprite "ink" per frame, the board holds steady
+for **133-233ms (mean ~200ms) after each move begins, before any tile starts to
+clear**, across 7 separate moves. That hold IS the travel delay
+(`swapDurationMs` 220); the pre-fix build clears immediately, with no hold. A
+slit-scan (one pixel column per frame, stacked) showed smooth diagonal streaks
+through the falls, not hard steps. So travel existed, the one-beat clear existed,
+and the complaint was still accurate.
+
+**Failure 1 — the curve, not the duration.** `bezier(0.33, 0, 0.15, 1)` is
+heavily tail-weighted. Over one 90px tile at 220ms its real per-frame deltas are
+
+```
+1.9, 7.8, 16.2, 18.7, 14.2, 10.0, 7.1, 5.1, 3.6, 2.5, 1.6, 0.9, 0.4
+```
+
+64% of the distance in the first five frames (~83ms); the rest creeping to
+sub-pixel. The *nominal* duration was 220ms but the *perceptible* motion lasted
+~83ms — precisely "it jumped into place and then settled." A longer duration
+alone would not have fixed it: the same curve at 380ms still concentrates motion
+in ~7 frames and just lengthens the dead tail. **A duration is not a measure of
+how long motion is visible.**
+
+**Failure 2 — an even curve is legible but still not this genre.** Replacing it
+with `bezier(0.45, 0.05, 0.4, 0.95)` at 380ms produced a proper even
+distribution (measured live: `1,1,2,2,4,4,6,6,7,8,7,7,6,6,4,4,3,2,2,2,1,1`, peak
+velocity 8px/frame against the old 18.7, no dead tail). That is genuinely more
+readable — and still wrong, because a timing curve of any shape **stops dead on
+arrival**. The brief was explicit: "move like Royal Match or Candy Crush."
+
+**The fix: spring physics.** Those games don't interpolate a tile from A to B,
+they throw it — it carries momentum, overshoots slightly, and settles back. That
+settle is the whole difference between "a tile was translated" and "a tile was
+thrown into place," and no bezier produces it. All tile motion (the live tile's
+grid move, the drag offset folding home, and a swapped-then-cleared tile's
+travel) now runs `withSpring({ duration, dampingRatio })` — a duration-based
+spring, so it keeps the fixed, predictable settle time `passTravelMs` and the
+cascade clock depend on, unlike a physics-parameter spring.
+
+`dampingRatio` was tuned against measurement, not taste: **0.72 gave only 3.3px
+of overshoot on an 86px tile** — a real settle, but too subtle to read. **0.62
+gives 7.1px (8.3% of a tile)**, measured live:
+
+```
+129: 1077.7  ->  162: 1130.4  ->  195: 1165.2  ->  212: 1169.1   peak, 7.1px PAST target
+             ->  245: 1165.8  ->  279: 1162.1  ->  379: 1162.0   settled
+```
+
+One clean counter-oscillation and done — a piece thrown into place, not a piece
+on a rubber band. `swapDurationMs` is 300 (perceptual; Reanimated runs the actual
+settle ~1.5x longer, which is why the trace lands at ~380ms).
+
+**An earlier note in this file rejected springs outright**, on the grounds that
+overshoot fights CLAUDE.md's calm-not-frantic constraint and that a spring holds
+no fixed duration the cascade clock can plan around. The first half is overridden
+by a direct architect instruction naming the reference games; the second half
+turned out to be simply wrong — duration-based springs exist and are what's used
+here. Recording that because the rejected-alternative note was itself the
+obstacle to reaching the right answer two attempts earlier.
+
+Still not verified by a human. 703/703 tests.
