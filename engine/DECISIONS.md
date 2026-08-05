@@ -5507,3 +5507,66 @@ as well, so it is an automation-environment artifact rather than a regression.
 The overshoot figures here are computed from the standard damping-ratio formula
 `exp(-pi*z/sqrt(1-z^2))`, whose 0.62 case matches the 8.3% actually measured on
 the real app earlier this session.
+
+### Follow-up 4: a tapped piece can fall further than its own swap, and was getting the wrong spring
+
+Real play, on a fresh recording after the fall/stagger fix: "the swap bounces
+like crazy and is fast. Its not a smooth settle."
+
+**Verification for this round is code-level, not trace-level, and that is
+disclosed rather than implied otherwise.** The automated browser tab still
+fails to render the board at all (`boardArea` never measures) on a fresh tab,
+a different origin, and after an explicit viewport resize — the same
+environment limitation confirmed in Follow-up 2 to reproduce on a clean HEAD
+checkout, not something this session's code caused. A frame-by-frame trace of
+the reported recording was attempted, but the board is a live multi-piece
+cascade with many visually-identical sprites (six ingredient types shared
+across 40 cells); template-matching a specific tile's position across frames
+repeatedly reacquired a different, identically-drawn tile once the real one's
+opacity began fading for its clear-pop, producing an untrustworthy numeric
+trace (a spurious "reset to zero, then re-ramp" that dissolved under scrutiny).
+What the trace DID show reliably — and what the code review below independently
+confirms as a real mechanism — is a tapped tile's slide stalling mid-motion for
+a long stretch (13 frames, ~217ms) before anything else happens, which is
+consistent with, but not sufficient alone to prove, the bug found by reading
+the engine.
+
+**The bug, found by reading `resolveCascades`, not by guessing.** A single
+cascade pass is match-clearing AND gravity-settling computed together in one
+call (`engine/gameState.ts`'s `resolveCascades`/`calculateCascades` — this has
+been true since the engine's Phase 1 design, confirmed directly against the
+code rather than assumed). That means a tapped piece that survives the match it
+just formed can legitimately travel MORE than one cell within that same first
+pass: if the match clears something above it in its own column, gravity drops
+it further before the pass ever reaches the presentation layer. This is a
+common case, not an edge case — any vertical match sharing a column with a
+tapped piece triggers it.
+
+`Board.tsx` decided which pieces got the swap's spring (`SWAP_DAMPING_RATIO`,
+a small deliberate overshoot tuned for exactly one tile) purely by **piece
+identity** — `tappedIds`, the two piece ids the player touched — with no check
+on how far each one actually ended up moving. A spring's overshoot is
+proportional to distance travelled (already established in Follow-up 3, for
+the swap-vs-fall distinction generally, but not carried through to THIS case):
+the same 0.62 damping ratio over three or four tiles of gravity-driven fall
+produces a visibly wild recoil at a much higher apparent speed than over one
+tile — a precise mechanistic match for "bounces like crazy and is fast."
+
+**Fixed** with `boardDiff.ts`'s new `resolveSwapMotionIds(tappedIds, moved)`:
+of the two tapped piece ids, only the ones whose actual displacement (Manhattan
+distance, from the same-pass diff's own `moved` list — no new data computed,
+only interpreted correctly) is exactly one cell keep the swap feel. A tapped
+piece that fell further is treated as an ordinary fall — firm damping, column-
+staggered, no assumption about how far it travelled — the same rules governing
+every other falling tile. `Board.tsx`'s `runStep` now calls this instead of
+naively including both tapped ids whenever `i === 0`.
+
+Extracted as a pure function (matching this project's own convention — pure
+presentation logic lives in a testable module, e.g. `relocateSwappedClears`
+right above it — rather than left inline and untested inside `Board.tsx`,
+which has no test file since it's hooks/JSX). Five new test cases cover: a
+plain adjacent swap keeps both tapped pieces on the swap feel; a tapped piece
+that also fell loses it while its partner keeps it; both can lose it
+simultaneously; a cleared tapped piece defaults harmlessly (it never reads this
+set — `ExitingTile` is driven by its own `travelMs`); and the distance check is
+Manhattan, not "only a straight vertical fall". 717/717 total.

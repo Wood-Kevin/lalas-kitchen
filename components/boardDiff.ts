@@ -124,3 +124,44 @@ export function relocateSwappedClears(
     return entry;
   });
 }
+
+// Which of the two tapped piece ids should render with the SWAP feel (a
+// short, deliberately bouncy spring tuned for exactly one tile of travel) —
+// as opposed to the FALL feel (firm, column-staggered, no assumption about
+// distance).
+//
+// A single cascade pass is match-clear AND gravity-settle computed together
+// (see engine/gameState.ts's resolveCascades), so a tapped piece that
+// survives the match can legitimately travel more than one cell within that
+// SAME pass — whenever the match it helped form also clears something above
+// it in its own column, gravity drops it further before the pass ever
+// reaches the presentation layer. Piece id alone (was this one of the two
+// tapped cells?) can't distinguish "a plain adjacent swap" from "a swap that
+// also triggered a multi-row fall for this exact piece" — only its actual
+// displacement can.
+//
+// This matters because a spring's overshoot scales with distance travelled.
+// The swap's spring is tuned for one tile (see Tile.tsx's SWAP_DAMPING_RATIO)
+// — a small, deliberate settle. Giving that same spring a piece that actually
+// fell three or four rows produces a visibly wild recoil at a much higher
+// apparent speed, which is a real, reported symptom ("bounces like crazy and
+// is fast") a frame trace of a busy multi-piece cascade couldn't cleanly
+// isolate on its own — this is the code-level mechanism, verified directly
+// against resolveCascades rather than inferred from the trace.
+//
+// `moved` is the same-pass diff's own moved list (diffBoards' output against
+// the pre-move board), so no new data is computed — only interpreted
+// differently than piece identity alone would.
+export function resolveSwapMotionIds(tappedIds: Set<string>, moved: MovedPiece[]): Set<string> {
+  return new Set(
+    [...tappedIds].filter((id) => {
+      const entry = moved.find((m) => m.piece.id === id);
+      // Not in `moved` means either this tapped piece cleared (irrelevant —
+      // cleared pieces render via ExitingTile, never read this set) or it
+      // never moved at all (impossible for a genuinely committed swap, but
+      // defaulting to the swap feel here is the safe, previous behaviour).
+      if (!entry) return true;
+      return Math.abs(entry.to.row - entry.from.row) + Math.abs(entry.to.col - entry.from.col) <= 1;
+    })
+  );
+}

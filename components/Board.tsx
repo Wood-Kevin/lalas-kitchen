@@ -34,7 +34,7 @@ import { findAnyLegalMove } from '../engine/matrix';
 import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { describeTileForAccessibility } from './tileAccessibility';
-import { diffBoards, relocateSwappedClears } from './boardDiff';
+import { diffBoards, relocateSwappedClears, resolveSwapMotionIds } from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import {
   SpecialEffectDescriptor,
@@ -887,8 +887,11 @@ export function Board({
       const passSettleMs = springSettleMs(passTravelMs);
 
       // Only the first pass carries the just-tapped pair, which uses the
-      // snappier swap duration; every later pass is a passive fall.
-      setSwapDurationIds(i === 0 ? tappedIds : new Set());
+      // snappier swap duration — but ONLY for a tapped piece that actually
+      // travelled exactly one cell (see boardDiff.ts's resolveSwapMotionIds
+      // for why piece id alone isn't a safe enough test: a survived tapped
+      // piece can fall further than one cell within this same pass).
+      setSwapDurationIds(i === 0 ? resolveSwapMotionIds(tappedIds, rawDiff.moved) : new Set());
       setSpawnedIds(new Set(diff.spawned.map((s) => s.piece.id)));
       // Append (don't replace): a pass's exit tiles keep animating out while
       // the next pass's clears begin, giving the layered, sequential read.

@@ -1,4 +1,4 @@
-import { diffBoards, relocateSwappedClears } from './boardDiff';
+import { diffBoards, relocateSwappedClears, resolveSwapMotionIds, MovedPiece } from './boardDiff';
 import { Board, Piece } from '../engine/matrix';
 
 function piece(id: string, matchType: string): Piece {
@@ -118,5 +118,58 @@ describe('relocateSwappedClears', () => {
     // pieces genuinely still occupy their own — there is nothing to travel.
     const out = relocateSwappedClears([cleared('bomb', 2, 3)], a, b, false);
     expect(out[0].travelFrom).toBeUndefined();
+  });
+});
+
+describe('resolveSwapMotionIds (a tapped piece can fall further than its own swap)', () => {
+  const tomato = piece('tomato-1', 'A');
+  const garlic = piece('garlic-1', 'B');
+  const moved = (p: Piece, from: [number, number], to: [number, number]): MovedPiece => ({
+    piece: p,
+    from: { row: from[0], col: from[1] },
+    to: { row: to[0], col: to[1] },
+  });
+
+  test('a plain adjacent swap keeps both tapped pieces on the swap feel', () => {
+    const tappedIds = new Set([tomato.id, garlic.id]);
+    const movedList = [moved(tomato, [2, 3], [2, 4]), moved(garlic, [2, 4], [2, 3])];
+    const result = resolveSwapMotionIds(tappedIds, movedList);
+    expect(result).toEqual(new Set([tomato.id, garlic.id]));
+  });
+
+  test('a tapped piece that also fell from gravity in the same pass loses the swap feel', () => {
+    // The match this swap formed cleared something above tomato-1's landing
+    // column, so gravity dropped it three more rows within the SAME pass —
+    // a real, common case (see engine/gameState.ts's resolveCascades), not
+    // an edge case. It should render as a fall, not a bouncy 1-tile hop.
+    const tappedIds = new Set([tomato.id, garlic.id]);
+    const movedList = [moved(tomato, [2, 3], [5, 4]), moved(garlic, [2, 4], [2, 3])];
+    const result = resolveSwapMotionIds(tappedIds, movedList);
+    expect(result).toEqual(new Set([garlic.id]));
+  });
+
+  test('both tapped pieces can lose the swap feel if both fell further', () => {
+    const tappedIds = new Set([tomato.id, garlic.id]);
+    const movedList = [moved(tomato, [2, 3], [6, 3]), moved(garlic, [2, 4], [4, 4])];
+    const result = resolveSwapMotionIds(tappedIds, movedList);
+    expect(result).toEqual(new Set());
+  });
+
+  test('a tapped piece that cleared (absent from `moved`) defaults to the swap feel harmlessly', () => {
+    // A cleared piece never reads swapDurationIds at all (it renders via
+    // ExitingTile, driven by its own travelMs), so this default is inert —
+    // it exists only so the function has a defined answer for every id.
+    const tappedIds = new Set([tomato.id, garlic.id]);
+    const movedList = [moved(garlic, [2, 4], [2, 3])];
+    const result = resolveSwapMotionIds(tappedIds, movedList);
+    expect(result.has(tomato.id)).toBe(true);
+  });
+
+  test('a diagonal-looking two-cell displacement is excluded, not just a straight fall', () => {
+    // The distance test is Manhattan, not "did it only move vertically" —
+    // it should correctly reject any total displacement over one cell.
+    const tappedIds = new Set([tomato.id]);
+    const movedList = [moved(tomato, [2, 3], [3, 4])];
+    expect(resolveSwapMotionIds(tappedIds, movedList)).toEqual(new Set());
   });
 });
