@@ -564,13 +564,33 @@ export function Board({
   // applyMove for an adjacent pair and either snap back (rejected) or animate
   // the resulting cascade. Both callers have already established the two cells
   // are adjacent and a move is allowed.
-  function attemptSwap(posA: Position, posB: Position) {
+  // dragReleasePx is present only when this swap was committed by a drag —
+  // the finger's final offset (px) at release, for whichever piece sat at
+  // posA. It exists to fix a real bug found live: a dragged tile that
+  // ITSELF ends up in the match it just completed unmounts (its live Tile
+  // component is keyed by piece id, and a cleared piece's id no longer
+  // appears on the board) and hands off to a brand-new ExitingTile — which
+  // has no idea a drag ever happened, so it starts its exit animation at the
+  // plain pre-swap GRID cell, with none of the live tile's dragX/dragY
+  // finger-follow transform. Visually this reads as the tile snapping all
+  // the way back to where the drag started before sliding out again — "the
+  // piece jumps back when I drag it to swap," confirmed live via diagnostic
+  // logging to be a purely visual bug (applyMove reports every one of these
+  // moves as LEGAL, every time; the game state was never wrong). A tap never
+  // has this problem, since there's no drag offset to lose in the first
+  // place. See exitingTile.ts's ExitingEntry.startOffsetPx.
+  function attemptSwap(posA: Position, posB: Position, dragReleasePx?: { dx: number; dy: number }) {
     // Hide any showing hint the moment a player actually makes a move, not
     // after this move's cascade finishes settling (gameState doesn't commit
     // until animateCascade's final pass, well below) — a stale glow surviving
     // into an already-outdated board is the same "glitchy, not calm" case the
     // effect above guards against.
     setHintPair(null);
+    // Captured from the PRE-move board, before applyMove runs — posA is
+    // always the cell the finger was actually on (see handleDragEnd), so
+    // this is reliably the dragged piece's own id, independent of whether it
+    // survives or clears.
+    const draggedPieceId = dragReleasePx ? gameState.board[posA.row][posA.col].id : undefined;
 
     const result = applyMove(gameState, posA, posB);
 
@@ -629,7 +649,8 @@ export function Board({
       effectDescriptor,
       result.chainWaveByPieceId,
       { a: posA, b: posB },
-      result.swapCommitted
+      result.swapCommitted,
+      draggedPieceId && dragReleasePx ? { pieceId: draggedPieceId, ...dragReleasePx } : undefined
     );
   }
 
@@ -687,7 +708,7 @@ export function Board({
     // Clear any half-finished tap selection so the two input methods can't
     // leave a stale highlight behind after a drag commits a move.
     setSelected(null);
-    attemptSwap(origin, target);
+    attemptSwap(origin, target, { dx, dy });
   }
 
   // Walks the per-pass board snapshots applyMove returned, animating each as
@@ -711,7 +732,13 @@ export function Board({
     // exchanged them — together these let the first pass play a
     // swapped-then-cleared tile's exit from where the player's finger left it.
     swap: { a: Position; b: Position },
-    swapCommitted: boolean
+    swapCommitted: boolean,
+    // Present only when this move was committed by a drag: which piece was
+    // actually under the finger, and its release offset in px. Lets a
+    // dragged-and-cleared tile's exit animation continue from where the drag
+    // visually left it instead of teleporting back to the plain grid cell —
+    // see attemptSwap's own comment for the bug this fixes.
+    dragRelease?: { pieceId: string; dx: number; dy: number }
   ) {
     animatingRef.current = true;
     // The final pass's chain-staging hold (see PassAnimation.chainHoldMs) —
@@ -912,6 +939,11 @@ export function Board({
             // ends, so it simply holds still and then clears with the rest.
             passTravelMs > 0
               ? { from: travelFrom ?? from, durationMs: passTravelMs }
+              : undefined,
+            // Only ever set on pass 0, and only for the one piece that was
+            // actually under the finger — see attemptSwap's comment.
+            i === 0 && dragRelease && piece.id === dragRelease.pieceId
+              ? { dx: dragRelease.dx, dy: dragRelease.dy }
               : undefined
           )
         ),
@@ -1334,6 +1366,7 @@ export function Board({
                 fromRow={entry.fromRow}
                 fromCol={entry.fromCol}
                 travelMs={entry.travelMs}
+                startOffsetPx={entry.startOffsetPx}
                 isBlockerClear={entry.isBlockerClear}
                 sweepDelayMs={entry.sweepDelayMs}
                 // A detonating area bomb lands in diff.cleared carrying its

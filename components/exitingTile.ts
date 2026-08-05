@@ -29,6 +29,17 @@ export interface ExitingEntry {
   fromRow?: number;
   fromCol?: number;
   travelMs?: number;
+  // Present only when this cell was the one actually under the player's
+  // finger during a drag that ended with this exact piece clearing (see
+  // Board.tsx's attemptSwap). A drag's live finger-follow transform lives on
+  // the (about-to-unmount) Tile component and has no way to reach the
+  // brand-new ExitingTile that replaces it — without this, that transform is
+  // simply lost, and the exit animation starts fresh at the plain grid cell,
+  // which reads as the tile snapping backward before sliding out again. This
+  // is a px offset (not grid units), applied as an adjustment to the START of
+  // fromRow/fromCol so the exit continues from where the drag visually left
+  // it instead of teleporting there first.
+  startOffsetPx?: { dx: number; dy: number };
   // From diff.cleared's own piece.type — a blocker cleared by adjacent
   // damage rather than a direct match gets its own highlight beat (see
   // Tile.tsx's ExitingTile). Reusing data diffBoards already computes, not
@@ -77,7 +88,10 @@ export function buildExitingEntry(
   // how long that slide takes, before any of its clear animation begins. Kept
   // as one optional trailing argument so every existing call site — which is
   // every clear that didn't come from a swap — is unchanged.
-  travel?: { from: Position; durationMs: number }
+  travel?: { from: Position; durationMs: number },
+  // Present only for the one piece that was actually under the finger during
+  // a drag that ended with it clearing — see ExitingEntry.startOffsetPx.
+  dragReleasePx?: { dx: number; dy: number }
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -89,6 +103,7 @@ export function buildExitingEntry(
     fromRow: travel?.from.row,
     fromCol: travel?.from.col,
     travelMs: travel?.durationMs,
+    startOffsetPx: dragReleasePx,
     isBlockerClear: piece.type === 'blocker',
     sweepDelayMs,
     radialDelayMs,

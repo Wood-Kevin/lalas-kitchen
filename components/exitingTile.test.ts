@@ -115,3 +115,43 @@ describe('buildExitingEntry travel (a swapped-and-cleared tile slides before it 
     expect(entry.sweepDelayMs).toBe(0);
   });
 });
+
+describe('buildExitingEntry drag-release offset (a dragged tile that clears must not lose its finger-follow position)', () => {
+  const swapped = { row: 4, col: 2 };
+
+  test('carries the drag release offset when the dragged piece itself cleared', () => {
+    const entry = buildExitingEntry(
+      { id: 'n1', type: 'normal', matchType: 'tomato' },
+      from,
+      7,
+      undefined,
+      undefined,
+      undefined,
+      { from: swapped, durationMs: 220 },
+      { dx: -82, dy: 3 }
+    );
+    expect(entry.startOffsetPx).toEqual({ dx: -82, dy: 3 });
+  });
+
+  test('every other clear — a tap, a fall, the swap partner — has no offset at all', () => {
+    // This is the overwhelmingly common case. Leaving it undefined is what
+    // keeps ExitingTile's starting position byte-identical to before this
+    // fix for every clear that isn't the exact dragged-and-cleared piece.
+    const entry = buildExitingEntry({ id: 'n1', type: 'normal', matchType: 'tomato' }, from, 7, undefined);
+    expect(entry.startOffsetPx).toBeUndefined();
+  });
+
+  test('a swap-committed clear with no drag (a tap) still gets no offset', () => {
+    const entry = buildExitingEntry(
+      { id: 'n1', type: 'normal', matchType: 'tomato' },
+      from,
+      7,
+      undefined,
+      undefined,
+      undefined,
+      { from: swapped, durationMs: 220 }
+      // dragReleasePx omitted, exactly as Board.tsx's tap path calls this.
+    );
+    expect(entry.startOffsetPx).toBeUndefined();
+  });
+});

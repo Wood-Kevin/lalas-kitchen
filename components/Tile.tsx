@@ -742,6 +742,17 @@ export interface ExitingTileProps {
   // clear waits this long before it begins — the swap visibly completes, THEN
   // the match resolves. 0/undefined restores the previous behaviour exactly.
   travelMs?: number;
+  // Present only when this cell was the one actually under the player's
+  // finger during a drag that ended with this exact piece clearing (see
+  // Board.tsx's attemptSwap / exitingTile.ts's ExitingEntry.startOffsetPx).
+  // The live tile's finger-follow transform has no way to survive its
+  // component unmounting (a cleared piece's id drops off the board, and this
+  // component is a brand-new mount), so without this the exit animation
+  // started fresh at the plain fromRow/fromCol grid cell — visually a snap
+  // backward to where the drag began, before sliding out to the resting cell
+  // a second time. Expressed in px (the same units the drag gesture itself
+  // uses), converted to grid units via tileSize when applied below.
+  startOffsetPx?: { dx: number; dy: number };
   // True when this piece is a blocker cleared by adjacent-match damage
   // (engine/matrix.ts's applyAdjacentDamage) rather than a direct match —
   // set by Board.tsx purely from diffBoards' existing `cleared` list
@@ -796,6 +807,7 @@ export function ExitingTile({
   fromRow,
   fromCol,
   travelMs,
+  startOffsetPx,
   isBlockerClear,
   sweepDelayMs,
   isPowderBurst,
@@ -817,9 +829,14 @@ export function ExitingTile({
   // Animated position, so a swapped-and-cleared tile can slide to the cell the
   // player moved it to instead of being remounted there. A non-travelling tile
   // starts and ends at the same cell, so these stay constant and this is the
-  // same fixed placement ExitingTile always had.
-  const exitRow = useSharedValue(fromRow ?? row);
-  const exitCol = useSharedValue(fromCol ?? col);
+  // same fixed placement ExitingTile always had. startOffsetPx (drag-only —
+  // see its own doc comment) nudges the STARTING value only, in fractional
+  // grid units (px / tileSize), so the tile continues from wherever the drag
+  // visually left it rather than teleporting back to the bare grid cell
+  // first; it never affects the spring's target (row/col), only where it
+  // begins.
+  const exitRow = useSharedValue((fromRow ?? row) + (startOffsetPx ? startOffsetPx.dy / tileSize : 0));
+  const exitCol = useSharedValue((fromCol ?? col) + (startOffsetPx ? startOffsetPx.dx / tileSize : 0));
   // Animates for a blocker clear, a striped sweep, or a color-bomb ripple;
   // stays at 0 (invisible) for an ordinary match cell.
   const highlightOpacity = useSharedValue(0);

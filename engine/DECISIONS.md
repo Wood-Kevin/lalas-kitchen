@@ -5736,3 +5736,77 @@ disprove, and the automated browser's board-render environment limitation
 remains standing regardless. This is the one fix in the whole investigation
 whose confirmation can only come from the real device/browser this was
 reported on.
+
+### Follow-up 7: found by instrumentation, not reasoning — the previous fix addressed a real but different bug
+
+The gesture-stabilization fix (Follow-up 6) did not resolve the report: "nope
+same exact problem." Rather than propose a fourth theory from pure code
+reading, temporary diagnostic logging was added at every decision point in
+the drag path (`Board.tsx`'s `handleDragEnd`/`attemptSwap`, `Tile.tsx`'s
+`onFinalize`) and the user reproduced the bug once with DevTools open.
+
+**The logs were decisive and surprising: every single drag in the capture
+showed `applyMove result: LEGAL`.** The game state was never wrong, not once
+— `canAcceptMove()` passed, `dragNeighbor`/`resolveDragTarget` agreed with
+each other on every release, `attemptSwap` committed every move correctly.
+This ruled out the entire class of hypothesis the last three attempts had
+been chasing (gesture races, target disagreement, canAcceptMove staleness).
+The bug was **purely visual** — the underlying move always succeeded.
+
+**The actual mechanism, found by tracing what happens to a component that
+unmounts mid-animation.** When a dragged tile itself completes the match it
+was dragged into (a very common case — the natural way to drag-swap is to
+drag the piece that finishes the run), that piece's live `Tile` component
+**unmounts**: it's keyed by `piece.id`, and a cleared piece's id no longer
+appears anywhere on the new board. A brand-new `ExitingTile` component mounts
+in its place to play the exit animation (via `boardDiff.ts`'s
+`relocateSwappedClears`/`travelFrom`, built in Follow-up 1).
+
+The live `Tile` being dragged was NOT sitting at its resting grid cell — it
+was visually offset toward the neighbour by `dragX`/`dragY`, following the
+finger. That offset lives entirely on shared values **owned by the live Tile
+component instance**. The new `ExitingTile` has no way to know a drag ever
+happened: it initializes its own `exitRow`/`exitCol` at the plain pre-swap
+**grid** cell (`fromRow`/`fromCol`, integers), with zero knowledge of the
+finger-follow transform that was there a frame earlier. The dragged tile's
+`dragX`/`dragY` are simply discarded when the component unmounts.
+
+Visually: the tile that was sitting almost exactly on the neighbour's cell
+(via drag offset) **disappears and is replaced, one frame later, by a tile at
+the bare origin cell** — reading as "I dragged it out, released, and it
+snapped all the way back to where it started" — before then correctly
+sliding out to its resting cell and popping. The underlying move data was
+correct the entire time; only the exit animation's *starting point* was
+wrong. This explains why taps never showed the bug at all: a tapped tile has
+no drag offset to lose in the first place, so its live cell and its exit
+cell's starting point were always identical.
+
+**Fixed** by threading the drag's release offset (`dx`/`dy` in px, already
+available in `Board.tsx`'s `handleDragEnd`) through to the specific
+`ExitingEntry` for whichever piece was actually under the finger:
+`attemptSwap` gained an optional `dragReleasePx` parameter (only ever passed
+from the drag call site — the tap call site is unchanged), captures the
+dragged piece's id from the **pre-move** board (reliable regardless of
+whether it survives or clears), and threads `{pieceId, dx, dy}` through
+`animateCascade` into the `buildExitingEntry` call for pass 0. `ExitingEntry`
+gained `startOffsetPx`, applied only as an adjustment to `ExitingTile`'s
+**starting** `exitRow`/`exitCol` value (converted px → fractional grid units
+via `tileSize`) — never to its spring target, so the tile still settles
+exactly where the swap-anchor rule says it should; it just gets there without
+first teleporting backward.
+
+Every other call site (tap, every non-drag clear, the swap partner that
+doesn't itself clear) passes no offset and is unaffected — confirmed by the
+same "undefined leaves prior behaviour byte-identical" convention every
+earlier travel/settle addition in this investigation has followed. 3 new
+tests, 721/721 total.
+
+**This is the one fix in the whole investigation found by instrumentation
+rather than by reasoning from the code, and that is the more reliable method
+disclosed as such** — six theories rejected by an architect saying "same
+exact problem" (Follow-up 6's gesture-stabilization fix genuinely fixes a
+real, independent risk, but was not the cause of this specific report), and
+the seventh confirmed correct only once real console output from the actual
+device/browser made the mechanism undeniable. The temporary `console.log`
+statements added for this were removed once their job was done — none remain
+in the codebase.
