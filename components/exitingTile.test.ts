@@ -75,3 +75,43 @@ describe('exitingTileSprite resolves through getSpriteForPiece using the full ty
     expect(exitingTileSprite(entry, config)).toBe('tomato.webp');
   });
 });
+
+describe('buildExitingEntry travel (a swapped-and-cleared tile slides before it pops)', () => {
+  const swapped = { row: 4, col: 2 };
+
+  test('carries both ends and the slide duration when the piece was swapped', () => {
+    const entry = buildExitingEntry({ id: 'n1', type: 'normal', matchType: 'tomato' }, from, 7, undefined, undefined, undefined, {
+      from: swapped,
+      durationMs: 220,
+    });
+    // row/col stay the RESTING cell (where the effect is anchored); fromRow/
+    // fromCol are where the slide starts.
+    expect(entry).toMatchObject({
+      row: from.row,
+      col: from.col,
+      fromRow: swapped.row,
+      fromCol: swapped.col,
+      travelMs: 220,
+    });
+  });
+
+  test('every clear that did not come from a swap has no travel at all', () => {
+    // This is the overwhelmingly common case — a cascade refill, a swept tile,
+    // a blast victim. Leaving these undefined is what makes ExitingTile's
+    // timing byte-identical to before for them.
+    const entry = buildExitingEntry({ id: 'n1', type: 'normal', matchType: 'tomato' }, from, 7, undefined);
+    expect(entry.fromRow).toBeUndefined();
+    expect(entry.fromCol).toBeUndefined();
+    expect(entry.travelMs).toBeUndefined();
+  });
+
+  test('travel composes with a sweep delay rather than replacing it', () => {
+    // A swapped striped piece both travels AND is the origin of its own sweep.
+    const entry = buildExitingEntry(stripedTomato, from, 7, 0, undefined, undefined, {
+      from: swapped,
+      durationMs: 220,
+    });
+    expect(entry.travelMs).toBe(220);
+    expect(entry.sweepDelayMs).toBe(0);
+  });
+});

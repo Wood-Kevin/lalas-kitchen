@@ -5237,3 +5237,94 @@ So escort difficulty is the one lever in this pass anchored on precedent rather 
 Separately, extracting the manifest from the AAB that actually shipped showed four permissions the game has no use for: `RECORD_AUDIO` (from `expo-audio`, which also supports recording — this app only ever constructs an `AudioPlayer`), plus `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` and `SYSTEM_ALERT_WINDOW` from the stock Expo template. `RECORD_AUDIO` is the notable one: Google Play lists **Microphone** on the store page for a match-3 game, which is both untrue and a real install deterrent. All four removed, along with expo-audio's microphone foreground service. The media-playback service is deliberately left in place — this app does genuinely play audio, and whether the library starts that service internally could not be verified without a device.
 
 Also verified and explicitly NOT changed, to stop them being "fixed" later: the Android AdMob App ID is correctly wired (via the **root-level** `react-native-google-mobile-ads` key in app.json, which `app-json.gradle` reads and injects as a manifest placeholder — load-bearing despite Expo warning that it ignores the key), and the release build is signed with an EAS-managed keystore, not the debug key the template's `signingConfig signingConfigs.debug` line implies.
+
+## Swap smoothness: a cleared piece that could not travel, and a snap-back nobody designed
+
+Real play reported swaps feeling "snappy... could be much smoother." Frame-by-frame
+tracing of the real running app (real gestures, real `applyMove`, every tile's box
+and opacity sampled every animation frame) found the obvious explanation — 140ms is
+too fast — was true but the *smallest* of three contributors.
+
+**The piece that MATCHES never animated its swap.** `Tile.tsx`'s `ExitingTile`
+positioned itself with `top: row * tileSize` — plain numbers, not shared values —
+so a cleared piece structurally could not move. The trace caught it exactly: the
+live tile present at x1325 on one frame, gone the next, with its exiting copy
+already at x1235. **A 90px jump — one full tile — in a single frame**, then a pop.
+Only the *surviving* half of a swap slid, so half of every matching swap animated
+and half teleported. That is a hard discontinuity no duration or easing value can
+smooth, which is why tuning alone would not have fixed the report.
+
+For every other clear, fixed positioning is right — a piece dies where it stood.
+The two swapped cells are the one case where a cleared piece genuinely travelled
+first, and they were never distinguished.
+
+**Partly a regression from this same session's swap-anchor fix, disclosed rather
+than quietly folded in.** `relocateSwappedClears` moved the exiting tile's render
+position from the origin to the destination — necessary, since a swapped area
+bomb's blast is anchored there. Before it, the tile popped at its origin: no jump,
+but the swap simply never happened visually. After it, the endpoint became correct
+and the absent travel animation became a *visible teleport*. The missing animation
+long predates the fix; the fix made it legible. (For drags the fix was an
+improvement either way — it removed a **backward** teleport of up to a full tile.)
+This is the Playtest Feedback Protocol's "check whether this shares a root cause
+with something already built" landing on my own work from an hour earlier.
+
+**Fixed** by giving `ExitingTile` optional `fromRow`/`fromCol`/`travelMs`, with
+`boardDiff.ts`'s `relocateSwappedClears` recording **both** ends (`travelFrom` =
+origin, `from` = resting cell, still where the effect is anchored) — both are known
+in one place, so nothing downstream re-derives either. Only a swapped-and-cleared
+cell gets them; every other clear is byte-identical.
+
+**A false start, caught by measuring instead of assuming.** Delaying only the
+*travelling* tile was implemented first and is wrong: the trace showed the two
+cells that never moved fading at t135 while the swapped piece was still sliding
+and didn't fade until t368 — a 233ms split, so the match cleared before the piece
+that completed it had arrived. Worse than the original bug. The delay now applies
+to the whole first pass (`Board.tsx`'s `passTravelMs`): the swap is one gesture,
+and the pass resolving it is one beat. The next pass and the terminal-overlay hold
+shift by the same amount, exactly as `chainHoldMs` already does for a staged chain.
+
+**Snap-back was an accidental composition of two defaults, not a designed gesture.**
+An illegal swap traced as 197ms out, ~184ms **frozen**, then a 416ms drift back —
+~716ms, wildly asymmetric. The hold was `swapDurationMs * 2` (so the pair sat still
+for a whole extra swap duration after landing), and the return leg fell through to
+`cascadeDurationMs` (480) because `snapBack` was already null by then and the pieces
+were never in `swapDurationIds` — the only other thing selecting the swap duration.
+Now one symmetric there-and-back on the swap clock: 201 out, ~33ms beat, 184 back.
+
+**A second artifact the first snap-back fix introduced, also caught by measuring:**
+a 21px lurch back *outward* mid-return, because clearing `swapDurationIds` flipped
+the `durationMs` prop while the return was in flight and `Tile`'s position effect
+listed `durationMs` as a dependency, restarting the animation. `durationMs` is no
+longer a dependency — it's read fresh whenever the effect runs, so a moving tile
+always animates at the right duration, but a tile standing still or mid-slide never
+restarts because a bookkeeping flag flipped. Re-animating a stationary tile because
+a timing prop changed was never desirable in any case.
+
+**Tuning, the smaller half.** `swapDurationMs` 140 -> 220. `cascadeTiming.ts` had
+documented leaving it at 140 as deliberate ("the direct response to a player's own
+tap, not a passive animation they're just watching") — but that note was written
+when cascade was 350, and the later retune to 480/300 widened the gap to 3.4x
+without revisiting it, making the swap the one fast motion in a deliberately calm
+game. That comment has been corrected rather than left to contradict the code.
+Easing was Reanimated's default `Easing.inOut(Easing.quad)` — symmetric,
+accelerating as hard as it decelerates (measured deltas 3,8,13,19,19,14,10,4). A
+shared `SWAP_EASING = Easing.bezier(0.33, 0, 0.15, 1)` now runs every swap motion:
+a gentle start (a tile at rest should ease into motion — an out-only curve starts
+at full speed and reads as a yank) with a long decelerating tail. A spring was
+considered and rejected: overshoot fights the calm-not-frantic constraint, and a
+spring holds no fixed duration the cascade clock can plan around.
+
+Verified live end to end — travel, one-beat clear, symmetric snap-back, preserved
+striped-sweep stagger (10 tiles, 367ms spread), a committed pointer-drag, and the
+sub-threshold drag-cancel path where `SWAP_EASING` runs inside a gesture *worklet*
+(tested explicitly, since a worklet can fail differently). 15 consecutive real
+moves with zero console errors and no stuck exiting tiles. 703/703 tests.
+See `docs/verification/swap-smoothness/`.
+
+**Not verified: no human has felt any of it.** Every number is geometry sampled
+from the DOM; 220ms and the bezier are a considered judgment call against the calm
+brief, not a playtested value — and this game is built for one specific player. A
+single-pass match now takes ~670ms end to end versus ~380ms before, which is
+intentional and matches the 480ms cascade beat, but it is genuinely slower per
+move. Her opinion is worth more than another trace.

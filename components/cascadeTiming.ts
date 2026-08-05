@@ -11,8 +11,14 @@ import { CascadeFallSpeed } from './skinConfig';
 // cascade chain resolves slowly enough for a player to actually see what
 // cleared and why, rather than the pieces just vanishing in a blur — a
 // direct read on CLAUDE.md's "calm, not frantic" pacing constraint.
-// `swapDurationMs` (140) is untouched: that duration is the direct response
-// to a player's own tap, not a passive animation they're just watching.
+// `swapDurationMs` was left at 140 by that retune, on the reasoning that it is
+// "the direct response to a player's own tap, not a passive animation they're
+// just watching." That has since been revisited and reversed: leaving it
+// behind made the swap 3.4x faster than every motion around it — the one
+// snappy thing in a deliberately calm game — and real play reported exactly
+// that. It is now 220 (config.json), with a shared settle curve, so the swap
+// sits in the same register as the pop it triggers. See
+// docs/verification/swap-smoothness/ and Tile.tsx's SWAP_EASING.
 const CASCADE_FALL_DURATIONS_MS: Record<CascadeFallSpeed, number> = {
   slow: 500,
   medium: 480,

@@ -151,8 +151,8 @@ export function Tile({
   const dragY = useSharedValue(0);
 
   useEffect(() => {
-    rowShared.value = withTiming(row, { duration: durationMs });
-    colShared.value = withTiming(col, { duration: durationMs });
+    rowShared.value = withTiming(row, { duration: durationMs, easing: SWAP_EASING });
+    colShared.value = withTiming(col, { duration: durationMs, easing: SWAP_EASING });
     opacity.value = withTiming(1, { duration: durationMs });
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
@@ -164,12 +164,19 @@ export function Tile({
     // few frames earlier than the grid slide, so the tile briefly retreated
     // toward its origin before sliding out to the destination. A no-op (0 → 0)
     // on every non-drag render, which is every render for a tapped swap.
-    dragX.value = withTiming(0, { duration: durationMs });
-    dragY.value = withTiming(0, { duration: durationMs });
-    // Only the target position/duration should retrigger the animation —
-    // reanimated shared values are stable across renders by design.
+    dragX.value = withTiming(0, { duration: durationMs, easing: SWAP_EASING });
+    dragY.value = withTiming(0, { duration: durationMs, easing: SWAP_EASING });
+    // Only a change of TARGET CELL retriggers this. durationMs is deliberately
+    // not a dependency: it's read fresh whenever the effect does run, so a tile
+    // that moves always animates at the duration in force for that move — but a
+    // tile that is standing still (or mid-slide) must not restart its animation
+    // just because a bookkeeping flag flipped which duration it would use next.
+    // That restart is visible: when the snap-back cleanup below dropped its
+    // pair from swapDurationIds, the duration prop changed mid-return and a
+    // real frame trace caught the tile lurching 21px back OUT before easing
+    // home again. Reanimated shared values are stable across renders by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [row, col, durationMs]);
+  }, [row, col]);
 
   // A pan that only activates after a few px of travel, so a plain tap never
   // triggers it and falls straight through to the Pressable below — that's
@@ -224,8 +231,12 @@ export function Tile({
             dragSwapThresholdPx
           );
           if (!target) {
-            dragX.value = withTiming(0, { duration: DRAG_RETURN_MS });
-            dragY.value = withTiming(0, { duration: DRAG_RETURN_MS });
+            // Same settle curve as every other swap motion, so a cancelled
+            // drag eases home the way a committed one lands. Kept shorter than
+            // swapDurationMs on purpose: this only ever undoes a below-
+            // threshold nudge, so it has a much smaller distance to cover.
+            dragX.value = withTiming(0, { duration: DRAG_RETURN_MS, easing: SWAP_EASING });
+            dragY.value = withTiming(0, { duration: DRAG_RETURN_MS, easing: SWAP_EASING });
           }
         }),
     [dragEnabled, tileSize, onDragMove, onDragEnd, dragX, dragY, rowShared, colShared, rows, cols, dragSwapThresholdPx]
@@ -298,6 +309,23 @@ export function Tile({
 const DRAG_ACTIVATION_SLOP = 6;
 // How long the follow-offset takes to ease back to rest on release.
 const DRAG_RETURN_MS = 120;
+
+// The curve every swap slide runs on — the live tile's grid move, the drag
+// offset folding home, and a swapped-then-cleared tile's travel (ExitingTile
+// below), so all three halves of one gesture share one shape as well as one
+// clock. Reanimated's default is Easing.inOut(Easing.quad), which is
+// SYMMETRIC: it accelerates exactly as hard as it decelerates, and a real
+// frame trace of the old 140ms swap measured per-frame deltas of
+// 3,8,13,19,19,14,10,4 px — a hard burst through the middle and an abrupt
+// arrival, which is what read as "snappy" rather than smooth. This bezier
+// keeps a gentle start (a tile at rest should ease into motion, so an
+// out-only curve like Easing.out(cubic) is wrong here — it starts at full
+// speed and reads as a yank) but gives a much longer decelerating tail, so
+// the tile settles into its cell instead of arriving at speed. Calm, and no
+// overshoot: a spring's bounce would fight CLAUDE.md's calm-not-frantic
+// constraint and wouldn't hold a fixed duration the cascade clock can plan
+// around.
+const SWAP_EASING = Easing.bezier(0.33, 0, 0.15, 1);
 
 // The small corner badge that tells a player, at a glance, whether a striped
 // piece will sweep its row or its column before they commit the move. It
@@ -563,6 +591,26 @@ export interface ExitingTileProps {
   accentColor: string;
   panelColor: string;
   durationMs: number;
+  // Where this tile STARTS, when it has somewhere to travel from. Set only for
+  // one of the two cells a move swapped, and only when that piece was cleared
+  // by the move itself (see boardDiff.ts's relocateSwappedClears, which
+  // computes both ends). row/col above stay the RESTING cell — the cell the
+  // player moved the piece to, where its effect is anchored — so the tile
+  // slides fromRow/fromCol → row/col over travelMs and only then clears.
+  //
+  // Without this a matching swap had no animation at all on the half that
+  // matched: the tile was unmounted at its origin and this component remounted
+  // at the destination, so a real frame trace measured it jumping a full tile
+  // (90px) in a single frame before popping. Undefined for every other cleared
+  // tile — a piece that dies where it stood has nowhere to travel from.
+  fromRow?: number;
+  fromCol?: number;
+  // How long the fromRow/fromCol → row/col slide takes. Board.tsx passes the
+  // skin's swapDurationMs so the travelling half of a swap runs on exactly the
+  // same clock and curve as the surviving half (the live Tile above), and the
+  // clear waits this long before it begins — the swap visibly completes, THEN
+  // the match resolves. 0/undefined restores the previous behaviour exactly.
+  travelMs?: number;
   // True when this piece is a blocker cleared by adjacent-match damage
   // (engine/matrix.ts's applyAdjacentDamage) rather than a direct match —
   // set by Board.tsx purely from diffBoards' existing `cleared` list
@@ -614,6 +662,9 @@ export function ExitingTile({
   accentColor,
   panelColor,
   durationMs,
+  fromRow,
+  fromCol,
+  travelMs,
   isBlockerClear,
   sweepDelayMs,
   isPowderBurst,
@@ -623,6 +674,16 @@ export function ExitingTile({
 }: ExitingTileProps) {
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
+  // How long this tile spends travelling before any of its clear animation
+  // starts. Zero for every clear except a swapped-and-cleared cell, and every
+  // branch below is written so that zero leaves its timing byte-identical.
+  const travel = travelMs ?? 0;
+  // Animated position, so a swapped-and-cleared tile can slide to the cell the
+  // player moved it to instead of being remounted there. A non-travelling tile
+  // starts and ends at the same cell, so these stay constant and this is the
+  // same fixed placement ExitingTile always had.
+  const exitRow = useSharedValue(fromRow ?? row);
+  const exitCol = useSharedValue(fromCol ?? col);
   // Animates for a blocker clear, a striped sweep, or a color-bomb ripple;
   // stays at 0 (invisible) for an ordinary match cell.
   const highlightOpacity = useSharedValue(0);
@@ -658,7 +719,25 @@ export function ExitingTile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Slide to the resting cell first, on the live tile's own swap clock and
+  // curve, so both halves of a swap move together as one gesture. Runs only
+  // when this tile actually has somewhere to travel from.
   useEffect(() => {
+    if (travel > 0) {
+      exitRow.value = withTiming(row, { duration: travel, easing: SWAP_EASING });
+      exitCol.value = withTiming(col, { duration: travel, easing: SWAP_EASING });
+    }
+    // A given exiting tile's travel never changes for its lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Every branch below starts `travel` ms late, so a swapped tile finishes
+    // moving before it begins clearing. afterTravel leaves a non-travelling
+    // tile's animation completely unwrapped, so the overwhelmingly common case
+    // (every clear that isn't one of the two swapped cells) is unchanged.
+    const afterTravel = <T,>(animation: T): T =>
+      travel > 0 ? (withDelay(travel, animation as never) as T) : animation;
     if (isPowderBurst) {
       // Puff outward from the bag on the same clock as the clear (durationMs):
       // a quick swell to full, then an ease-out expansion past the tile's
@@ -666,14 +745,18 @@ export function ExitingTile({
       // cloud, no particles/flash — per CLAUDE.md's calm-not-frantic brief and
       // the blocker/sweep overlays' soft-wash language. Starts at the front of
       // the clear so the burst reads as the cause, not an afterthought.
-      burstOpacity.value = withSequence(
-        withTiming(0.85, { duration: Math.round(durationMs * 0.25) }),
-        withTiming(0, { duration: Math.round(durationMs * 0.75) })
+      burstOpacity.value = afterTravel(
+        withSequence(
+          withTiming(0.85, { duration: Math.round(durationMs * 0.25) }),
+          withTiming(0, { duration: Math.round(durationMs * 0.75) })
+        )
       );
-      burstScale.value = withTiming(2.1, {
-        duration: durationMs,
-        easing: Easing.out(Easing.quad),
-      });
+      burstScale.value = afterTravel(
+        withTiming(2.1, {
+          duration: durationMs,
+          easing: Easing.out(Easing.quad),
+        })
+      );
       // Fall through to the ordinary pop-and-shrink below for the bag sprite
       // itself — an area bomb is never a blocker or a swept tile.
     }
@@ -687,14 +770,14 @@ export function ExitingTile({
       // calm-not-frantic constraint and SWEEP_TILE_STAGGER_MS's rationale).
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
       highlightOpacity.value = withDelay(
-        sweepDelayMs,
+        travel + sweepDelayMs,
         withSequence(
           withTiming(0.5, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       scale.value = withDelay(
-        sweepDelayMs,
+        travel + sweepDelayMs,
         withSequence(
           withTiming(1.15, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
@@ -703,10 +786,10 @@ export function ExitingTile({
       // Hold fully opaque through the brighten so the pop is visible on a solid
       // tile, then fade during the shrink.
       opacity.value = withDelay(
-        sweepDelayMs + SWEEP_GLOW_POP_MS,
+        travel + sweepDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
-      const timeout = setTimeout(onExited, sweepDelayMs + durationMs);
+      const timeout = setTimeout(onExited, travel + sweepDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
     if (radialDelayMs !== undefined) {
@@ -719,24 +802,24 @@ export function ExitingTile({
       // same shrink every cleared tile gets.
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
       highlightOpacity.value = withDelay(
-        radialDelayMs,
+        travel + radialDelayMs,
         withSequence(
           withTiming(0.55, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       scale.value = withDelay(
-        radialDelayMs,
+        travel + radialDelayMs,
         withSequence(
           withTiming(1.3, { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
       opacity.value = withDelay(
-        radialDelayMs + SWEEP_GLOW_POP_MS,
+        travel + radialDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
-      const timeout = setTimeout(onExited, radialDelayMs + durationMs);
+      const timeout = setTimeout(onExited, travel + radialDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
     if (isBlockerClear) {
@@ -745,22 +828,29 @@ export function ExitingTile({
       // pop-and-shrink every other cleared tile gets — so a blocker cleared
       // several cascade steps from the player's tap still reads as "this
       // just got hit" instead of vanishing with no explanation.
-      highlightOpacity.value = withSequence(
-        withTiming(0.35, { duration: halfPulse }),
-        withTiming(0, { duration: halfPulse })
+      highlightOpacity.value = afterTravel(
+        withSequence(
+          withTiming(0.35, { duration: halfPulse }),
+          withTiming(0, { duration: halfPulse })
+        )
       );
-      scale.value = withSequence(
-        withTiming(1.18, { duration: halfPulse }),
-        withTiming(1, { duration: halfPulse }),
+      scale.value = afterTravel(
+        withSequence(
+          withTiming(1.18, { duration: halfPulse }),
+          withTiming(1, { duration: halfPulse }),
+          withTiming(0, { duration: durationMs })
+        )
+      );
+      opacity.value = withDelay(
+        travel + BLOCKER_CLEAR_HIGHLIGHT_MS,
         withTiming(0, { duration: durationMs })
       );
-      opacity.value = withDelay(BLOCKER_CLEAR_HIGHLIGHT_MS, withTiming(0, { duration: durationMs }));
-      const timeout = setTimeout(onExited, BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
+      const timeout = setTimeout(onExited, travel + BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
       return () => clearTimeout(timeout);
     }
-    opacity.value = withTiming(0, { duration: durationMs });
-    scale.value = withTiming(0, { duration: durationMs });
-    const timeout = setTimeout(onExited, durationMs);
+    opacity.value = afterTravel(withTiming(0, { duration: durationMs }));
+    scale.value = afterTravel(withTiming(0, { duration: durationMs }));
+    const timeout = setTimeout(onExited, travel + durationMs);
     return () => clearTimeout(timeout);
     // Runs once on mount — an exiting tile never changes position, duration,
     // or its blocker-clear flag.
@@ -769,8 +859,8 @@ export function ExitingTile({
 
   const animatedStyle = useAnimatedStyle(() => ({
     position: 'absolute',
-    top: row * tileSize,
-    left: col * tileSize,
+    top: exitRow.value * tileSize,
+    left: exitCol.value * tileSize,
     width: tileSize,
     height: tileSize,
     opacity: opacity.value,
@@ -791,8 +881,12 @@ export function ExitingTile({
   // expands symmetrically into the surrounding 3×3.
   const burstStyle = useAnimatedStyle(() => ({
     position: 'absolute',
-    top: row * tileSize,
-    left: col * tileSize,
+    // Tracks the bag rather than a fixed cell, so a swapped area bomb's poof
+    // stays centred on it while it travels. (It's invisible until the travel
+    // delay elapses, so in practice it appears at the resting cell — but
+    // anchoring it to the bag keeps the two from ever disagreeing.)
+    top: exitRow.value * tileSize,
+    left: exitCol.value * tileSize,
     width: tileSize,
     height: tileSize,
     alignItems: 'center',

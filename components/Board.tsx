@@ -577,8 +577,27 @@ export function Board({
       // object for a rejected swap (see engine/DECISIONS.md), which is what
       // makes this reference check a reliable "was this legal?" signal.
       // Play a brief visual swap-and-snap-back; no state change underneath.
+      // Play the rejection as one symmetric there-and-back on the swap clock.
+      // Both legs must run at swapDurationMs, and the return has to begin the
+      // instant the outward leg lands. Neither was true before: the hold was
+      // swapDurationMs * 2, so the pair sat frozen at the swapped position for
+      // a whole extra swap duration, and the return leg then fell through to
+      // cascadeDurationMs — because `snapBack` was already null by then and
+      // these pieces were never added to swapDurationIds, which is the only
+      // other thing that selects the swap duration (see the tile map below).
+      // A real frame trace measured the result as 116ms out, 184ms frozen,
+      // then a 416ms drift back: an accidental composition of two independent
+      // defaults, not a designed gesture. Adding the pair to swapDurationIds
+      // for the whole round trip fixes the return leg's duration, and holding
+      // for exactly one swapDurationMs removes the freeze.
       setSnapBack({ a: posA, b: posB });
-      setTimeout(() => setSnapBack(null), swapDurationMs * 2);
+      setSwapDurationIds(
+        new Set([gameState.board[posA.row][posA.col].id, gameState.board[posB.row][posB.col].id])
+      );
+      stepTimersRef.current.push(setTimeout(() => setSnapBack(null), swapDurationMs));
+      stepTimersRef.current.push(
+        setTimeout(() => setSwapDurationIds(new Set()), swapDurationMs * 2)
+      );
       return;
     }
 
@@ -845,6 +864,18 @@ export function Board({
         hapticsService,
       });
 
+      // How long THIS pass waits before any of its tiles begin clearing. Only
+      // ever non-zero on the first pass of a move the engine actually swapped:
+      // that pass's match doesn't visually exist until the swap lands, so the
+      // whole pass — not just the two swapped cells — holds until it does.
+      //
+      // Delaying only the travelling tile was tried first and is wrong: a real
+      // frame trace showed the two cells that never moved popping 233ms before
+      // the swapped piece finished sliding in, so the match cleared before the
+      // piece that completed it had arrived. The swap is one gesture; the pass
+      // that resolves it is one beat.
+      const passTravelMs = i === 0 && swapCommitted ? swapDurationMs : 0;
+
       // Only the first pass carries the just-tapped pair, which uses the
       // snappier swap duration; every later pass is a passive fall.
       setSwapDurationIds(i === 0 ? tappedIds : new Set());
@@ -854,14 +885,22 @@ export function Board({
       // Each ExitingTile removes itself on completion (see removeExiting).
       setExiting((current) => [
         ...current,
-        ...diff.cleared.map(({ piece, from }) =>
+        ...diff.cleared.map(({ piece, from, travelFrom }) =>
           buildExitingEntry(
             piece,
             from,
             moveId,
             passAnimation.sweepDelays.get(piece.id),
             passAnimation.radialDelays.get(piece.id),
-            passAnimation.convertedFlashIds.has(piece.id)
+            passAnimation.convertedFlashIds.has(piece.id),
+            // Every tile in this pass waits out passTravelMs; only a swapped
+            // cell (the one with a travelFrom, see boardDiff.ts) also MOVES
+            // during it, sliding on the same clock the surviving half of the
+            // swap uses. A tile that didn't move passes its own cell as both
+            // ends, so it simply holds still and then clears with the rest.
+            passTravelMs > 0
+              ? { from: travelFrom ?? from, durationMs: passTravelMs }
+              : undefined
           )
         ),
       ]);
@@ -875,10 +914,17 @@ export function Board({
       if (i + 1 < steps.length) {
         setDisplayBoard(next);
         stepTimersRef.current.push(
-          setTimeout(() => runStep(i + 1), cascadeStepIntervalMs + passAnimation.chainHoldMs)
+          setTimeout(
+            () => runStep(i + 1),
+            // passTravelMs shifts this pass's clears later, so the next pass
+            // has to shift with them or the beat between the two collapses by
+            // exactly the swap duration. Same reasoning chainHoldMs already
+            // applies for a staged chain's late links.
+            cascadeStepIntervalMs + passAnimation.chainHoldMs + passTravelMs
+          )
         );
       } else {
-        finalPassChainHoldMs = passAnimation.chainHoldMs;
+        finalPassChainHoldMs = passAnimation.chainHoldMs + passTravelMs;
         commitFinalState();
       }
     };
@@ -1262,6 +1308,9 @@ export function Board({
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 durationMs={matchDurationMs}
+                fromRow={entry.fromRow}
+                fromCol={entry.fromCol}
+                travelMs={entry.travelMs}
                 isBlockerClear={entry.isBlockerClear}
                 sweepDelayMs={entry.sweepDelayMs}
                 // A detonating area bomb lands in diff.cleared carrying its

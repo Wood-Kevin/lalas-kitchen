@@ -3,7 +3,17 @@ import { Position } from '../engine/gameState';
 
 export interface ClearedPiece {
   piece: Piece;
+  // Where this tile plays its exit — its resting cell. For a swapped-and-
+  // cleared piece that's the cell the player moved it TO (see
+  // relocateSwappedClears), which is also where its effect is anchored.
   from: Position;
+  // Where this tile starts, when it has somewhere to travel from. Set only by
+  // relocateSwappedClears, only for a swapped cell whose piece cleared on the
+  // same move — the one case where a cleared piece genuinely moved before it
+  // died and should be seen doing it. Undefined everywhere else: a piece that
+  // clears where it stood has no travel, and Tile.tsx's ExitingTile renders it
+  // exactly as it always did.
+  travelFrom?: Position;
 }
 
 export interface MovedPiece {
@@ -104,8 +114,13 @@ export function relocateSwappedClears(
 ): ClearedPiece[] {
   if (!swapCommitted) return cleared;
   return cleared.map((entry) => {
-    if (samePosition(entry.from, posA)) return { ...entry, from: posB };
-    if (samePosition(entry.from, posB)) return { ...entry, from: posA };
+    // travelFrom keeps the pre-swap cell the diff reported, so the tile can
+    // SLIDE from there to its resting cell instead of being remounted at the
+    // destination — the difference between the swap being animated and the
+    // tile jumping a full cell in one frame. Both ends come from here because
+    // both are known here; nothing downstream has to re-derive either.
+    if (samePosition(entry.from, posA)) return { ...entry, from: posB, travelFrom: posA };
+    if (samePosition(entry.from, posB)) return { ...entry, from: posA, travelFrom: posB };
     return entry;
   });
 }

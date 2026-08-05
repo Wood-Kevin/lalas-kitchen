@@ -19,7 +19,7 @@
     "matchStyle": "popAndShrink",
     "matchDurationMs": 300,
     "cascadeFallSpeed": "medium",
-    "swapDurationMs": 140
+    "swapDurationMs": 220
   },
   "palette": {
     "background": ["#F6D9A8", "#EFC087"],

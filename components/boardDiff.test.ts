@@ -92,4 +92,31 @@ describe('relocateSwappedClears', () => {
     expect(out).not.toBe(input);
     expect(input[0].from).toEqual(a);
   });
+
+  // The two ends of the slide. `from` is where the tile ENDS (and where its
+  // effect is anchored); travelFrom is where it STARTS. Both are recorded here
+  // because both are known here — without travelFrom the tile is simply
+  // rendered at its destination, which is a full-cell jump in one frame rather
+  // than the swap being animated at all.
+  test('a swapped-then-cleared tile records BOTH ends, so it can slide instead of jump', () => {
+    const out = relocateSwappedClears([cleared('bomb', 2, 3)], a, b, true);
+    expect(out[0]).toMatchObject({ travelFrom: a, from: b });
+  });
+
+  test('the partner cell records its own two ends, mirrored', () => {
+    const out = relocateSwappedClears([cleared('partner', 2, 4)], a, b, true);
+    expect(out[0]).toMatchObject({ travelFrom: b, from: a });
+  });
+
+  test('a tile that was not swapped gets no travel — it clears where it stood', () => {
+    const out = relocateSwappedClears([cleared('x', 0, 0)], a, b, true);
+    expect(out[0].travelFrom).toBeUndefined();
+  });
+
+  test('a position-independent detonation grants no travel either', () => {
+    // swapCommitted false means the engine never exchanged the cells, so both
+    // pieces genuinely still occupy their own — there is nothing to travel.
+    const out = relocateSwappedClears([cleared('bomb', 2, 3)], a, b, false);
+    expect(out[0].travelFrom).toBeUndefined();
+  });
 });

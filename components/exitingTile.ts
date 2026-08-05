@@ -22,6 +22,13 @@ export interface ExitingEntry {
   pieceType: Piece['type'];
   row: number;
   col: number;
+  // The cell this tile slides FROM before it clears, plus how long that takes
+  // — both present only for a swapped cell whose piece cleared on the same
+  // move (see boardDiff.ts's relocateSwappedClears). row/col above stay the
+  // resting cell, so a tile with no travel is described exactly as before.
+  fromRow?: number;
+  fromCol?: number;
+  travelMs?: number;
   // From diff.cleared's own piece.type — a blocker cleared by adjacent
   // damage rather than a direct match gets its own highlight beat (see
   // Tile.tsx's ExitingTile). Reusing data diffBoards already computes, not
@@ -65,7 +72,12 @@ export function buildExitingEntry(
   moveId: number,
   sweepDelayMs: number | undefined,
   radialDelayMs?: number,
-  convertedFlash?: boolean
+  convertedFlash?: boolean,
+  // Present only for a swapped-and-cleared cell: the cell it slides from and
+  // how long that slide takes, before any of its clear animation begins. Kept
+  // as one optional trailing argument so every existing call site — which is
+  // every clear that didn't come from a swap — is unchanged.
+  travel?: { from: Position; durationMs: number }
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -74,6 +86,9 @@ export function buildExitingEntry(
     pieceType: piece.type,
     row: from.row,
     col: from.col,
+    fromRow: travel?.from.row,
+    fromCol: travel?.from.col,
+    travelMs: travel?.durationMs,
     isBlockerClear: piece.type === 'blocker',
     sweepDelayMs,
     radialDelayMs,
