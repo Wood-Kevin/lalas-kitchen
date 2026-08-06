@@ -390,6 +390,73 @@ describe('shuffle', () => {
   });
 });
 
+describe('shuffle — never leaves a dropdown sitting at its own arrival cell', () => {
+  // Real playtest report: "escort pieces... don't clear if they just reach
+  // the bottom" — traced to shuffle() dealing a dropdown directly onto the
+  // bottom of its segment. That state IS the collection condition
+  // (dropdownArrivals), but shuffle() is a pure board-permutation function
+  // with no access to GameState/objectives, so nothing ever credits or
+  // clears it there — it just sits, looking arrived, until the player's next
+  // unrelated move happens to trigger resolveCascades's own arrival check.
+  test('a rigged rng that would otherwise deal the dropdown onto the bottom row is repaired instead', () => {
+    // rng ≡ 0 makes fisherYates produce the SAME result every call — a
+    // left-rotation by exactly one position of the row-major-collected
+    // movable pieces (see the 'hardened rescue fallback' describe block
+    // above for the same technique, hand-traced there in full). For this
+    // 3x3, row-major original board
+    //   [A,  B,  C ]
+    //   [B,  D,  B ]
+    //   [F,  DD, H ]                (DD = dropdown)
+    // candidate[i] = original[(i+1) % 9], which works out to
+    //   [B,  C,  B ]
+    //   [D,  B,  F ]
+    //   [DD, H,  A ]
+    // — no match, no square (every value distinct enough to avoid both), but
+    // the dropdown lands at (2,0), the true bottom of a void-free 3-row
+    // column: a genuine arrival. Every one of the 100 "random" attempts
+    // produces this exact board, so the only way shuffle() can succeed at
+    // all is via the deterministic repair pass actually relocating the
+    // dropdown away from its arrival cell.
+    const board: Board = [
+      [piece('A', 'a'), piece('B', 'b1'), piece('C', 'c')],
+      [piece('B', 'b2'), piece('D', 'd'), piece('B', 'b3')],
+      [piece('F', 'f'), dropdownPiece('dd'), piece('H', 'h')],
+    ];
+
+    const shuffled = shuffle(board, () => 0);
+
+    expect(dropdownArrivals(shuffled)).toEqual([]);
+    expect(checkMatches(shuffled)).toEqual([]);
+    expect(checkSquares(shuffled)).toEqual([]);
+    expect(hasLegalMoves(shuffled)).toBe(true);
+    // Same multiset, not just "some legal board" — repairing the arrival
+    // must not lose, duplicate, or retype any piece, including the dropdown
+    // itself.
+    const originalIds = board.flat().map((p) => p.id).sort();
+    const shuffledIds = shuffled.flat().map((p) => p.id).sort();
+    expect(shuffledIds).toEqual(originalIds);
+    expect(shuffled.flat().find((p) => p.id === 'dd')?.type).toBe('dropdown');
+  });
+
+  test('a genuinely random shuffle of a board with a dropdown never returns it arrived', () => {
+    // A softer, non-adversarial check across many real seeds — the rigged
+    // test above proves the repair path specifically; this confirms the
+    // ordinary retry path (isLegalShuffleResult's new clause) holds up too,
+    // not just the fallback.
+    const board: Board = [
+      [piece('A', 'a0'), piece('B', 'b0'), piece('C', 'c0'), piece('D', 'd0')],
+      [piece('B', 'b1'), piece('C', 'c1'), piece('D', 'd1'), piece('A', 'a1')],
+      [piece('C', 'c2'), piece('D', 'd2'), dropdownPiece('dd'), piece('B', 'b2')],
+      [piece('D', 'd3'), piece('A', 'a2'), piece('B', 'b3'), piece('C', 'c3')],
+    ];
+
+    for (let seed = 1; seed <= 20; seed++) {
+      const shuffled = shuffle(board, seededRng(seed));
+      expect(dropdownArrivals(shuffled)).toEqual([]);
+    }
+  });
+});
+
 describe('blockers — checkMatches skips them entirely', () => {
   test('a blocker sitting between two equal-matchType runs breaks the run instead of joining it', () => {
     // If the blocker weren't excluded, this would read as a 4-in-a-row of

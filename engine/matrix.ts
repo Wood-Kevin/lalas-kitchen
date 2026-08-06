@@ -565,8 +565,35 @@ function fisherYates<T>(items: T[], rng: () => number): T[] {
   return shuffled;
 }
 
+// A shuffle result must never leave a dropdown (escort) piece sitting at the
+// exact bottom of its segment — that state IS the collection condition
+// (dropdownArrivals), and shuffle() is a pure board-permutation function with
+// no access to GameState/objectives, so it has no way to credit the escort
+// objective or clear the cell itself. Left unchecked, a shuffle could
+// silently deal a dropdown straight onto its own arrival cell — legal by
+// every other measure (no match, no square, a real move exists) — and the
+// piece would just sit there looking arrived without ever being credited,
+// until the player's NEXT ordinary move happens to trigger resolveCascades's
+// own arrival check (which scans the whole board, not just near that move).
+// Found live: a real playtest report ("escort pieces... don't clear if they
+// just reach the bottom") traced to exactly this — a manual Shuffle (see
+// gameState.ts's requestManualShuffle, which reuses this same function) had
+// dealt a dropdown directly onto its arrival cell.
+//
+// The fix mirrors how matches/squares are already treated: an arrival is
+// conceptually the same thing — a pending clear the shuffle isn't allowed to
+// leave behind — so it joins them as a third disqualifying condition. This
+// keeps the fix at the single shared gate both the random-attempt loop and
+// the deterministic repair pass already funnel through (shuffle() re-checks
+// isLegalShuffleResult on the repaired board too), rather than each call site
+// having to remember this rule separately.
 function isLegalShuffleResult(candidate: Board): boolean {
-  return checkMatches(candidate).length === 0 && checkSquares(candidate).length === 0 && hasLegalMoves(candidate);
+  return (
+    checkMatches(candidate).length === 0 &&
+    checkSquares(candidate).length === 0 &&
+    dropdownArrivals(candidate).length === 0 &&
+    hasLegalMoves(candidate)
+  );
 }
 
 function cloneBoard(board: Board): Board {
@@ -589,7 +616,15 @@ function repairShuffleViaSwaps(candidate: Board, movablePositions: Position[]): 
   for (let pass = 0; pass < maxPasses; pass++) {
     const matches = checkMatches(repaired);
     const squares = checkSquares(repaired);
-    if (matches.length === 0 && squares.length === 0) {
+    // A dropdown sitting at its own arrival cell is a third kind of violation
+    // this repair must never hand back (see isLegalShuffleResult's own
+    // comment for why — shuffle() re-verifies via that same gate, so leaving
+    // one in would just fail the outer check anyway). Only checked once
+    // matches/squares are already clear: fixing an ordinary run is this
+    // loop's proven first priority, and an arrival's repair (below) is a
+    // smaller, separate concern layered on top, not a replacement for it.
+    const arrivals = matches.length === 0 && squares.length === 0 ? dropdownArrivals(repaired) : [];
+    if (matches.length === 0 && squares.length === 0 && arrivals.length === 0) {
       if (hasLegalMoves(repaired)) return repaired;
       // Clean, but genuinely dead (no adjacent swap anywhere creates a
       // match) — a rarer, second-order case beyond "still has a violation."
@@ -597,26 +632,46 @@ function repairShuffleViaSwaps(candidate: Board, movablePositions: Position[]): 
       return forceLegalMove(repaired, movablePositions);
     }
 
-    const offending = matches[0] ?? squares[0];
-    const offendingType = offending.matchType;
-    const offendingPos = offending.positions[Math.floor(offending.positions.length / 2)];
+    if (matches.length > 0 || squares.length > 0) {
+      const offending = matches[0] ?? squares[0];
+      const offendingType = offending.matchType;
+      const offendingPos = offending.positions[Math.floor(offending.positions.length / 2)];
 
-    // Swap the offending cell with the first other movable position (row-
-    // major order) whose matchType genuinely differs — breaks this specific
-    // violation while preserving the multiset. Any violation that swap
-    // introduces elsewhere is caught by the next pass's fresh scan, same as
-    // repairAccidentalMatches' own recolor loop.
-    const swapTarget = movablePositions.find(
-      (pos) =>
-        (pos.row !== offendingPos.row || pos.col !== offendingPos.col) &&
-        repaired[pos.row][pos.col].matchType !== offendingType
-    );
-    if (!swapTarget) return null; // every movable piece shares one type — unrepairable by swapping
+      // Swap the offending cell with the first other movable position (row-
+      // major order) whose matchType genuinely differs — breaks this specific
+      // violation while preserving the multiset. Any violation that swap
+      // introduces elsewhere is caught by the next pass's fresh scan, same as
+      // repairAccidentalMatches' own recolor loop.
+      const swapTarget = movablePositions.find(
+        (pos) =>
+          (pos.row !== offendingPos.row || pos.col !== offendingPos.col) &&
+          repaired[pos.row][pos.col].matchType !== offendingType
+      );
+      if (!swapTarget) return null; // every movable piece shares one type — unrepairable by swapping
 
-    const a = repaired[offendingPos.row][offendingPos.col];
-    const b = repaired[swapTarget.row][swapTarget.col];
-    repaired[offendingPos.row][offendingPos.col] = b;
-    repaired[swapTarget.row][swapTarget.col] = a;
+      const a = repaired[offendingPos.row][offendingPos.col];
+      const b = repaired[swapTarget.row][swapTarget.col];
+      repaired[offendingPos.row][offendingPos.col] = b;
+      repaired[swapTarget.row][swapTarget.col] = a;
+    } else {
+      // Only an arrival remains: relocate the arrived dropdown to any other
+      // movable cell. Unlike a match/square there's no matchType to steer
+      // by — a dropdown is colorless — so any other position is a candidate;
+      // a fresh arrival this swap happens to create elsewhere (landing the
+      // dropdown at ANOTHER segment's own bottom) is caught by this same
+      // loop's next pass, exactly like a match a repair swap introduces
+      // elsewhere already is.
+      const offendingPos = arrivals[0];
+      const swapTarget = movablePositions.find(
+        (pos) => pos.row !== offendingPos.row || pos.col !== offendingPos.col
+      );
+      if (!swapTarget) return null; // a one-cell board can't be repaired by swapping
+
+      const a = repaired[offendingPos.row][offendingPos.col];
+      const b = repaired[swapTarget.row][swapTarget.col];
+      repaired[offendingPos.row][offendingPos.col] = b;
+      repaired[swapTarget.row][swapTarget.col] = a;
+    }
   }
 
   return null;

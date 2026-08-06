@@ -5810,3 +5810,91 @@ the seventh confirmed correct only once real console output from the actual
 device/browser made the mechanism undeniable. The temporary `console.log`
 statements added for this were removed once their job was done — none remain
 in the codebase.
+
+## Shuffle could silently deal an escort piece onto its own collection cell
+
+Real play: "Escort pieces are dropping below pieces still displayed on the
+board and don't clear if the[y] just reach the bottom and require another
+match near them." First investigated via a video that turned out to show the
+mechanic working correctly (a dropdown falling and settling normally, still
+one row above the true bottom — a blocking piece below it hadn't cleared yet,
+which is the intended mechanic, not a bug), and an exhaustive frame scan of
+that specific recording found zero instances of a dropdown ever reaching the
+true bottom row at all — so the reported symptom genuinely wasn't reproducible
+in that footage. Confirmed after: "the video I sent had a basket sitting in
+row 8 though" — the first video's static-first-frame reading had missed a
+later moment in the SAME clip. Re-examining it found the actual mechanism.
+
+**The real cause.** A basket (dropdown) appeared at the board's true bottom
+row immediately after the Moves counter ticked down with no corresponding
+piece motion consistent with gravity — two OTHER baskets simultaneously
+jumped back up near the top of the board, which only happens via a full-board
+Shuffle, never via ordinary gravity. That was the thread to pull: `shuffle()`
+in `matrix.ts` is a pure position-permutation function — it Fisher-Yates
+shuffles every non-void piece and re-checks the result via
+`isLegalShuffleResult`, which verified only `checkMatches`, `checkSquares`,
+and `hasLegalMoves`. It never checked `dropdownArrivals` — the exact function
+that defines "has this escort piece reached its collection point." A shuffle
+could therefore legally deal a dropdown directly onto the bottom of its
+segment: no match, no square, a real move exists elsewhere, so the arrangement
+passed every check that existed. But `dropdownArrivals` is only ever consulted
+inside `resolveCascades`'s cascade loop, which only runs from `applyMove` — a
+plain call to `shuffle()` (the automatic stuck-board rescue, or the player's
+own manual Shuffle button, per `gameState.ts`'s `requestManualShuffle`, both
+of which call this exact same function) never touches that path at all.
+
+The result: a dropdown could land at its own "collected" position and just
+sit there, uncredited — the objective's `currentCount` never increments,
+because nothing ever calls `dropdownArrivals` against that board until the
+player's *next* ordinary move triggers `resolveCascades`'s own full-board scan
+(which checks arrivals before even looking at whether that move's own match
+touches the dropdown's column). That explains "requires another match" almost
+exactly: not a match *near* the dropdown specifically, but *any* next move at
+all, anywhere, since the arrival check scans the whole board regardless of
+where the swap happened. A player watching their moves run out with the
+target stuck at 0/3 despite a piece sitting visibly at the bottom is a real,
+serious playability bug, not a cosmetic one — on a short move budget it can
+make an escort level look unwinnable when it wasn't.
+
+**Fixed** by treating an arrival exactly like the two violations shuffle
+already refuses to leave behind. `isLegalShuffleResult` gained a third
+clause, `dropdownArrivals(candidate).length === 0` — the same reasoning
+that already excludes a latent match or a latent 2×2 square (each is "a clear
+that hasn't been processed yet," and a fresh shuffle must never hand back an
+unprocessed clear) extends naturally to an arrival, which per the mechanic's
+own definition *is* a pending clear the shuffle can't perform itself (it's a
+pure board function with no access to `GameState`/objectives — it cannot
+credit anything). `repairShuffleViaSwaps`'s convergence loop needed the
+matching change, not just the outer gate: without it, the deterministic
+repair pass could converge on a match/square-free board that still had a
+dropdown sitting at its arrival cell, satisfy its own `matches.length === 0 &&
+squares.length === 0` check, and hand back a result the outer
+`isLegalShuffleResult` would then reject — sending a genuinely repairable
+board into the `throw` path instead. The repair loop now checks
+`dropdownArrivals` once matches/squares are already clear (kept as a lower
+priority than an ordinary run, which is the loop's proven, heavily-tested
+first job) and, if one remains, relocates the arrived dropdown to any other
+movable cell — there's no `matchType` to steer by (a dropdown is colorless),
+so any other position is a valid candidate, and a fresh arrival the swap
+happens to create elsewhere is caught by the same loop's next pass, exactly
+like a match a repair swap introduces elsewhere already is.
+
+Two new tests. One is a fully hand-traced adversarial case in the same style
+as the existing "hardened rescue fallback" tests: `rng ≡ 0` makes
+`fisherYates` produce a deterministic left-rotation-by-one of the board's
+row-major piece list on every one of its 100 "random" attempts, so a 3×3
+board constructed so that rotation lands the dropdown exactly on the bottom
+row forces every single attempt to fail identically — proving the final
+result can only have come from the deterministic repair pass actually
+relocating the piece, not from luck. The second runs the ordinary (non-
+adversarial) retry path across 20 real seeds on a board with a dropdown,
+asserting `dropdownArrivals` is empty every time. 723/723 total.
+
+**Verification is code-proof plus targeted tests, not a live trace of the
+fix landing** — the standing browser-automation limitation (cannot render
+the board in this session) still applies, and this investigation was already
+carried by two real user recordings plus live `console.log` diagnostics
+rather than automated observation. The mechanism itself is fully verified:
+read directly in the engine, reproduced by hand-tracing the exact RNG
+behavior a real 100%-failure-rate scenario requires, not inferred from
+symptoms alone.
