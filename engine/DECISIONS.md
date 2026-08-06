@@ -5898,3 +5898,67 @@ rather than automated observation. The mechanism itself is fully verified:
 read directly in the engine, reproduced by hand-tracing the exact RNG
 behavior a real 100%-failure-rate scenario requires, not inferred from
 symptoms alone.
+
+## Live-tile stacking tracked DOM order, not screen position — invisible under gravity, backwards under shuffle
+
+Real play, after the shuffle/collection fix: "basket is still dropping behind
+other pieces." A distinct symptom from the one just fixed — that one was about
+an escort piece failing to be *credited* once it reached the bottom; this one
+is purely about how it *renders* while travelling, and needed its own
+investigation.
+
+**The mechanism.** Every live `Tile` shared one flat `zIndex` (0, or 2 while
+being dragged). For absolutely-positioned siblings at the same `zIndex`,
+stacking falls back to DOM order — later siblings paint over earlier ones.
+`Board.tsx`'s live-tile render loop (`renderBoard.flatMap((rowPieces, r) =>
+rowPieces.map(...))`) iterates row-major, so DOM order is ordered by each
+piece's **final, settled row** — not by where it currently sits on screen
+mid-animation.
+
+That proxy is invisible under ordinary gravity, because gravity only ever
+moves a piece *downward*: a piece settling at row 6 is rendered late (after
+rows 0–5), so as it slides down it correctly paints over whatever it passes —
+the DOM-order proxy and the visually-correct order happen to agree for every
+motion gravity can produce. Nothing in this game's engine or presentation
+layer had ever needed to move a piece the other way, so the proxy's direction-
+dependence was never exposed.
+
+Shuffle breaks that agreement. It's a pure position permutation with no
+notion of "up" or "down" — a piece can land anywhere, including a *higher* row
+than it started (the same real recording that surfaced the earlier shuffle bug
+showed two escort pieces jump from row 6 back to row 0). A piece settling at
+row 0 is rendered *first* — so every tile at rows 1–6 it visibly slides past
+on the way up, being rendered later under the same rule, paints *over* it.
+The actively-moving piece the player is watching disappears behind static
+content around it. Gravity could never have produced this; only upward motion
+can, and shuffle is the only thing in this game that ever moves a piece
+upward.
+
+**Fixed** by deriving `zIndex` from the tile's own live `rowShared.value` —
+the exact same shared value already driving its `top` position — instead of
+letting it fall back to DOM order. `zIndex: Math.round(rowShared.value *
+1000)` (the ×1000 factor keeping ties impossible between any two of this
+board's small integer rows) means whichever tile is currently lower on screen
+always paints over one that's higher, at any instant, regardless of travel
+direction or eventual destination — correct for gravity, shuffle, or anything
+else that might reposition a piece in the future. An actively-dragged tile
+still unconditionally wins (`100000`, an order of magnitude above any
+possible row-based value), preserving the existing "the piece under your
+finger is never occluded" guarantee.
+
+**Verification: code-proof and bundle-content confirmation, not a live
+render.** This is a pure React Native styling/stacking concern with no unit
+of pure logic to test — 723/723 tests pass, unaffected, and none could be
+added (this repo has no component-render harness, a standing, disclosed gap
+for exactly this class of change). The fix was confirmed present in the
+actual served bundle (`grep` for the literal `rowShared.value * 1000` and the
+`100000` drag-priority constant both found in the built output at the URL the
+player would load). A live visual re-check was attempted but not completed:
+the automated browser's board-render limitation (documented earlier this
+session — `boardArea`/`onLayout` never fires in this environment, confirmed to
+reproduce on a clean HEAD checkout, unrelated to this session's changes) was
+still present, and the one live tab available showed the player's own real,
+in-progress save (level 68) rather than a disposable test level — deliberately
+not touched, to avoid spending real moves/lives on a check likely to fail
+regardless. This fix rests on the mechanism traced above, directly verified
+against the render-order code, rather than an observed-then-fixed frame trace.

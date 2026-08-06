@@ -363,9 +363,32 @@ export function Tile({
       { scaleX: scaleX.value },
       { scaleY: scaleY.value },
     ],
-    // Lift the actively-dragged tile above its neighbours so its follow-offset
-    // is never occluded by an adjacent tile.
-    zIndex: dragX.value !== 0 || dragY.value !== 0 ? 2 : 0,
+    // Stacking must track this tile's OWN CURRENT animated row, not React's
+    // render order. Every tile shares the same flat zIndex until this fix,
+    // which means same-zIndex absolutely-positioned siblings stack by DOM
+    // order — and Board's render loop orders live tiles by each piece's
+    // FINAL settled row (`renderBoard.flatMap((rowPieces, r) => ...)`), a
+    // proxy that only happens to be correct for gravity, which never moves a
+    // piece upward: a piece settling at row 6 is rendered late (after rows
+    // 0-5), so it correctly paints over whatever it slid past on the way
+    // down. A shuffle can relocate a piece UPWARD (row 6 -> row 0, a real
+    // reported case — two escort pieces jumping back near the top), and for
+    // that direction the same proxy is backwards: the piece is now rendered
+    // EARLY (row 0), so every tile at rows 1-6 it visibly slides past on its
+    // way up — rendered later, per that same DOM-order rule — paints OVER
+    // it. Real play: "basket is still dropping behind other pieces." Gravity
+    // could never have exposed this; only upward motion can.
+    //
+    // Deriving zIndex from `rowShared.value` itself (the exact same live
+    // value already driving `top` above) fixes it for every direction at
+    // once: whichever tile is currently LOWER on screen — mid-animation or
+    // not, whichever way it's travelling — always paints over one that's
+    // higher, independent of DOM order or final destination. The x1000
+    // multiplier keeps ties impossible against the drag lift below (rows are
+    // small integers; two tiles can never be close enough in `rowShared` for
+    // rounding to collide), and an actively-dragged tile still always wins
+    // outright, so its finger-follow offset is never occluded by a neighbour.
+    zIndex: dragX.value !== 0 || dragY.value !== 0 ? 100000 : Math.round(rowShared.value * 1000),
   }));
 
   return (
