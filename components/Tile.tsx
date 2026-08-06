@@ -1247,6 +1247,13 @@ const styles = StyleSheet.create({
   // LAYER_OPACITY_STEP). No breathing, no crack: unlike a hazard warning, a
   // layer is calm and static between clears, and its own opacity (set by the
   // caller per layersRemaining) is the only thing that changes over time.
+  // Color must read as visibly distinct from the tile's own panelColor
+  // (skins/lalas-kitchen/config.json's palette.panel, #FBF3E1) — a real
+  // playtest report ("no dust off spawned here") traced back to the original
+  // #FFFBEF here being nearly identical to that panel color, so alpha-
+  // blending it in at any of this overlay's opacities changed the rendered
+  // pixels by only 1-3 RGB units, invisible in practice despite the overlay
+  // mounting and computing its opacity correctly the whole time.
   layerWash: {
     position: 'absolute',
     top: 0,
@@ -1254,7 +1261,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 8,
-    backgroundColor: '#FFFBEF',
+    backgroundColor: '#A69984',
   },
   // The stuck-player hint's layers — a full-tile container plus a single
   // breathing glow wash, deliberately just these two (no dim, no crack) so it
