@@ -1141,6 +1141,22 @@ export function ExitingTile({
     height: tileSize,
     opacity: opacity.value,
     transform: [{ scale: scale.value }],
+    // Exiting tiles join the same live-row stacking scheme the live tiles
+    // use (see Tile's animatedStyle: row × 1000, lower-on-screen paints
+    // over higher), offset half a step UP so a clearing tile always paints
+    // over its own row's live neighbors. Left at the default (0) — as it
+    // was when live tiles gained their row-based zIndex — a clearing tile
+    // sat under nearly every live tile, which didn't matter while a clear
+    // never left its own cell, but the overhaul's anticipation swell pokes
+    // past the cell edge and a swapped-and-cleared tile now travels across
+    // its live partner: both were visibly clipped behind live neighbors
+    // (real desktop playtest: "some tiles are still disappearing behind
+    // others on matches but not all the time" — 'not all the time' because
+    // it depended on the overlapped neighbor being live vs also clearing).
+    // The half step keeps the established lower-row-wins rule intact
+    // between different rows; an actively dragged live tile's 100000 lift
+    // still beats every exit.
+    zIndex: Math.round(exitRow.value * 1000) + 500,
   }));
 
   const highlightStyle = useAnimatedStyle(() => ({
@@ -1169,6 +1185,12 @@ export function ExitingTile({
     justifyContent: 'center',
     opacity: burstOpacity.value,
     transform: [{ scale: burstScale.value }],
+    // Same stacking as the exit tile it belongs to (see animatedStyle
+    // above) — the poof expands 2.1× past the bag's cell, so without this
+    // it was clipped behind live neighbors for the same reason the swell
+    // was. Rendered after the tile view, so DOM order puts the cloud over
+    // the shrinking bag at equal zIndex.
+    zIndex: Math.round(exitRow.value * 1000) + 500,
   }));
 
   return (
