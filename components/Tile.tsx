@@ -33,6 +33,7 @@ import {
 } from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
+import { Position } from '../engine/gameState';
 
 export interface TileProps {
   pieceId: string;
@@ -82,6 +83,17 @@ export interface TileProps {
   // 0 for a swap (the player's own gesture answers instantly; the pass's
   // clears wait for IT, via settleMs, never the other way round).
   moveDelayMs?: number;
+  // Set only on a surviving swapped piece for the move that swapped it: the
+  // swap-destination cell it must VISIBLY pass through (see boardDiff.ts's
+  // planSwapDetours — the settled diff can't see a partner that gravity
+  // dropped straight back, so without this the exchange never animates).
+  // Leg 1 springs there on the swap clock immediately; leg 2 (only when the
+  // settled cell differs) falls to row/col after moveDelayMs, on the same
+  // schedule every other fall in the pass keeps.
+  detourVia?: Position;
+  // Changes identity once per move (Board's move counter) so the detour
+  // effect re-arms per swap, not per render. Null when no detour is active.
+  detourKey?: string | null;
   // Present only for a striped piece — which line it will sweep when matched
   // ('row' = horizontal, 'col' = vertical). Drives the small corner badge
   // that replaces the visual signal the old stripe overlay used to carry (see
@@ -169,6 +181,8 @@ export function Tile({
   enterFromRow,
   spawnFade,
   moveDelayMs = 0,
+  detourVia,
+  detourKey = null,
   direction,
   spreadWarning,
   powderWisp,
@@ -201,6 +215,11 @@ export function Tile({
   const scaleY = useSharedValue(1);
 
   useEffect(() => {
+    // A surviving swapped piece's motion for this move is owned entirely by
+    // the detour effect below (the settled diff can't describe its real
+    // path — see detourVia's prop comment); running the direct-to-settled
+    // animation here too would fight it on the same shared values.
+    if (detourVia) return;
     // Where this tile actually IS right now (possibly mid-flight, possibly
     // its streamed entry row above the board) — the distance still to cover
     // is what the duration derives from, so a retargeted tile always moves
@@ -292,6 +311,72 @@ export function Tile({
     // Reanimated shared values are stable across renders by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, col]);
+
+  // The two-leg swap detour (see detourVia's prop comment): visibly trade
+  // places on the swap clock, then fall to the settled cell with the rest of
+  // the pass's refill. Keyed on the MOVE's identity, not on position — the
+  // settled props can be identical to the cell this tile already occupies
+  // (the partner gravity dropped straight back), which is exactly the case
+  // the position effect above structurally cannot see.
+  useEffect(() => {
+    if (!detourVia) return;
+    const swapMove = { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO };
+    const needsLeg2 = detourVia.row !== row || detourVia.col !== col;
+    const leg2Cells = needsLeg2
+      ? Math.max(Math.abs(row - detourVia.row), Math.abs(col - detourVia.col))
+      : 0;
+    const leg2Ms = fallDurationForCells(fallProfile, leg2Cells);
+    // Leg 2 starts when every other fall in the pass starts (moveDelayMs,
+    // the pass's clears-finish time), measured from the same pass start leg
+    // 1 began at — so the gap is whatever of that delay the swap itself
+    // didn't consume.
+    const gapMs = Math.max(0, moveDelayMs - durationMs);
+    if (!needsLeg2) {
+      rowShared.value = withSpring(detourVia.row, swapMove);
+      colShared.value = withSpring(detourVia.col, swapMove);
+    } else {
+      // Leg 2 straight down is a FALL (gravity easing, lands with
+      // velocity); any other shape keeps the deliberate spring.
+      const leg2IsFall = row > detourVia.row && col === detourVia.col;
+      rowShared.value = withSequence(
+        withSpring(detourVia.row, swapMove),
+        withDelay(
+          gapMs,
+          leg2IsFall
+            ? withTiming(row, { duration: leg2Ms, easing: FALL_EASING })
+            : withSpring(row, { duration: leg2Ms, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+        )
+      );
+      colShared.value = withSequence(
+        withSpring(detourVia.col, swapMove),
+        withDelay(gapMs, withSpring(col, { duration: leg2Ms, dampingRatio: TILE_MOVE_DAMPING_RATIO }))
+      );
+    }
+    // The detoured piece can be the one that was under the finger — fold any
+    // live drag offset home on the swap clock, as the main effect would have.
+    dragX.value = withSpring(0, swapMove);
+    dragY.value = withSpring(0, swapMove);
+    // One squash, at the FINAL landing — mid-detour is a turnaround, not an
+    // arrival, and squashing at both would read as two impacts for one move.
+    const landingDelay = needsLeg2 ? durationMs + gapMs + leg2Ms : durationMs;
+    scaleY.value = withDelay(
+      landingDelay,
+      withSequence(
+        withTiming(SQUASH_SCALE_Y, { duration: SQUASH_DOWN_MS }),
+        withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+      )
+    );
+    scaleX.value = withDelay(
+      landingDelay,
+      withSequence(
+        withTiming(SQUASH_SCALE_X, { duration: SQUASH_DOWN_MS }),
+        withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+      )
+    );
+    // Re-arms once per swap via the move-scoped key; every other prop is
+    // read fresh when it fires, same reasoning as the position effect above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detourKey]);
 
   // Board passes onDragMove/onDragEnd as brand-new inline arrow functions on
   // every one of ITS renders — and it genuinely re-renders mid-gesture, since

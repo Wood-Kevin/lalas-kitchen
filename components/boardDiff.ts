@@ -209,6 +209,65 @@ export function maxMotionCells(moved: MovedPiece[], spawnPlan: SpawnEntryPlan, s
   return max;
 }
 
+// The surviving half of a committed swap must VISIBLY trade places, even
+// when the settled board says it ended up right back where it started.
+//
+// The engine's per-pass snapshots are settled boards: a downward swap stages
+// the partner piece UP into the player's old cell, but the match the swap
+// completes clears the cell below it, so gravity drops the partner straight
+// back — its net displacement in the settled diff is zero (or a deeper fall
+// that skips the up-leg entirely), and the presentation layer animated
+// nothing. Real desktop playtest: "moving a piece down is still covering
+// the piece and not swapping" — the player's piece slid onto a partner that
+// never moved. Latent since the cascade pipeline was built; unmasked once
+// the swapped-and-cleared tile's own travel became visible.
+//
+// So every surviving swapped piece gets a DETOUR: leg 1 to its swap
+// destination (`via`, the other swapped cell) on the swap clock, then —
+// after the pass's clears finish, on the same delay every other fall waits
+// out — leg 2 from there to wherever it actually settled. A piece whose
+// settled cell IS its swap destination simply has no leg 2. Cleared pieces
+// are excluded (ExitingTile's travel already animates them), as is a move
+// the engine never swapped for (swapCommitted false).
+export interface SwapDetourPlan {
+  // pieceId -> the swap-destination cell that piece visibly passes through.
+  viaById: Map<string, Position>;
+  // The longest leg-2 travel in cells, for the pass schedule — a net-zero
+  // partner's fall-back isn't in `moved`, so maxMotionCells can't see it.
+  maxLeg2Cells: number;
+}
+
+export function planSwapDetours(
+  fromBoard: Board,
+  settledBoard: Board,
+  posA: Position,
+  posB: Position,
+  swapCommitted: boolean
+): SwapDetourPlan {
+  const viaById = new Map<string, Position>();
+  let maxLeg2Cells = 0;
+  if (!swapCommitted) return { viaById, maxLeg2Cells };
+
+  const settledPositions = new Map<string, Position>();
+  settledBoard.forEach((row, r) =>
+    row.forEach((piece, c) => settledPositions.set(piece.id, { row: r, col: c }))
+  );
+
+  for (const [cell, via] of [
+    [posA, posB],
+    [posB, posA],
+  ] as [Position, Position][]) {
+    const piece = fromBoard[cell.row]?.[cell.col];
+    if (!piece) continue;
+    const settled = settledPositions.get(piece.id);
+    if (!settled) continue; // cleared — ExitingTile's travel owns it
+    viaById.set(piece.id, via);
+    const leg2 = Math.max(Math.abs(settled.row - via.row), Math.abs(settled.col - via.col));
+    if (leg2 > maxLeg2Cells) maxLeg2Cells = leg2;
+  }
+  return { viaById, maxLeg2Cells };
+}
+
 // Which of the two tapped piece ids should render with the SWAP feel (a
 // short, deliberately bouncy spring tuned for exactly one tile of travel) —
 // as opposed to the FALL feel (firm, column-staggered, no assumption about

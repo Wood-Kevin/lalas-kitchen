@@ -3,6 +3,7 @@ import {
   relocateSwappedClears,
   resolveSwapMotionIds,
   planSpawnEntries,
+  planSwapDetours,
   maxMotionCells,
   MovedPiece,
 } from './boardDiff';
@@ -301,5 +302,49 @@ describe('maxMotionCells (the fall-side input to the content-driven pass schedul
       fadeInPlaceIds: new Set(['s1']),
     };
     expect(maxMotionCells([], plan, spawned)).toBe(0);
+  });
+});
+
+describe('planSwapDetours (a surviving swapped piece visibly trades places, even settling where it started)', () => {
+  const a = { row: 0, col: 0 };
+  const b = { row: 1, col: 0 };
+
+  test('the gravity-dropped-straight-back partner gets a detour through the swap destination', () => {
+    // Player swaps 'mover' down onto 'partner'; mover's match clears at
+    // (1,0); partner is staged up to (0,0) and gravity drops it straight
+    // back — settled board shows it exactly where it began. The settled
+    // diff sees nothing; the detour must.
+    const before = boardOf([[piece('mover', 'A')], [piece('partner', 'B')]]);
+    const settled = boardOf([[piece('new', 'C')], [piece('partner', 'B')]]);
+    const plan = planSwapDetours(before, settled, a, b, true);
+    expect(plan.viaById.get('partner')).toEqual(a);
+    expect(plan.viaById.has('mover')).toBe(false); // cleared — ExitingTile owns it
+    // Its fall-back (via (0,0) -> settled (1,0)) is 1 cell of real travel
+    // the pass schedule must cover, invisible to diff.moved.
+    expect(plan.maxLeg2Cells).toBe(1);
+  });
+
+  test('a partner that settles at its swap destination has no leg 2', () => {
+    const before = boardOf([[piece('mover', 'A'), piece('x', 'C')], [piece('partner', 'B'), piece('y', 'D')]]);
+    const settled = boardOf([[piece('partner', 'B'), piece('x', 'C')], [piece('new', 'E'), piece('y', 'D')]]);
+    const plan = planSwapDetours(before, settled, a, b, true);
+    expect(plan.viaById.get('partner')).toEqual(a);
+    expect(plan.maxLeg2Cells).toBe(0);
+  });
+
+  test('both pieces survive a bomb-style committed swap - both get detours', () => {
+    const before = boardOf([[piece('p1', 'A')], [piece('p2', 'B')]]);
+    const settled = boardOf([[piece('p2', 'B')], [piece('p1', 'A')]]);
+    const plan = planSwapDetours(before, settled, a, b, true);
+    expect(plan.viaById.get('p1')).toEqual(b);
+    expect(plan.viaById.get('p2')).toEqual(a);
+    expect(plan.maxLeg2Cells).toBe(0);
+  });
+
+  test('no detours when the engine never exchanged the cells', () => {
+    const before = boardOf([[piece('p1', 'A')], [piece('p2', 'B')]]);
+    const plan = planSwapDetours(before, before, a, b, false);
+    expect(plan.viaById.size).toBe(0);
+    expect(plan.maxLeg2Cells).toBe(0);
   });
 });

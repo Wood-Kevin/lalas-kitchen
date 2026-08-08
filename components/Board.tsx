@@ -39,6 +39,7 @@ import {
   relocateSwappedClears,
   resolveSwapMotionIds,
   planSpawnEntries,
+  planSwapDetours,
   maxMotionCells,
   SpawnEntryPlan,
 } from './boardDiff';
@@ -384,6 +385,14 @@ export function Board({
   // falls, sequential within a pass, the way the genre actually reads. 0
   // between moves; swap-motion tiles always ignore it (see Tile.moveDelayMs).
   const [fallDelayMs, setFallDelayMs] = useState(0);
+  // The current move's surviving-swapped-piece detours (see boardDiff.ts's
+  // planSwapDetours): which cell each must visibly pass through, plus a
+  // move-scoped key so Tile's detour effect re-arms exactly once per swap.
+  // Null between moves and on every pass after the first.
+  const [swapDetourState, setSwapDetourState] = useState<{
+    key: string;
+    viaById: Map<string, Position>;
+  } | null>(null);
   const [swapDurationIds, setSwapDurationIds] = useState<Set<string>>(new Set());
   const [snapBack, setSnapBack] = useState<{ a: Position; b: Position } | null>(null);
   // A unique key per combo_streak event (see engine/gameState.ts), not just
@@ -769,6 +778,11 @@ export function Board({
     // revealed, the win/pause for THIS move must wait for THIS move's final
     // pass to finish animating.
     setTerminalOverlayReady(false);
+    // Cleared up front so a prior move's detour can never leak into this
+    // one (the zero-steps dropdown path below never reaches runStep, which
+    // is otherwise what refreshes it); runStep(0)'s own set wins the batch
+    // when this move genuinely has detours.
+    setSwapDetourState(null);
     const moveId = moveCounterRef.current++;
     let previous = fromBoard;
 
@@ -940,6 +954,16 @@ export function Board({
       // (clipped, no fade) or faded in place for an enclosed void segment.
       const passSpawnPlan = planSpawnEntries(diff.spawned, next);
       setSpawnPlan(passSpawnPlan);
+      // Surviving swapped pieces visibly trade places even when the settled
+      // diff says they went nowhere (gravity dropped the partner straight
+      // back) — pass 0 only; later passes are ordinary refills, and a stale
+      // detour would make Tile's position effect skip a real gravity move.
+      const detourPlan = planSwapDetours(previous, next, swap.a, swap.b, i === 0 && swapCommitted);
+      setSwapDetourState(
+        i === 0 && detourPlan.viaById.size > 0
+          ? { key: `detour-${moveId}`, viaById: detourPlan.viaById }
+          : null
+      );
       // Append (don't replace): a pass's exit tiles keep animating out while
       // the next pass's clears begin, giving the layered, sequential read.
       // Each ExitingTile removes itself on completion (see removeExiting).
@@ -986,7 +1010,12 @@ export function Board({
         ...passAnimation.radialDelays.values()
       );
       const passInputs = {
-        maxMotionCells: maxMotionCells(diff.moved, passSpawnPlan, diff.spawned),
+        // A net-zero detour partner's fall-back isn't in diff.moved, so its
+        // leg-2 travel joins the schedule here explicitly.
+        maxMotionCells: Math.max(
+          maxMotionCells(diff.moved, passSpawnPlan, diff.spawned),
+          detourPlan.maxLeg2Cells
+        ),
         hasClears: diff.cleared.length > 0,
         maxClearDelayMs,
         hasBlockerClear: diff.cleared.some((c) => c.piece.type === 'blocker'),
@@ -1183,6 +1212,7 @@ export function Board({
     setExiting([]);
     setSpawnPlan({ entryRowById: new Map(), fadeInPlaceIds: new Set() });
     setFallDelayMs(0);
+    setSwapDetourState(null);
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
@@ -1330,6 +1360,8 @@ export function Board({
                     enterFromRow={entryRow}
                     spawnFade={isSpawnFade}
                     moveDelayMs={fallDelayMs}
+                    detourVia={swapDetourState?.viaById.get(piece.id)}
+                    detourKey={swapDetourState?.key ?? null}
                     // Only a striped piece carries a direction; every other
                     // piece passes undefined, so Tile renders no badge. This
                     // is the one place the row/column sweep a striped piece
