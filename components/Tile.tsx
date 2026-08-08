@@ -75,6 +75,13 @@ export interface TileProps {
   // edge to stream from: it fades in at its landing cell instead (see
   // planSpawnEntries' fadeInPlaceIds and SPEC.md's resolved fork).
   spawnFade?: boolean;
+  // How long this tile's NEXT motion (and a fade-in-place spawn's fade)
+  // waits before starting — Board passes the current pass's clears-finish
+  // time (cascadeTiming.ts's passFallDelayMs) for every gravity move, so a
+  // refill never visibly falls onto a match that is still clearing. Always
+  // 0 for a swap (the player's own gesture answers instantly; the pass's
+  // clears wait for IT, via settleMs, never the other way round).
+  moveDelayMs?: number;
   // Present only for a striped piece — which line it will sweep when matched
   // ('row' = horizontal, 'col' = vertical). Drives the small corner badge
   // that replaces the visual signal the old stripe overlay used to carry (see
@@ -161,6 +168,7 @@ export function Tile({
   fallProfile,
   enterFromRow,
   spawnFade,
+  moveDelayMs = 0,
   direction,
   spreadWarning,
   powderWisp,
@@ -214,17 +222,26 @@ export function Tile({
     // dropdown slides) keeps the critically damped spring: a deliberate
     // placement decelerates, a falling object doesn't.
     const isFall = !swapMotion && dRow > 0.001 && Math.abs(dCol) < 0.001;
+    // A gravity move holds until the pass's clears finish (moveDelayMs — see
+    // its prop comment); a swap always starts on the very next frame.
+    const delayMs = swapMotion ? 0 : moveDelayMs;
+    const held = <T,>(animation: T): T =>
+      delayMs > 0 ? (withDelay(delayMs, animation as never) as T) : animation;
     if (isFall) {
-      rowShared.value = withTiming(row, { duration: moveMs, easing: FALL_EASING });
+      rowShared.value = held(withTiming(row, { duration: moveMs, easing: FALL_EASING }));
       colShared.value = col;
     } else {
-      rowShared.value = withSpring(row, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
-      colShared.value = withSpring(col, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+      rowShared.value = held(
+        withSpring(row, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+      );
+      colShared.value = held(
+        withSpring(col, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO })
+      );
     }
     // No-op for every tile already at full opacity; an enclosed-segment
-    // spawn (spawnFade) fades in on its own short clock, decoupled from any
-    // motion duration since it has no motion.
-    opacity.value = withTiming(1, { duration: SPAWN_FADE_MS });
+    // spawn (spawnFade) fades in on its own short clock, held with the rest
+    // of the refill so it can't appear over a still-clearing match either.
+    opacity.value = held(withTiming(1, { duration: SPAWN_FADE_MS }));
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
     // cell, so the grid slide and the finger-offset decay start on the same
@@ -247,15 +264,16 @@ export function Tile({
     // tile can never visually leave its own grid cell, which is the whole
     // point of moving the "juice" here from position overshoot.
     if (cells > 0.001 && moveMs > 0) {
+      const landingDelay = delayMs + moveMs;
       scaleY.value = withDelay(
-        moveMs,
+        landingDelay,
         withSequence(
           withTiming(SQUASH_SCALE_Y, { duration: SQUASH_DOWN_MS }),
           withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
         )
       );
       scaleX.value = withDelay(
-        moveMs,
+        landingDelay,
         withSequence(
           withTiming(SQUASH_SCALE_X, { duration: SQUASH_DOWN_MS }),
           withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })

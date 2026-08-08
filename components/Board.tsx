@@ -54,6 +54,7 @@ import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import {
   fallSpeedProfile,
   passDurationMs,
+  passFallDelayMs,
   PASS_BEAT_MS,
   springSettleMs,
   SWEEP_TILE_STAGGER_MS,
@@ -377,6 +378,12 @@ export function Board({
     entryRowById: new Map(),
     fadeInPlaceIds: new Set(),
   });
+  // How long the current pass's gravity moves wait before starting — its
+  // clears' finish time (cascadeTiming.ts's passFallDelayMs), so the refill
+  // never visibly falls onto a match that is still clearing. Clears then
+  // falls, sequential within a pass, the way the genre actually reads. 0
+  // between moves; swap-motion tiles always ignore it (see Tile.moveDelayMs).
+  const [fallDelayMs, setFallDelayMs] = useState(0);
   const [swapDurationIds, setSwapDurationIds] = useState<Set<string>>(new Set());
   const [snapBack, setSnapBack] = useState<{ a: Position; b: Position } | null>(null);
   // A unique key per combo_streak event (see engine/gameState.ts), not just
@@ -978,16 +985,18 @@ export function Board({
         ...passAnimation.sweepDelays.values(),
         ...passAnimation.radialDelays.values()
       );
-      const passMotionMs = passDurationMs(
-        {
-          maxMotionCells: maxMotionCells(diff.moved, passSpawnPlan, diff.spawned),
-          maxClearDelayMs,
-          hasBlockerClear: diff.cleared.some((c) => c.piece.type === 'blocker'),
-          matchDurationMs,
-          settleMs: passSettleMs,
-        },
-        fallProfile
-      );
+      const passInputs = {
+        maxMotionCells: maxMotionCells(diff.moved, passSpawnPlan, diff.spawned),
+        hasClears: diff.cleared.length > 0,
+        maxClearDelayMs,
+        hasBlockerClear: diff.cleared.some((c) => c.piece.type === 'blocker'),
+        matchDurationMs,
+        settleMs: passSettleMs,
+      };
+      // Falls wait for this pass's clears to finish (sequential, per the
+      // first live playtest of the overhaul — see passFallDelayMs).
+      setFallDelayMs(passFallDelayMs(passInputs));
+      const passMotionMs = passDurationMs(passInputs, fallProfile);
       if (i + 1 < steps.length) {
         setDisplayBoard(next);
         stepTimersRef.current.push(
@@ -1173,6 +1182,7 @@ export function Board({
     setDragTarget(null);
     setExiting([]);
     setSpawnPlan({ entryRowById: new Map(), fadeInPlaceIds: new Set() });
+    setFallDelayMs(0);
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
@@ -1319,6 +1329,7 @@ export function Board({
                     fallProfile={fallProfile}
                     enterFromRow={entryRow}
                     spawnFade={isSpawnFade}
+                    moveDelayMs={fallDelayMs}
                     // Only a striped piece carries a direction; every other
                     // piece passes undefined, so Tile renders no badge. This
                     // is the one place the row/column sweep a striped piece

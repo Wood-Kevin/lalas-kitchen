@@ -2,6 +2,8 @@ import {
   fallSpeedProfile,
   fallDurationForCells,
   passDurationMs,
+  passFallDelayMs,
+  passClearsEndMs,
   planCascadeAnimation,
   springSettleMs,
   PASS_BEAT_MS,
@@ -76,9 +78,50 @@ describe('fallDurationForCells (the core game-feel fix: consistent speed, varyin
   });
 });
 
+describe('passFallDelayMs / passClearsEndMs (clears first, THEN the collapse — sequential, not concurrent)', () => {
+  const base = {
+    maxMotionCells: 0,
+    hasClears: true,
+    maxClearDelayMs: 0,
+    hasBlockerClear: false,
+    matchDurationMs: 300,
+    settleMs: 0,
+  };
+
+  test('falls wait out the full pop-and-shrink of an ordinary clear', () => {
+    // The bug the first live playtest caught: a refill visibly fell onto a
+    // match that was still on screen. Falls now start when clears end.
+    expect(passFallDelayMs(base)).toBe(300);
+  });
+
+  test('a staggered clear (sweep/radial/chain) pushes the collapse out by its latest start', () => {
+    expect(passFallDelayMs({ ...base, maxClearDelayMs: 385 })).toBe(385 + 300);
+  });
+
+  test('a blocker clear holds the collapse through its highlight pulse', () => {
+    expect(passFallDelayMs({ ...base, hasBlockerClear: true })).toBe(
+      BLOCKER_CLEAR_HIGHLIGHT_MS + 300
+    );
+  });
+
+  test('the blocker pulse and a larger stagger do not stack — the later one wins', () => {
+    expect(passFallDelayMs({ ...base, hasBlockerClear: true, maxClearDelayMs: 500 })).toBe(500 + 300);
+  });
+
+  test("pass 0's swap settle holds the clears, and therefore the collapse after them", () => {
+    expect(passFallDelayMs({ ...base, settleMs: 500 })).toBe(500 + 300);
+  });
+
+  test('a motion-only pass (shuffle rescue) has no clears to wait for', () => {
+    expect(passFallDelayMs({ ...base, hasClears: false })).toBe(0);
+    expect(passClearsEndMs({ ...base, hasClears: false, settleMs: 500 })).toBe(500);
+  });
+});
+
 describe('passDurationMs (a pass runs as long as its own content, no metronome)', () => {
   const base = {
     maxMotionCells: 0,
+    hasClears: true,
     maxClearDelayMs: 0,
     hasBlockerClear: false,
     matchDurationMs: 300,
@@ -89,33 +132,21 @@ describe('passDurationMs (a pass runs as long as its own content, no metronome)'
     expect(passDurationMs(base, MEDIUM)).toBe(300);
   });
 
-  test('a deep fall extends the pass past its clears', () => {
+  test('clears and falls run in sequence — the pass is their sum, not their max', () => {
     const withFall = { ...base, maxMotionCells: 4 };
-    expect(passDurationMs(withFall, MEDIUM)).toBe(fallDurationForCells(MEDIUM, 4));
-    expect(passDurationMs(withFall, MEDIUM)).toBeGreaterThan(300);
+    expect(passDurationMs(withFall, MEDIUM)).toBe(300 + fallDurationForCells(MEDIUM, 4));
   });
 
-  test('a staggered clear (sweep/radial/chain) extends the pass by its latest start', () => {
-    const withDelay = { ...base, maxClearDelayMs: 385 };
-    expect(passDurationMs(withDelay, MEDIUM)).toBe(385 + 300);
+  test('a staggered clear pushes both the collapse and the pass end out together', () => {
+    const withDelay = { ...base, maxClearDelayMs: 385, maxMotionCells: 2 };
+    expect(passDurationMs(withDelay, MEDIUM)).toBe(
+      385 + 300 + fallDurationForCells(MEDIUM, 2)
+    );
   });
 
-  test('a blocker clear waits out its highlight pulse when that is the latest clear', () => {
-    const withBlocker = { ...base, hasBlockerClear: true };
-    expect(passDurationMs(withBlocker, MEDIUM)).toBe(BLOCKER_CLEAR_HIGHLIGHT_MS + 300);
-  });
-
-  test('the blocker pulse and a larger stagger do not stack — the later one wins', () => {
-    const both = { ...base, hasBlockerClear: true, maxClearDelayMs: 500 };
-    expect(passDurationMs(both, MEDIUM)).toBe(500 + 300);
-  });
-
-  test("pass 0's swap settle holds every clear, so it extends the clear side only", () => {
-    const settled = { ...base, settleMs: 500 };
-    expect(passDurationMs(settled, MEDIUM)).toBe(500 + 300);
-    // A concurrent fall is not held by the settle; it only wins if genuinely longer.
-    const settledWithShortFall = { ...settled, maxMotionCells: 1 };
-    expect(passDurationMs(settledWithShortFall, MEDIUM)).toBe(500 + 300);
+  test('a motion-only pass is just its longest move', () => {
+    const shuffleLike = { ...base, hasClears: false, maxMotionCells: 3 };
+    expect(passDurationMs(shuffleLike, MEDIUM)).toBe(fallDurationForCells(MEDIUM, 3));
   });
 });
 

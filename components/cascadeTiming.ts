@@ -226,6 +226,9 @@ export interface PassMotionInputs {
   // and the tallest spawn stream (a column's spawn count — see
   // boardDiff.ts's planSpawnEntries). 0 for a pass that only clears.
   maxMotionCells: number;
+  // Whether this pass clears anything at all. False for a motion-only pass
+  // (a shuffle-rescue relocation), whose falls have nothing to wait for.
+  hasClears: boolean;
   // The largest delay any of this pass's clears waits before its own pop
   // begins — the max across the pass animation's sweep/radial maps, which
   // already includes chain-wave staging. 0 when every clear is immediate.
@@ -235,31 +238,52 @@ export interface PassMotionInputs {
   hasBlockerClear: boolean;
   // The skin's per-clear pop-and-shrink budget (matchDurationMs).
   matchDurationMs: number;
-  // Pass 0 of a committed swap holds every clear until the swap has landed
+  // Pass 0 of a committed swap holds everything until the swap has landed
   // AND played its squash beat (springSettleMs(swapDurationMs)); 0 for
-  // every other pass. Falls in the pass are not held — only clears are.
+  // every other pass.
   settleMs: number;
 }
 
-// How long one pass's motion actually takes to finish on screen — the
-// content-driven replacement for the old fixed 480ms `cascadeStepIntervalMs`.
-// A pass's clears and its falls run concurrently (the refill starts the tick
-// the pass is shown), so the pass is done when the LATER of the two is done:
-//   clears: settle hold + the latest clear's start delay (sweep/radial/chain,
-//           or the blocker highlight pulse) + the pop-and-shrink itself
-//   falls:  the longest motion's distance-derived duration
-// The landing squash is deliberately NOT waited out here — the old schedule
-// never gated the next pass on it either, and PASS_BEAT_MS gives it most of
-// its room; a beat of overlap between a settling squash and the next pass's
-// clears is the continuity the overhaul is after, not a defect.
-export function passDurationMs(inputs: PassMotionInputs, profile: FallSpeedProfile): number {
+// When this pass's clears have finished playing on screen: the settle hold,
+// plus the latest clear's start delay (sweep/radial/chain stagger, or the
+// blocker highlight pulse), plus the pop-and-shrink itself. settleMs alone
+// for a pass with no clears.
+export function passClearsEndMs(inputs: PassMotionInputs): number {
+  if (!inputs.hasClears) return inputs.settleMs;
   const clearStartDelayMs = Math.max(
     inputs.maxClearDelayMs,
     inputs.hasBlockerClear ? BLOCKER_CLEAR_HIGHLIGHT_MS : 0
   );
-  const clearsEndMs = inputs.settleMs + clearStartDelayMs + inputs.matchDurationMs;
-  const fallsEndMs = fallDurationForCells(profile, inputs.maxMotionCells);
-  return Math.max(clearsEndMs, fallsEndMs);
+  return inputs.settleMs + clearStartDelayMs + inputs.matchDurationMs;
+}
+
+// How long this pass's falls/spawn-streams wait before they begin moving:
+// until the pass's clears have finished. Clears and falls are SEQUENTIAL
+// within a pass, not concurrent — this is how the genre actually reads
+// (pieces pop, THEN the column collapses into the space). The first live
+// playtest of the overhaul caught why this matters: the refill has always
+// technically started the tick the pass was shown, but the old flat slow
+// falls masked it; with real distance-based (shorter) falls and the match
+// pop's opaque anticipation hold, a faller visibly landed ON a match that
+// was still on screen ("pieces are falling over matches before matches are
+// even gone"). Uniform per pass rather than per column — a line sweep
+// finishing before the board collapses reads as a deliberate beat, and a
+// per-column split would have columns collapsing at different moments
+// during one clear, which is exactly the incoherence being removed.
+export function passFallDelayMs(inputs: PassMotionInputs): number {
+  return passClearsEndMs(inputs);
+}
+
+// How long one pass's motion actually takes to finish on screen — the
+// content-driven replacement for the old fixed 480ms `cascadeStepIntervalMs`.
+// Clears play first; falls start when they end (passFallDelayMs) and run
+// their longest distance-derived duration. The landing squash is
+// deliberately NOT waited out here — PASS_BEAT_MS gives it most of its
+// room; a beat of overlap between a settling squash and the next pass's
+// clears is the continuity the overhaul is after, not a defect.
+export function passDurationMs(inputs: PassMotionInputs, profile: FallSpeedProfile): number {
+  const fallsMs = fallDurationForCells(profile, inputs.maxMotionCells);
+  return fallsMs > 0 ? passFallDelayMs(inputs) + fallsMs : passClearsEndMs(inputs);
 }
 
 export interface CascadeAnimationSchedule {
