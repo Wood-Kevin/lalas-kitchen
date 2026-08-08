@@ -328,7 +328,14 @@ highlight and the release use that same mapping so they always agree.
 Feedback (requirement: show the targeted neighbour *before* release): the targeted
 tile gets a soft full-tile accent wash + thicker border (`dragTargeted`, the same
 calm overlay language as the blocker/sweep highlights — no ring/particle, per the
-calm-not-frantic rule), and the dragged tile itself peeks toward the finger. Both
+calm-not-frantic rule), and the dragged tile itself peeks toward the finger —
+**on a rail, not a free float** (a post-overhaul playtest fix: the follow was
+originally unconstrained on both axes at once, so the piece could hover
+diagonally over four cells while the axis-locked highlight disagreed, which
+read as "loose... weird friction." `dragDirection.ts`'s `projectDragToRail`
+now zeroes the perpendicular component with a 1.3× hysteresis on rail
+switches, and the projected vector feeds the highlight, the release commit,
+and the onFinalize decision alike — one geometry). Both
 input methods gate on the same `canAcceptMove()` (in-progress, not mid-cascade, no
 overlay). Verified live (real Pan gestures under Expo web, driven via CDP) in
 `docs/verification/drag-swap/`.

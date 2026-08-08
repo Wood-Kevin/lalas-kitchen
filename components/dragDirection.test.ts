@@ -1,4 +1,10 @@
-import { DRAG_NEIGHBOR_DELTA, resolveDragDirection, resolveDragTarget } from './dragDirection';
+import {
+  DRAG_NEIGHBOR_DELTA,
+  DRAG_AXIS_HYSTERESIS,
+  projectDragToRail,
+  resolveDragDirection,
+  resolveDragTarget,
+} from './dragDirection';
 
 const THRESHOLD = 20;
 
@@ -103,5 +109,57 @@ describe('resolveDragTarget — the release spring-back-or-commit decision', () 
     expect(resolveDragTarget(50, 18, ORIGIN, ROWS, COLS, THRESHOLD)).toEqual({ row: 3, col: 3 }); // mostly-right
     expect(resolveDragTarget(-15, 45, ORIGIN, ROWS, COLS, THRESHOLD)).toEqual({ row: 4, col: 2 }); // mostly-down
     expect(resolveDragTarget(30, 30, ORIGIN, ROWS, COLS, THRESHOLD)).toEqual({ row: 3, col: 3 }); // 45° tie → horizontal
+  });
+});
+
+describe('projectDragToRail (the drag follows one axis at a time, never a diagonal float)', () => {
+  test('a fresh drag picks the dominant axis and zeroes the other component', () => {
+    const rail = projectDragToRail(40, 12, 0);
+    expect(rail.axis).toBe(1);
+    expect(rail.dx).toBe(40);
+    expect(rail.dy).toBe(0);
+  });
+
+  test('a fresh vertical drag locks to the vertical rail', () => {
+    const rail = projectDragToRail(8, -35, 0);
+    expect(rail.axis).toBe(2);
+    expect(rail.dx).toBe(0);
+    expect(rail.dy).toBe(-35);
+  });
+
+  test('an exact fresh diagonal resolves to horizontal, matching resolveDragDirection', () => {
+    expect(projectDragToRail(30, 30, 0).axis).toBe(1);
+  });
+
+  test('hysteresis holds the current rail through near-diagonal jitter', () => {
+    // Locked horizontal; vertical is larger but not by the 1.3x hysteresis
+    // factor - the rail must not flip, or the piece (and highlight) would
+    // flicker between neighbours near the diagonal.
+    const rail = projectDragToRail(30, 35, 1);
+    expect(rail.axis).toBe(1);
+    expect(rail.dy).toBe(0);
+  });
+
+  test('a clearly perpendicular pull does switch the rail', () => {
+    const rail = projectDragToRail(30, 30 * DRAG_AXIS_HYSTERESIS + 1, 1);
+    expect(rail.axis).toBe(2);
+    expect(rail.dx).toBe(0);
+  });
+
+  test('the switch is symmetric - a locked vertical rail flips to horizontal the same way', () => {
+    expect(projectDragToRail(20 * DRAG_AXIS_HYSTERESIS + 1, 20, 2).axis).toBe(1);
+    expect(projectDragToRail(20, 20, 2).axis).toBe(2);
+  });
+
+  test('the projected vector always agrees with resolveDragDirection', () => {
+    // The whole point: the rail the piece visibly rides is the direction a
+    // release would commit. For any projected vector, resolveDragDirection
+    // must pick the same axis the projection chose.
+    for (const [dx, dy, axis] of [[50, 20, 0], [10, -60, 0], [45, 40, 1], [12, 80, 2]] as const) {
+      const rail = projectDragToRail(dx, dy, axis);
+      const direction = resolveDragDirection(rail.dx, rail.dy, 5);
+      if (rail.axis === 1) expect(direction === 'left' || direction === 'right').toBe(true);
+      else expect(direction === 'up' || direction === 'down').toBe(true);
+    }
   });
 });

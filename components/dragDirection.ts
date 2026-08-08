@@ -70,6 +70,53 @@ export function resolveDragDirection(
 // plain pure function from JS (Board, the tests). Bounds use a plain {row,col}
 // shape rather than importing gameState's Position, so this module stays pure
 // geometry with no engine dependency.
+// --- The drag RAIL: what the tile visibly does while the finger is down ---
+//
+// resolveDragDirection above decides where a drag COMMITS; this decides how
+// the tile FOLLOWS. They must agree, and originally they didn't: the follow
+// was a free 2D float (dragX and dragY both tracked the finger, each clamped
+// to ±1 tile), so the piece could hover diagonally over four cells while the
+// axis-locked target highlight snapped between neighbours — real playtest:
+// "I can move a piece basically any direction which makes a weird friction."
+// A match-3 swap is an orthogonal exchange, so the follow is now a RAIL: the
+// dominant axis is picked live, the perpendicular component is zeroed, and
+// the piece only ever slides toward one neighbour at a time.
+//
+// The hysteresis keeps the rail from flickering: once an axis is chosen, the
+// other axis must exceed it by this factor before the rail switches — near
+// the diagonal, small jitter no longer flips the piece (or the highlight,
+// which consumes the projected vector) back and forth.
+export const DRAG_AXIS_HYSTERESIS = 1.3;
+
+// 0 = no axis chosen yet (fresh drag), 1 = horizontal rail, 2 = vertical.
+// Numeric rather than a string union so it lives cheaply in a shared value
+// on the UI thread.
+export type DragAxis = 0 | 1 | 2;
+
+export function projectDragToRail(
+  dx: number,
+  dy: number,
+  currentAxis: DragAxis
+): { axis: DragAxis; dx: number; dy: number } {
+  // A worklet for the same reason resolveDragTarget is: the pan gesture's
+  // onUpdate calls this per frame on the UI thread. Plain pure function
+  // from JS (the tests).
+  'worklet';
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+  let axis: DragAxis = currentAxis;
+  if (axis === 0) {
+    // Fresh drag: plain dominant axis, the same >= tie-break toward
+    // horizontal resolveDragDirection uses.
+    axis = absX >= absY ? 1 : 2;
+  } else if (axis === 1 && absY > absX * DRAG_AXIS_HYSTERESIS) {
+    axis = 2;
+  } else if (axis === 2 && absX > absY * DRAG_AXIS_HYSTERESIS) {
+    axis = 1;
+  }
+  return axis === 1 ? { axis, dx, dy: 0 } : { axis, dx: 0, dy };
+}
+
 export function resolveDragTarget(
   dx: number,
   dy: number,

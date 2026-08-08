@@ -31,7 +31,7 @@ import {
   MATCH_POP_SCALE,
   MATCH_POP_OPACITY,
 } from './cascadeTiming';
-import { resolveDragTarget } from './dragDirection';
+import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
 import { Position } from '../engine/gameState';
 
@@ -209,6 +209,10 @@ export function Tile({
   // via the normal row/col path once Board applies the move.
   const dragX = useSharedValue(0);
   const dragY = useSharedValue(0);
+  // Which rail the current drag is locked to (see dragDirection.ts's
+  // projectDragToRail) — 0 between drags, so each fresh drag re-picks its
+  // axis from its own first movement.
+  const dragAxis = useSharedValue<DragAxis>(0);
   // The squash-and-stretch landing beat — see cascadeTiming.ts's SQUASH_*
   // constants for why this exists instead of a bigger spring overshoot.
   const scaleX = useSharedValue(1);
@@ -428,16 +432,39 @@ export function Tile({
         .minDistance(DRAG_ACTIVATION_SLOP)
         .onUpdate((event) => {
           'worklet';
-          // Clamp the follow so a long drag only ever peeks one tile toward
-          // the neighbour instead of sliding across the whole board.
+          // The rail (see dragDirection.ts's projectDragToRail): the follow
+          // is locked to one axis at a time — the perpendicular component
+          // is zeroed, so the piece only ever slides toward one neighbour
+          // instead of floating diagonally over four cells while the
+          // highlight disagrees. The clamp keeps a long drag to one tile of
+          // peek either way along the rail.
+          const prevAxis = dragAxis.value;
+          const rail = projectDragToRail(event.translationX, event.translationY, prevAxis);
+          dragAxis.value = rail.axis;
           const clamp = tileSize;
-          dragX.value = Math.max(-clamp, Math.min(clamp, event.translationX));
-          dragY.value = Math.max(-clamp, Math.min(clamp, event.translationY));
-          runOnJS(stableOnDragMove)(event.translationX, event.translationY);
+          if (rail.axis === 1) {
+            dragX.value = Math.max(-clamp, Math.min(clamp, rail.dx));
+            // Ease the losing axis home on a rail switch instead of snapping
+            // it to 0 in one frame — the one moment a hard projection would
+            // visibly jump. Guarded on the switch frame only, so the timing
+            // isn't restarted (and frozen) on every subsequent update.
+            if (prevAxis === 2) {
+              dragY.value = withTiming(0, { duration: DRAG_AXIS_SWITCH_MS });
+            }
+          } else {
+            dragY.value = Math.max(-clamp, Math.min(clamp, rail.dy));
+            if (prevAxis === 1) {
+              dragX.value = withTiming(0, { duration: DRAG_AXIS_SWITCH_MS });
+            }
+          }
+          // JS gets the PROJECTED vector, so the target highlight resolves
+          // on exactly the rail the piece is visibly on — one geometry.
+          runOnJS(stableOnDragMove)(rail.dx, rail.dy);
         })
         .onEnd((event) => {
           'worklet';
-          runOnJS(stableOnDragEnd)(event.translationX, event.translationY);
+          const rail = projectDragToRail(event.translationX, event.translationY, dragAxis.value);
+          runOnJS(stableOnDragEnd)(rail.dx, rail.dy);
         })
         .onFinalize((event) => {
           'worklet';
@@ -457,9 +484,13 @@ export function Tile({
           // is in flight (see Board's dragEnabled). resolveDragTarget is the same
           // decision Board.dragNeighbor makes; a non-null target means a swap
           // commits and re-renders (position effect folds the offset), so we skip.
+          // The release vector rides the same rail projection the whole drag
+          // did, so the committed direction is always the rail the player saw.
+          const rail = projectDragToRail(event.translationX, event.translationY, dragAxis.value);
+          dragAxis.value = 0;
           const target = resolveDragTarget(
-            event.translationX,
-            event.translationY,
+            rail.dx,
+            rail.dy,
             { row: Math.round(rowShared.value), col: Math.round(colShared.value) },
             rows,
             cols,
@@ -487,6 +518,7 @@ export function Tile({
       stableOnDragEnd,
       dragX,
       dragY,
+      dragAxis,
       rowShared,
       colShared,
       rows,
@@ -593,6 +625,10 @@ export function Tile({
 const DRAG_ACTIVATION_SLOP = 6;
 // How long the follow-offset takes to ease back to rest on release.
 const DRAG_RETURN_MS = 120;
+// How long the losing axis takes to ease home when a drag's rail switches
+// (see projectDragToRail) — short enough to read as the piece snapping onto
+// the new rail, long enough not to be a one-frame jump.
+const DRAG_AXIS_SWITCH_MS = 80;
 
 // Gravity's easing: constant acceleration from rest (position ∝ t²), so a
 // falling tile visibly speeds up as it drops and arrives carrying velocity —
