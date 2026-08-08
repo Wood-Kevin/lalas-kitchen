@@ -257,7 +257,7 @@ field. Evidence lands in `docs/verification/game-feel-overhaul/`.
 | Chain staging still staggers per link | Re-run `docs/verification/chain-staging/` probe | Wave *w* cells begin clearing `w × CHAIN_LINK_STAGGER_MS` after wave 0, on the new schedule |
 | Terminal overlay never cuts off the final pass | Winning-move trace | Overlay's first frame is after the final pass's longest motion + hold, per the updated `planCascadeAnimation` |
 | Test suite green | `npx jest` | All passing, including new schedule/duration unit tests (current baseline: 657) |
-| It actually *feels* right | Real on-device play by Kevin (and the game's real player) after the next build/OTA ships | Field report — the same standard that caught the sound redesign; explicitly not closable in-agent |
+| It actually *feels* right | Real on-device play by Kevin (and the game's real player) after the next build/OTA ships | **Closed 2026-08-08**: the overhaul reached Kevin's Android device via the first real OTA update (group `e1e7d937`) and his field report — "feels better than it did" — confirms improvement on real hardware. Honest scope of the claim: better, not declared perfect; further feel reports feed the normal playtest protocol, and every constant is retunable OTA. The game's real player (iOS) sees it at the next iOS-reaching update/build. |
 
 ## 7. Career evidence
 
@@ -289,3 +289,4 @@ field. Evidence lands in `docs/verification/game-feel-overhaul/`.
 |------|--------|-----|
 | 2026-08-08 | DRAFT → AGREED; all five open TODOs resolved per runner recommendations (anticipation beat IN, enclosed-segment spawns fade in place, `cascadeFallSpeed` becomes a velocity profile, tuning constants are runner-proposed and trace-verified, on-device check assigned to Kevin) | Kevin approved all recommendations in conversation |
 | 2026-08-08 | Implementation landed plus three same-day playtest fixes the spec didn't foresee: clears and falls made SEQUENTIAL within a pass (`passFallDelayMs` — the spec's concurrent max model unmasked a latent overlap), exiting tiles joined the row-based stacking scheme, and surviving swapped pieces gained the two-leg detour (`planSwapDetours` — the settled-diff model can't see a gravity-dropped-straight-back partner). Desktop feel check by Kevin: "so much smoother now." The on-device row remains open. | Live desktop playtest, three real reports, each fixed and re-verified in-session |
+| 2026-08-08 | Shipped OTA (first real EAS Update this project has ever published — see `engine/DECISIONS.md`'s first-OTA-publish entry) and on-device row closed: Kevin's Android field report, "feels better than it did." Spec fully verified; feature done per its own definition. | The OTA round-trip and the device feel check closed each other in one step |
