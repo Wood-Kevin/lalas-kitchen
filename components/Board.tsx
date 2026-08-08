@@ -182,6 +182,11 @@ export interface BoardProps {
   // or the persisted unlocked-cards list; it only renders whatever App.tsx
   // resolves.
   unlockedRecipeCard: RecipeCard | null;
+  // The forward-looking recipe hint WonOverlay shows on an ordinary win —
+  // computed by App.tsx (see its Board render) and threaded through
+  // unchanged, exactly like unlockedRecipeCard above. Board has no opinion
+  // about milestones.
+  nextRecipeHint?: string;
   // Whether sound effects / haptic feedback should play — App.tsx's
   // soundEnabled/hapticsEnabled, read fresh each render (a toggle flip on
   // Home should take effect on the very next move, not just a future
@@ -226,6 +231,7 @@ export function Board({
   lastTutorialShownAt,
   onTutorialShown,
   unlockedRecipeCard,
+  nextRecipeHint,
   soundEnabled,
   hapticsEnabled,
 }: BoardProps) {
@@ -1568,6 +1574,7 @@ export function Board({
           onNext={onNextLevel}
           onOpenDashboard={onOpenDashboard}
           unlockedRecipeCard={unlockedRecipeCard}
+          nextRecipeHint={nextRecipeHint}
         />
       )}
     </View>

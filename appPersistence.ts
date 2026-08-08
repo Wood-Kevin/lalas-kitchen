@@ -615,6 +615,37 @@ export function findRecipeCardForLevel(
   return recipeCards.find((card) => card.milestoneLevel === levelIndex);
 }
 
+// The next recipe card waiting AHEAD of a player's current position — the
+// smallest not-yet-unlocked milestone at or past `fromLevelNumber` — plus
+// how many levels away it is. Undefined once nothing lies ahead (past the
+// last curated milestone). This is the calm session-goal surface the design
+// review asked for: the recipe book is the game's collection driver, but an
+// unlock used to be a pure surprise; a gentle "something waits N levels
+// ahead" gives a session a destination without timers, streaks, or urgency.
+//
+// Anchored on the level the player is ABOUT TO PLAY (their next-unplayed
+// level, or current level + 1 from a win screen), not on the unlocked-set's
+// gaps: a long-time player predates most of the 40-card extension's
+// milestones, and pointing them BACKWARD at a replayable milestone they
+// passed months ago would read as homework. Those cards stay quietly
+// discoverable in the collection screen's empty cells; this only ever looks
+// forward. The unlocked check still matters on the forward path — a player
+// replaying an old level from the map shouldn't be promised a card they
+// already own at that milestone.
+export function findNextRecipeCard(
+  recipeCards: RecipeCard[],
+  fromLevelNumber: number,
+  unlockedRecipeCards: string[]
+): { card: RecipeCard; levelsAway: number } | undefined {
+  let best: RecipeCard | undefined;
+  for (const card of recipeCards) {
+    if (card.milestoneLevel < fromLevelNumber) continue;
+    if (unlockedRecipeCards.includes(card.id)) continue;
+    if (!best || card.milestoneLevel < best.milestoneLevel) best = card;
+  }
+  return best ? { card: best, levelsAway: best.milestoneLevel - fromLevelNumber } : undefined;
+}
+
 // Adds a recipe card id to the unlocked list if it isn't already there —
 // same idempotent-add shape as markTutorialSeen/markLevelCompleted above,
 // so replaying an already-unlocked milestone level (Board.tsx's "Play

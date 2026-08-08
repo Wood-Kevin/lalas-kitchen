@@ -16,6 +16,7 @@ import {
   findSpecialPieceTutorial,
   findSpreadWarningTutorial,
   SPREAD_WARNING_TUTORIAL_ID,
+  findNextRecipeCard,
   findRecipeCardForLevel,
   STRIPED_TUTORIAL_ID,
   COLOR_BOMB_TUTORIAL_ID,
@@ -2025,5 +2026,43 @@ describe('buildGeneratedLevelConfig — escort levels', () => {
     expect(kinds.collect).toBeGreaterThan(
       (kinds.score ?? 0) + (kinds.clearance ?? 0) + (kinds.escort ?? 0)
     );
+  });
+});
+
+describe('findNextRecipeCard (the collection looks forward, never back)', () => {
+  const cards = [
+    { id: 'first', title: 'First', flavorText: '', milestoneLevel: 2, sprite: 'a.webp' },
+    { id: 'second', title: 'Second', flavorText: '', milestoneLevel: 5, sprite: 'b.webp' },
+    { id: 'third', title: 'Third', flavorText: '', milestoneLevel: 9, sprite: 'c.webp' },
+  ];
+
+  test('finds the nearest milestone at or past the anchor level', () => {
+    expect(findNextRecipeCard(cards, 3, [])).toEqual({ card: cards[1], levelsAway: 2 });
+  });
+
+  test('a milestone AT the anchor level is zero levels away', () => {
+    expect(findNextRecipeCard(cards, 5, [])).toEqual({ card: cards[1], levelsAway: 0 });
+  });
+
+  test('an already-unlocked card ahead is skipped, not promised twice', () => {
+    // Replaying an old level from the map: the milestone at 5 is owned, so
+    // the next genuine unlock is the one at 9.
+    expect(findNextRecipeCard(cards, 3, ['second'])).toEqual({ card: cards[2], levelsAway: 6 });
+  });
+
+  test('milestones BEHIND the anchor are never suggested, even when locked', () => {
+    // A long-time player predating these cards' milestones: the gaps stay
+    // quietly discoverable in the collection screen, not pitched as homework.
+    expect(findNextRecipeCard(cards, 6, ['first'])).toEqual({ card: cards[2], levelsAway: 3 });
+  });
+
+  test('past the last milestone there is simply nothing ahead', () => {
+    expect(findNextRecipeCard(cards, 10, [])).toBeUndefined();
+    expect(findNextRecipeCard([], 1, [])).toBeUndefined();
+  });
+
+  test('order in the config array does not matter - the smallest milestone wins', () => {
+    const shuffled = [cards[2], cards[0], cards[1]];
+    expect(findNextRecipeCard(shuffled, 1, [])?.card.id).toBe('first');
   });
 });

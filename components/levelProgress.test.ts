@@ -1,5 +1,6 @@
 import {
   buildLevelSummary,
+  buildNextRecipeHint,
   buildRecipeBookSubtitle,
   resolveLevelDisplayName,
   resolveLevelMapIndices,
@@ -196,5 +197,20 @@ describe('buildRecipeBookSubtitle', () => {
       const copy = buildRecipeBookSubtitle(count, 9);
       expect(copy).not.toMatch(/star|badge|tier|rank|hurry|limited/i);
     }
+  });
+});
+
+describe('buildNextRecipeHint (a calm destination, never a countdown)', () => {
+  test('distance zero means the very next level the player starts', () => {
+    expect(buildNextRecipeHint(0)).toBe('A new recipe waits in your next level.');
+  });
+
+  test('one level away is spelled out, not "1 levels"', () => {
+    expect(buildNextRecipeHint(1)).toBe('A new recipe waits one level ahead.');
+  });
+
+  test('further distances use the plain count', () => {
+    expect(buildNextRecipeHint(3)).toBe('A new recipe waits 3 levels ahead.');
+    expect(buildNextRecipeHint(18)).toBe('A new recipe waits 18 levels ahead.');
   });
 });

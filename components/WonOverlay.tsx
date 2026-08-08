@@ -55,6 +55,14 @@ export interface WonOverlayProps {
   // and subtext for RecipeCardReveal — see that component for why this is
   // a distinct calmer treatment, not layered on top of the existing one.
   unlockedRecipeCard: RecipeCard | null;
+  // The calm forward-looking session goal ("A new recipe waits N levels
+  // ahead") — same string Home's recipe book card shows, built by App.tsx
+  // (levelProgress.ts's buildNextRecipeHint over appPersistence.ts's
+  // findNextRecipeCard) anchored on the level AFTER this win. Shown only on
+  // an ordinary win: when this win itself revealed a card, the reveal is
+  // the moment and stacking a "next one" pitch on top would read as the
+  // collection nagging. Undefined once nothing lies ahead.
+  nextRecipeHint?: string;
 }
 
 // Fixed brand accents from the design brief, not skin-configurable data —
@@ -115,6 +123,7 @@ export function WonOverlay({
   onNext,
   onOpenDashboard,
   unlockedRecipeCard,
+  nextRecipeHint,
 }: WonOverlayProps) {
   // The plated-dish illustration only has room for one icon — it stays
   // pinned to the first objective regardless of how many there are, the
@@ -166,6 +175,9 @@ export function WonOverlay({
         <Text style={[styles.subtext, { color: mutedText }]}>
           {unlockedRecipeCard ? 'A recipe was added to your cookbook.' : 'Plated with moves to spare — nicely done.'}
         </Text>
+        {!unlockedRecipeCard && nextRecipeHint !== undefined && (
+          <Text style={[styles.subtext, { color: mutedText }]}>{nextRecipeHint}</Text>
+        )}
 
         {!unlockedRecipeCard && (
           <View style={styles.chipRow}>

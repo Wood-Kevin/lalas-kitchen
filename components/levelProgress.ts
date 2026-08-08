@@ -192,6 +192,24 @@ export function buildLevelSummary(
 // here, not a fake denominator smuggled back in. Still just a plain count,
 // no percentage, no progress bar, no urgency language, per this feature's
 // explicit "not a competitive achievement system" design brief.
+// The forward-looking companion line to the subtitle above (see
+// appPersistence.ts's findNextRecipeCard for where the distance comes from
+// and why it only ever looks ahead). Deliberately does NOT name the recipe:
+// the collection screen renders locked cards as anonymous empty cells, so
+// naming one here would leak the surprise that reveal moment exists for —
+// the hint promises *that* something is coming, never *what*. Same calm
+// register as everything else on this card: no countdown framing, no
+// exclamation, no urgency.
+export function buildNextRecipeHint(levelsAway: number): string {
+  // "your next level" rather than "this level": both surfaces that show
+  // this (Home's recipe book card, the win overlay) anchor the distance on
+  // the level the player is ABOUT to play, so distance 0 always means "the
+  // very next one you start" — phrasing that reads correctly from either.
+  if (levelsAway <= 0) return 'A new recipe waits in your next level.';
+  if (levelsAway === 1) return 'A new recipe waits one level ahead.';
+  return `A new recipe waits ${levelsAway} levels ahead.`;
+}
+
 export function buildRecipeBookSubtitle(unlockedCount: number, totalCount: number): string {
   if (unlockedCount <= 0) {
     return 'A fresh recipe book, ready when you are.';

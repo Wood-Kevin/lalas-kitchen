@@ -37,6 +37,7 @@ import {
   grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
+  findNextRecipeCard,
   markTutorialSeen,
   recordLevelStars,
   resolveNextLevelIndex,
@@ -48,6 +49,7 @@ import {
 } from './appPersistence';
 import {
   buildLevelSummary,
+  buildNextRecipeHint,
   resolveLevelMapIndices,
   resolveLevelStatus,
   resolveNextUnplayedLevel,
@@ -1015,6 +1017,17 @@ function AppRoot() {
             nextLevel={nextLevelSummary}
             unlockedRecipeCardCount={unlockedRecipeCards.length}
             totalRecipeCardCount={skinConfig.recipeCards.length}
+            // The calm forward-looking session goal, anchored on the real
+            // next-unplayed level (see findNextRecipeCard for why it only
+            // ever looks ahead, never back at replayable gaps).
+            nextRecipeHint={(() => {
+              const ahead = findNextRecipeCard(
+                skinConfig.recipeCards,
+                nextLevelIndex,
+                unlockedRecipeCards
+              );
+              return ahead ? buildNextRecipeHint(ahead.levelsAway) : undefined;
+            })()}
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
             onOpenRecipeBook={handleOpenRecipeBook}
@@ -1098,6 +1111,19 @@ function AppRoot() {
             lastTutorialShownAt={lastTutorialShownAtRef.current}
             onTutorialShown={handleTutorialShown}
             unlockedRecipeCard={revealedRecipeCard}
+            // Same hint Home shows, anchored one level PAST the one being
+            // played — from the win screen, "ahead" starts at the next
+            // level. Recomputed naturally when a win updates
+            // unlockedRecipeCards, so a milestone win's own card never
+            // counts as still-ahead.
+            nextRecipeHint={(() => {
+              const ahead = findNextRecipeCard(
+                skinConfig.recipeCards,
+                levelIndex + 1,
+                unlockedRecipeCards
+              );
+              return ahead ? buildNextRecipeHint(ahead.levelsAway) : undefined;
+            })()}
             soundEnabled={soundEnabled}
             hapticsEnabled={hapticsEnabled}
           />

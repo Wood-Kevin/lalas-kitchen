@@ -33,6 +33,12 @@ export interface HomeProps {
   // completed" flavor text this card used to show.
   unlockedRecipeCardCount: number;
   totalRecipeCardCount: number;
+  // The calm forward-looking session goal ("A new recipe waits N levels
+  // ahead") — built by App.tsx from levelProgress.ts's buildNextRecipeHint
+  // over appPersistence.ts's findNextRecipeCard, anchored on the real
+  // next-unplayed level. Undefined once nothing lies ahead (past the last
+  // curated milestone), in which case the card shows only its plain count.
+  nextRecipeHint?: string;
   onStartNext: () => void;
   onBrowseAllLevels: () => void;
   // The recipe book card's own tap target — opens the RecipeBook collection
@@ -70,6 +76,7 @@ export function Home({
   nextLevel,
   unlockedRecipeCardCount,
   totalRecipeCardCount,
+  nextRecipeHint,
   onStartNext,
   onBrowseAllLevels,
   onOpenRecipeBook,
@@ -163,6 +170,11 @@ export function Home({
         <View style={styles.cardPadding}>
           <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
           <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
+          {nextRecipeHint !== undefined && (
+            <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>
+              {nextRecipeHint}
+            </Text>
+          )}
         </View>
       </Pressable>
 
