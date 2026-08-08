@@ -34,7 +34,14 @@ import { findAnyLegalMove } from '../engine/matrix';
 import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
 import { describeTileForAccessibility } from './tileAccessibility';
-import { diffBoards, relocateSwappedClears, resolveSwapMotionIds } from './boardDiff';
+import {
+  diffBoards,
+  relocateSwappedClears,
+  resolveSwapMotionIds,
+  planSpawnEntries,
+  maxMotionCells,
+  SpawnEntryPlan,
+} from './boardDiff';
 import { resolveDragTarget } from './dragDirection';
 import {
   SpecialEffectDescriptor,
@@ -45,10 +52,10 @@ import { getSpriteForPiece } from './spriteMap';
 import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import {
-  cascadeFallDurationMs,
-  terminalOverlayHoldMs,
+  fallSpeedProfile,
+  passDurationMs,
+  PASS_BEAT_MS,
   springSettleMs,
-  columnDropDelayMs,
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
@@ -362,7 +369,14 @@ export function Board({
   // stale value.
   const [dragTarget, setDragTarget] = useState<Position | null>(null);
   const [exiting, setExiting] = useState<ExitingEntry[]>([]);
-  const [spawnedIds, setSpawnedIds] = useState<Set<string>>(new Set());
+  // Where each of the current pass's spawns enters from — streamed above the
+  // board edge (entryRowById, negative rows clipped by the board frame) or
+  // faded in place (an enclosed void segment). See boardDiff.ts's
+  // planSpawnEntries and SPEC.md's spawn-streaming decision.
+  const [spawnPlan, setSpawnPlan] = useState<SpawnEntryPlan>({
+    entryRowById: new Map(),
+    fadeInPlaceIds: new Set(),
+  });
   const [swapDurationIds, setSwapDurationIds] = useState<Set<string>>(new Set());
   const [snapBack, setSnapBack] = useState<{ a: Position; b: Position } | null>(null);
   // A unique key per combo_streak event (see engine/gameState.ts), not just
@@ -502,24 +516,20 @@ export function Board({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
 
-  const cascadeDurationMs = cascadeFallDurationMs(skinConfig.animationProfile.cascadeFallSpeed);
+  // The skin's qualitative fall speed resolved to a velocity profile — every
+  // non-swap tile motion derives its duration from its own travel distance
+  // through this (see cascadeTiming.ts's fallSpeedProfile / SPEC.md's
+  // distance-based-timing decision). There is no flat cascade duration or
+  // fixed between-pass interval anymore: pass scheduling is content-driven,
+  // computed per pass inside runStep from what that pass actually moves.
+  const fallProfile = fallSpeedProfile(skinConfig.animationProfile.cascadeFallSpeed);
   const swapDurationMs = skinConfig.animationProfile.swapDurationMs;
   const matchDurationMs = skinConfig.animationProfile.matchDurationMs;
-  // How long the swap-specific duration should apply to the just-tapped
-  // pair before falling back to the (longer-lived) cascade duration for any
-  // subsequent move — bounds the bookkeeping Sets below instead of letting
-  // them grow for the life of the level.
-  const transitionWindowMs = Math.max(cascadeDurationMs, swapDurationMs);
-  // Delay between one cascade pass's clears settling and the next pass's
-  // clears beginning. Reuses the existing per-pass fall duration as the beat
-  // rather than inventing a new number or stretching one value across the
-  // whole chain — each pass gets the same calm, legible pacing a single
-  // cascade already has (see CLAUDE.md's calm-not-frantic constraint).
-  const cascadeStepIntervalMs = cascadeDurationMs;
-  // How long after the final cascade pass commits before the terminal overlay
-  // is revealed — one full between-pass beat, so the last pass gets the same
-  // play time every earlier pass already got (see cascadeTiming.ts).
-  const terminalOverlayHold = terminalOverlayHoldMs(cascadeStepIntervalMs);
+  // How long the swap/spawn bookkeeping applies to the just-animated pieces
+  // before being reset — bounds the bookkeeping state below instead of
+  // letting it grow for the life of the level. The profile's cap is the
+  // longest any single motion can now take.
+  const transitionWindowMs = Math.max(fallProfile.capMs, swapDurationMs);
 
   useEffect(() => {
     // Clear any in-flight cascade timers if this Board unmounts mid-animation
@@ -741,12 +751,13 @@ export function Board({
     dragRelease?: { pieceId: string; dx: number; dy: number }
   ) {
     animatingRef.current = true;
-    // The final pass's chain-staging hold (see PassAnimation.chainHoldMs) —
-    // set by runStep before it calls commitFinalState synchronously, so the
-    // terminal-overlay hold below can stretch to cover a chain's late links.
-    // Stays 0 for a chainless move (and the zero-steps dropdown case), so
-    // the overlay timing is byte-identical to before.
-    let finalPassChainHoldMs = 0;
+    // How long after the final pass commits before the terminal overlay may
+    // appear: that pass's own content-driven duration plus one breathing
+    // beat (see cascadeTiming.ts's passDurationMs/PASS_BEAT_MS) — set by
+    // runStep before it calls commitFinalState synchronously. The zero-steps
+    // dropdown case never reaches runStep, so it keeps just the beat: a
+    // relocation-only move has no pass motion for the overlay to wait out.
+    let finalPassHoldMs = PASS_BEAT_MS;
     // Re-gate the terminal overlay for this move: even if a prior move left it
     // revealed, the win/pause for THIS move must wait for THIS move's final
     // pass to finish animating.
@@ -814,13 +825,13 @@ export function Board({
       // the flag simply stays false and gates nothing (status is in_progress).
       if (finalState.status === 'won' || finalState.status === 'paused_awaiting_input') {
         stepTimersRef.current.push(
-          setTimeout(() => setTerminalOverlayReady(true), terminalOverlayHold + finalPassChainHoldMs)
+          setTimeout(() => setTerminalOverlayReady(true), finalPassHoldMs)
         );
       }
       stepTimersRef.current.push(
         setTimeout(() => {
           setSwapDurationIds(new Set());
-          setSpawnedIds(new Set());
+          setSpawnPlan({ entryRowById: new Map(), fadeInPlaceIds: new Set() });
         }, transitionWindowMs)
       );
     };
@@ -918,7 +929,10 @@ export function Board({
       // for why piece id alone isn't a safe enough test: a survived tapped
       // piece can fall further than one cell within this same pass).
       setSwapDurationIds(i === 0 ? resolveSwapMotionIds(tappedIds, rawDiff.moved) : new Set());
-      setSpawnedIds(new Set(diff.spawned.map((s) => s.piece.id)));
+      // Where this pass's spawns enter from — streamed above the board edge
+      // (clipped, no fade) or faded in place for an enclosed void segment.
+      const passSpawnPlan = planSpawnEntries(diff.spawned, next);
+      setSpawnPlan(passSpawnPlan);
       // Append (don't replace): a pass's exit tiles keep animating out while
       // the next pass's clears begin, giving the layered, sequential read.
       // Each ExitingTile removes itself on completion (see removeExiting).
@@ -951,24 +965,36 @@ export function Board({
 
       previous = next;
 
-      // A pass whose chain staged its clears out by chainHoldMs needs the
-      // next beat (or, on the final pass, the terminal overlay) pushed out by
-      // the same amount, so a late link is never cut off mid-fire. 0 for a
-      // chainless pass — the schedule is then exactly the pre-staging one.
+      // Content-driven scheduling (SPEC.md's pass-scheduling decision): this
+      // pass runs exactly as long as its own longest motion — its latest-
+      // starting clear (sweep/radial/chain delays are already folded into the
+      // pass animation's maps) finishing its pop-and-shrink, or its deepest
+      // fall/spawn stream landing, whichever is later — and the next pass (or
+      // the terminal overlay) begins one PASS_BEAT_MS of stillness after
+      // that. This replaces the old fixed 480ms metronome, which gave a
+      // small pass dead air and cut a deep fall off mid-motion.
+      const maxClearDelayMs = Math.max(
+        0,
+        ...passAnimation.sweepDelays.values(),
+        ...passAnimation.radialDelays.values()
+      );
+      const passMotionMs = passDurationMs(
+        {
+          maxMotionCells: maxMotionCells(diff.moved, passSpawnPlan, diff.spawned),
+          maxClearDelayMs,
+          hasBlockerClear: diff.cleared.some((c) => c.piece.type === 'blocker'),
+          matchDurationMs,
+          settleMs: passSettleMs,
+        },
+        fallProfile
+      );
       if (i + 1 < steps.length) {
         setDisplayBoard(next);
         stepTimersRef.current.push(
-          setTimeout(
-            () => runStep(i + 1),
-            // passTravelMs shifts this pass's clears later, so the next pass
-            // has to shift with them or the beat between the two collapses by
-            // exactly the swap duration. Same reasoning chainHoldMs already
-            // applies for a staged chain's late links.
-            cascadeStepIntervalMs + passAnimation.chainHoldMs + passSettleMs
-          )
+          setTimeout(() => runStep(i + 1), passMotionMs + PASS_BEAT_MS)
         );
       } else {
-        finalPassChainHoldMs = passAnimation.chainHoldMs + passSettleMs;
+        finalPassHoldMs = passMotionMs + PASS_BEAT_MS;
         commitFinalState();
       }
     };
@@ -1146,7 +1172,7 @@ export function Board({
     setSelected(null);
     setDragTarget(null);
     setExiting([]);
-    setSpawnedIds(new Set());
+    setSpawnPlan({ entryRowById: new Map(), fadeInPlaceIds: new Set() });
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
@@ -1263,18 +1289,18 @@ export function Board({
                   }
                 }
                 // Is this tile moving because the PLAYER moved it, or because
-                // gravity did? The same check already picked the duration; it
-                // now also picks whether it waits for its column's turn. A
-                // swap is one tile of travel answering a gesture: immediate.
-                // A fall can cross the board: staggered by column, so a
-                // refill travels rather than landing as one flat slab. Both
-                // motions are critically damped now (see cascadeTiming.ts's
-                // TILE_MOVE_DAMPING_RATIO) — position never overshoots either
-                // way, so there's no longer a firm-vs-soft distinction to make
-                // here, only a timing one.
+                // gravity did? A swap answers the gesture on the fixed swap
+                // clock with the critically damped spring; everything else
+                // derives its own duration from the distance it travels (see
+                // Tile.tsx's position effect and cascadeTiming.ts's
+                // fallSpeedProfile) and a pure downward move accelerates like
+                // gravity — the game-feel overhaul's core distinction.
                 const isSwapMotion = !!snapBack || swapDurationIds.has(piece.id);
-                const duration = isSwapMotion ? swapDurationMs : cascadeDurationMs;
-                const isSpawn = spawnedIds.has(piece.id);
+                // A spawn either streams in from above the board edge (its
+                // negative entry row, clipped by the board frame) or fades in
+                // place inside an enclosed void segment — see spawnPlan.
+                const entryRow = spawnPlan.entryRowById.get(piece.id);
+                const isSpawnFade = spawnPlan.fadeInPlaceIds.has(piece.id);
 
                 return (
                   <Tile
@@ -1288,9 +1314,11 @@ export function Board({
                     panelColor={skinConfig.palette.panel}
                     selected={!!selected && selected.row === r && selected.col === c}
                     accessibilityLabel={describeTileForAccessibility(piece, r, c)}
-                    durationMs={duration}
-                    dropDelayMs={isSwapMotion ? 0 : columnDropDelayMs(c)}
-                    enterFromRow={isSpawn ? r - 2 : undefined}
+                    durationMs={swapDurationMs}
+                    swapMotion={isSwapMotion}
+                    fallProfile={fallProfile}
+                    enterFromRow={entryRow}
+                    spawnFade={isSpawnFade}
                     // Only a striped piece carries a direction; every other
                     // piece passes undefined, so Tile renders no badge. This
                     // is the one place the row/column sweep a striped piece
@@ -1548,5 +1576,11 @@ const styles = StyleSheet.create({
   },
   board: {
     position: 'relative',
+    // The board frame clips its tiles, which is what lets a refill stream in
+    // from ABOVE the top edge (negative entry rows, fully opaque) and simply
+    // fall into view — the genre's physical spawn model — instead of the old
+    // fade-into-existence at a fixed mid-board offset. See boardDiff.ts's
+    // planSpawnEntries and SPEC.md's spawn-streaming decision.
+    overflow: 'hidden',
   },
 });

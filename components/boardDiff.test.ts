@@ -1,4 +1,11 @@
-import { diffBoards, relocateSwappedClears, resolveSwapMotionIds, MovedPiece } from './boardDiff';
+import {
+  diffBoards,
+  relocateSwappedClears,
+  resolveSwapMotionIds,
+  planSpawnEntries,
+  maxMotionCells,
+  MovedPiece,
+} from './boardDiff';
 import { Board, Piece } from '../engine/matrix';
 
 function piece(id: string, matchType: string): Piece {
@@ -171,5 +178,128 @@ describe('resolveSwapMotionIds (a tapped piece can fall further than its own swa
     const tappedIds = new Set([tomato.id]);
     const movedList = [moved(tomato, [2, 3], [3, 4])];
     expect(resolveSwapMotionIds(tappedIds, movedList)).toEqual(new Set());
+  });
+});
+
+describe('planSpawnEntries (spawns stream from the board edge, or fade in an enclosed pocket)', () => {
+  const voidPiece = (id: string): Piece => ({ id, type: 'void' });
+  const spawn = (id: string, row: number, col: number) => ({
+    piece: piece(id, 'A'),
+    to: { row, col },
+  });
+
+  test('a single edge spawn enters one row above the board', () => {
+    const board = boardOf([[piece('s1', 'A')], [piece('x', 'B')]]);
+    const plan = planSpawnEntries([spawn('s1', 0, 0)], board);
+    expect(plan.entryRowById.get('s1')).toBe(-1);
+    expect(plan.fadeInPlaceIds.size).toBe(0);
+  });
+
+  test('a multi-spawn column enters as one contiguous stack above the edge', () => {
+    // Three spawns landing at rows 0,1,2 stream from -3,-2,-1: every piece in
+    // the stack travels the same distance (the stack height), so the column
+    // falls together instead of converging from scattered offsets.
+    const board = boardOf([
+      [piece('s1', 'A')],
+      [piece('s2', 'B')],
+      [piece('s3', 'C')],
+      [piece('old', 'D')],
+    ]);
+    const plan = planSpawnEntries(
+      [spawn('s1', 0, 0), spawn('s2', 1, 0), spawn('s3', 2, 0)],
+      board
+    );
+    expect(plan.entryRowById.get('s1')).toBe(-3);
+    expect(plan.entryRowById.get('s2')).toBe(-2);
+    expect(plan.entryRowById.get('s3')).toBe(-1);
+  });
+
+  test('columns are independent — each stacks only its own spawns', () => {
+    const board = boardOf([
+      [piece('s1', 'A'), piece('s2', 'B')],
+      [piece('x', 'C'), piece('s3', 'D')],
+    ]);
+    const plan = planSpawnEntries(
+      [spawn('s1', 0, 0), spawn('s2', 0, 1), spawn('s3', 1, 1)],
+      board
+    );
+    expect(plan.entryRowById.get('s1')).toBe(-1);
+    expect(plan.entryRowById.get('s2')).toBe(-2);
+    expect(plan.entryRowById.get('s3')).toBe(-1);
+  });
+
+  test('a spawn refilling an enclosed void segment fades in place instead of streaming', () => {
+    // Column 0: playable row 0, void row 1, playable rows 2-3 (an enclosed
+    // pocket). A spawn landing at row 2 has a segment top of 2 (not 0), so it
+    // cannot stream from the edge without visibly crossing the void.
+    const board = boardOf([
+      [piece('top', 'A')],
+      [voidPiece('v')],
+      [piece('s1', 'B')],
+      [piece('x', 'C')],
+    ]);
+    const plan = planSpawnEntries([spawn('s1', 2, 0)], board);
+    expect(plan.entryRowById.has('s1')).toBe(false);
+    expect(plan.fadeInPlaceIds.has('s1')).toBe(true);
+  });
+
+  test('an edge segment still streams even when the same column holds an enclosed pocket', () => {
+    const board = boardOf([
+      [piece('s1', 'A')],
+      [voidPiece('v')],
+      [piece('s2', 'B')],
+    ]);
+    const plan = planSpawnEntries([spawn('s1', 0, 0), spawn('s2', 2, 0)], board);
+    // The edge spawn streams (stack of one edge spawn: enters at -1); the
+    // pocket spawn fades.
+    expect(plan.entryRowById.get('s1')).toBe(-1);
+    expect(plan.fadeInPlaceIds.has('s2')).toBe(true);
+  });
+
+  test('no spawns yields an empty plan', () => {
+    const board = boardOf([[piece('a', 'A')]]);
+    const plan = planSpawnEntries([], board);
+    expect(plan.entryRowById.size).toBe(0);
+    expect(plan.fadeInPlaceIds.size).toBe(0);
+  });
+});
+
+describe('maxMotionCells (the fall-side input to the content-driven pass schedule)', () => {
+  const moved = (id: string, from: [number, number], to: [number, number]): MovedPiece => ({
+    piece: piece(id, 'A'),
+    from: { row: from[0], col: from[1] },
+    to: { row: to[0], col: to[1] },
+  });
+  const emptyPlan = { entryRowById: new Map<string, number>(), fadeInPlaceIds: new Set<string>() };
+
+  test('a clear-only pass has zero motion', () => {
+    expect(maxMotionCells([], emptyPlan, [])).toBe(0);
+  });
+
+  test('takes the deepest fall among moved pieces', () => {
+    expect(maxMotionCells([moved('a', [0, 0], [1, 0]), moved('b', [0, 1], [4, 1])], emptyPlan, [])).toBe(4);
+  });
+
+  test('a shuffle relocation counts by its larger axis, whichever direction it travels', () => {
+    // Upward + sideways: chebyshev distance, so the schedule still covers it.
+    expect(maxMotionCells([moved('a', [5, 4], [0, 1])], emptyPlan, [])).toBe(5);
+  });
+
+  test('an edge-streamed spawn contributes its real travel from above the board', () => {
+    const spawned = [{ piece: piece('s1', 'A'), to: { row: 2, col: 0 } }];
+    const plan = {
+      entryRowById: new Map([['s1', -3]]),
+      fadeInPlaceIds: new Set<string>(),
+    };
+    expect(maxMotionCells([], plan, spawned)).toBe(5);
+  });
+
+  test('a fade-in-place spawn contributes nothing, having no travel', () => {
+    const spawned = [{ piece: piece('s1', 'A'), to: { row: 2, col: 0 } }];
+    const plan = {
+      entryRowById: new Map<string, number>(),
+      fadeInPlaceIds: new Set(['s1']),
+    };
+    expect(maxMotionCells([], plan, spawned)).toBe(0);
   });
 });

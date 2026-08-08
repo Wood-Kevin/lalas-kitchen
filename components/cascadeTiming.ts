@@ -1,35 +1,57 @@
 import { CascadeFallSpeed } from './skinConfig';
 
-// config.animationProfile.cascadeFallSpeed is a qualitative string, not a
-// duration — this is the one place that maps it to an actual millisecond
-// value for Reanimated. The specific numbers are a rendering-layer judgment
-// call (not specified anywhere in the build spec), documented in
-// components/NOTES.md rather than guessed silently.
+// config.animationProfile.cascadeFallSpeed is a qualitative string — this is
+// the one place that maps it to actual motion numbers for Reanimated, so the
+// skin never knows about cell counts or milliseconds (the leak test).
 //
-// `medium` was retuned from 350 to 480 (and lalas-kitchen's own
-// matchDurationMs from 220 to 300 alongside it, in config.json) so a
-// cascade chain resolves slowly enough for a player to actually see what
-// cleared and why, rather than the pieces just vanishing in a blur — a
-// direct read on CLAUDE.md's "calm, not frantic" pacing constraint.
-// `swapDurationMs` was left at 140 by that retune, on the reasoning that it is
-// "the direct response to a player's own tap, not a passive animation they're
-// just watching." That has since been revisited and reversed: leaving it
-// behind made the swap 3.4x faster than every motion around it — the one
-// snappy thing in a deliberately calm game — and real play reported exactly
-// that. It is now 300 (config.json) and, after three failed motion designs
-// (a timing curve, a better timing curve, then an overshooting spring), runs
-// as a CRITICALLY DAMPED spring plus a squash-and-stretch landing beat — see
-// Tile.tsx's TILE_MOVE_DAMPING_RATIO and docs/verification/swap-smoothness/
-// for why position itself no longer overshoots at all.
-const CASCADE_FALL_DURATIONS_MS: Record<CascadeFallSpeed, number> = {
-  slow: 500,
-  medium: 480,
-  fast: 220,
+// It used to map to one flat DURATION (480ms for `medium`), which the
+// game-feel overhaul (SPEC.md, 2026-08-08) identified as the single biggest
+// "doesn't feel like other match-3s" contributor: a fixed duration means a
+// 6-cell fall travels six times FASTER than a 1-cell fall in the same
+// cascade, so pieces visibly move at different speeds. The genre's falls
+// read as physical because their VELOCITY is consistent and arrival times
+// vary. So a speed now maps to a velocity profile — a small fixed `baseMs`
+// (unstick time), a `perCellMs` rate, and a `capMs` so a full-board fall on
+// a tall level can never drag — and each tile's real duration is derived
+// from its own travel distance via fallDurationForCells below.
+//
+// The `medium` numbers keep a typical 2-3 cell cascade fall in the same
+// unhurried register the old flat 480ms gave it (2 cells ≈ 380ms, 3 ≈
+// 540ms), while a 1-cell fall (220ms) stops being glacial. Hand-picked, not
+// playtested — disclosed in DEFERRED_COMPLEXITY.md like every other motion
+// constant here.
+export interface FallSpeedProfile {
+  baseMs: number;
+  perCellMs: number;
+  capMs: number;
+}
+
+const FALL_SPEED_PROFILES: Record<CascadeFallSpeed, FallSpeedProfile> = {
+  slow: { baseMs: 70, perCellMs: 200, capMs: 800 },
+  medium: { baseMs: 60, perCellMs: 160, capMs: 640 },
+  fast: { baseMs: 40, perCellMs: 90, capMs: 400 },
 };
 
-export function cascadeFallDurationMs(cascadeFallSpeed: CascadeFallSpeed): number {
-  return CASCADE_FALL_DURATIONS_MS[cascadeFallSpeed] ?? CASCADE_FALL_DURATIONS_MS.medium;
+export function fallSpeedProfile(cascadeFallSpeed: CascadeFallSpeed): FallSpeedProfile {
+  return FALL_SPEED_PROFILES[cascadeFallSpeed] ?? FALL_SPEED_PROFILES.medium;
 }
+
+// A tile's actual motion duration for `cells` of travel. 0 cells → 0 (no
+// motion, no animation); otherwise base + perCell × cells, capped. Fractional
+// cell counts are legal — a tile retargeted mid-flight computes its remaining
+// distance from its current animated position, so the duration always matches
+// the distance genuinely left to cover.
+export function fallDurationForCells(profile: FallSpeedProfile, cells: number): number {
+  if (cells <= 0) return 0;
+  return Math.min(profile.capMs, Math.round(profile.baseMs + profile.perCellMs * cells));
+}
+
+// How long a spawn that cannot stream from the board's top edge (an enclosed
+// void segment — see boardDiff.ts's planSpawnEntries) takes to fade in at its
+// landing cell. The only remaining fade in the refill pipeline: edge-streamed
+// spawns enter fully opaque above the board and are clipped by the board
+// frame, per SPEC.md's spawn-streaming decision.
+export const SPAWN_FADE_MS = 200;
 
 // Tile POSITION never overshoots — this is a deliberate reversal of three
 // earlier attempts in this same investigation (see engine/DECISIONS.md's
@@ -81,23 +103,36 @@ export function springSettleMs(perceptualMs: number): number {
   return perceptualMs > 0 ? perceptualMs + SQUASH_TOTAL_MS : 0;
 }
 
-// Columns do not all drop on the same frame. Every other multi-tile effect in
-// this game already travels — the sweep staggers per tile, the bomb ripples
-// outward, chain links fire in sequence — but a gravity refill landed every
-// column simultaneously, which reads as one flat slab rather than a cascade.
-// A small per-column offset gives it the same sense of travel, matching how
-// this genre's drops actually read.
+// The quiet breathing beat between one cascade pass's motion finishing and
+// the next pass beginning (and between the final pass finishing and the
+// terminal overlay appearing). This replaces the old fixed 480ms
+// `cascadeStepIntervalMs` metronome: pass scheduling is now content-driven
+// (see passDurationMs below) — a pass runs exactly as long as its own
+// longest motion, then this one short beat of stillness, so a small pass no
+// longer waits out dead air and a long fall is no longer cut off. It also
+// gives a landing tile's squash-and-stretch beat (SQUASH_TOTAL_MS's 200ms)
+// most of its room before the next pass's clears begin, matching the old
+// schedule's behaviour of not gating passes on the squash itself.
 //
-// Deliberately small: 25ms over a 5-wide board is 100ms end to end, a gentle
-// left-to-right ripple rather than a visible wave. It is applied ONLY to falls
-// and spawns, never to a swap — the piece a player just moved must answer
-// instantly, and delaying it by column would make the game feel laggy in
-// exactly the place responsiveness matters most.
-export const COLUMN_DROP_STAGGER_MS = 25;
+// Note on the former COLUMN_DROP_STAGGER_MS (a 25ms/column left-to-right
+// drop ripple): removed outright by the game-feel overhaul rather than kept
+// beside it. It was choreography standing in for physics — with fall
+// durations now proportional to distance, arrival times vary naturally per
+// column and the artificial ripple would just fight the real one.
+export const PASS_BEAT_MS = 140;
 
-export function columnDropDelayMs(col: number): number {
-  return Math.max(0, col) * COLUMN_DROP_STAGGER_MS;
-}
+// The ordinary-match anticipation beat (SPEC.md's resolved fork): a matched
+// tile brightens and swells briefly BEFORE it shrinks away, so the game's
+// most common event gets the same "recognize → celebrate → remove" grammar
+// every special effect already has, instead of just evaporating. Folded into
+// the FRONT of matchDurationMs — exactly the pattern the sweep's
+// SWEEP_GLOW_POP_MS established — so a clear's total time, and therefore the
+// pass schedule, is unchanged. Milder than the sweep/radial pops on every
+// axis (smaller swell, fainter wash) because it plays on every single match,
+// not on a special moment. Calm brief: a soft acknowledgement, not a flash.
+export const MATCH_POP_MS = 90;
+export const MATCH_POP_SCALE = 1.08;
+export const MATCH_POP_OPACITY = 0.25;
 
 // A blocker can clear several cascade steps away from the match a player
 // actually tapped, with nothing else on screen drawing the eye there first
@@ -181,56 +216,93 @@ export const SUPERCOMBO_FLASH_PULSE_MS = SUPERCOMBO_CONVERT_MS / 4;
 // SLOWS the chain's read into deliberate beats; it adds no flash or shake.
 export const CHAIN_LINK_STAGGER_MS = 260;
 
-// How long the terminal (Won / Paused) overlay is held back after the FINAL
-// cascade pass commits, before it's allowed to appear. Board.tsx's
-// animateCascade commits gameState — flipping status to 'won'/'paused' — at the
-// *start* of the last pass's animation, so the overlay's underlying data is
-// ready one full pass-beat before that pass has finished playing on screen.
-// Without this hold the overlay pops the instant the winning move's data
-// resolves, cutting off the final pass (and, on a single-pass win, the winning
-// match's own pop) — the exact "overlay appears before cascades finish" bug.
-// One full between-pass beat is the same pacing every earlier pass already gets
-// before the next one starts, so the last pass just gets the beat it was
-// missing rather than a bespoke new delay.
-export function terminalOverlayHoldMs(cascadeStepIntervalMs: number): number {
-  return cascadeStepIntervalMs;
+// Everything one cascade pass is doing that takes time, reduced to the
+// numbers the schedule needs. Board.tsx's runStep derives these from the
+// pass's own diff + pass animation — nothing here is new data, only the
+// existing per-tile timing decisions summarised for scheduling.
+export interface PassMotionInputs {
+  // Longest grid motion in this pass, in cells: the deepest fall among
+  // moved pieces (chebyshev distance, so a shuffle relocation counts too)
+  // and the tallest spawn stream (a column's spawn count — see
+  // boardDiff.ts's planSpawnEntries). 0 for a pass that only clears.
+  maxMotionCells: number;
+  // The largest delay any of this pass's clears waits before its own pop
+  // begins — the max across the pass animation's sweep/radial maps, which
+  // already includes chain-wave staging. 0 when every clear is immediate.
+  maxClearDelayMs: number;
+  // Whether any of this pass's clears is a blocker, whose exit plays its
+  // own highlight pulse before the normal pop-and-shrink.
+  hasBlockerClear: boolean;
+  // The skin's per-clear pop-and-shrink budget (matchDurationMs).
+  matchDurationMs: number;
+  // Pass 0 of a committed swap holds every clear until the swap has landed
+  // AND played its squash beat (springSettleMs(swapDurationMs)); 0 for
+  // every other pass. Falls in the pass are not held — only clears are.
+  settleMs: number;
+}
+
+// How long one pass's motion actually takes to finish on screen — the
+// content-driven replacement for the old fixed 480ms `cascadeStepIntervalMs`.
+// A pass's clears and its falls run concurrently (the refill starts the tick
+// the pass is shown), so the pass is done when the LATER of the two is done:
+//   clears: settle hold + the latest clear's start delay (sweep/radial/chain,
+//           or the blocker highlight pulse) + the pop-and-shrink itself
+//   falls:  the longest motion's distance-derived duration
+// The landing squash is deliberately NOT waited out here — the old schedule
+// never gated the next pass on it either, and PASS_BEAT_MS gives it most of
+// its room; a beat of overlap between a settling squash and the next pass's
+// clears is the continuity the overhaul is after, not a defect.
+export function passDurationMs(inputs: PassMotionInputs, profile: FallSpeedProfile): number {
+  const clearStartDelayMs = Math.max(
+    inputs.maxClearDelayMs,
+    inputs.hasBlockerClear ? BLOCKER_CLEAR_HIGHLIGHT_MS : 0
+  );
+  const clearsEndMs = inputs.settleMs + clearStartDelayMs + inputs.matchDurationMs;
+  const fallsEndMs = fallDurationForCells(profile, inputs.maxMotionCells);
+  return Math.max(clearsEndMs, fallsEndMs);
 }
 
 export interface CascadeAnimationSchedule {
   // Offset in ms (from the move being applied) at which each cascade pass
   // begins animating on screen — one entry per pass, in resolution order.
-  // stepStartsMs[i] === i * cascadeStepIntervalMs, because animateCascade
-  // chains each pass a fixed interval after the previous one.
+  // Each pass starts when the previous pass's own motion has finished plus
+  // one PASS_BEAT_MS of stillness — content-driven, never a fixed metronome.
   stepStartsMs: number[];
   // Offset in ms at which the terminal (Won / Paused) overlay may appear. By
   // construction this is always strictly greater than every entry in
-  // stepStartsMs — the overlay is gated on the LAST pass having begun AND had a
-  // full beat to finish, never on the moment win data resolves mid- or
-  // start-of-final-pass. This is the property the presentation layer must
-  // honour, expressed as pure arithmetic so it's testable without a component.
+  // stepStartsMs — the overlay is gated on the LAST pass having begun AND
+  // finished its own motion plus one beat, never on the moment win data
+  // resolves mid- or start-of-final-pass. This is the property the
+  // presentation layer must honour, expressed as pure arithmetic so it's
+  // testable without a component.
   overlayRevealMs: number;
 }
 
 // Models when each cascade pass animates and when the terminal overlay is
-// allowed to show, for a move that resolved `stepCount` passes. Board.tsx
-// realises this schedule via chained setTimeouts (per-pass) plus one final
-// hold timer (the overlay); this function is the single source of truth for the
-// ordering, so a test can assert "every pass plays before the overlay" directly
-// rather than driving React timers. stepCount is clamped at 0 for safety —
-// applyMove CAN genuinely return an empty `steps` for a committed move now
-// (a dropdown/escort swap that neither matches nor arrives — see
-// engine/gameState.ts's ApplyMoveResult.steps comment); Board.tsx's real
-// animateCascade special-cases that scenario with its own early
-// commitFinalState() return rather than calling into this model at all.
+// allowed to show, for a move whose passes take `passDurationsMs` each (one
+// entry per pass, from passDurationMs above). Board.tsx realises this
+// schedule via chained setTimeouts (per-pass) plus one final hold timer (the
+// overlay); this function is the single source of truth for the ordering, so
+// a test can assert "every pass plays before the overlay" directly rather
+// than driving React timers. An empty array is legal for safety — applyMove
+// CAN genuinely return empty `steps` for a committed move (a dropdown/escort
+// swap that neither matches nor arrives); Board.tsx's real animateCascade
+// special-cases that scenario with its own early commitFinalState() return
+// rather than calling into this model at all.
 export function planCascadeAnimation(
-  stepCount: number,
-  cascadeStepIntervalMs: number
+  passDurationsMs: number[],
+  beatMs: number = PASS_BEAT_MS
 ): CascadeAnimationSchedule {
-  const passes = Math.max(0, stepCount);
-  const stepStartsMs = Array.from({ length: passes }, (_, i) => i * cascadeStepIntervalMs);
-  const lastStartMs = passes > 0 ? stepStartsMs[passes - 1] : 0;
+  const stepStartsMs: number[] = [];
+  let cursor = 0;
+  for (const duration of passDurationsMs) {
+    stepStartsMs.push(cursor);
+    cursor += Math.max(0, duration) + beatMs;
+  }
   return {
     stepStartsMs,
-    overlayRevealMs: lastStartMs + terminalOverlayHoldMs(cascadeStepIntervalMs),
+    // The cursor already sits one beat past the final pass's end — exactly
+    // the overlay's earliest allowed moment.
+    overlayRevealMs: cursor,
   };
 }

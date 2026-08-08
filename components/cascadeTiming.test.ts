@@ -1,10 +1,15 @@
 import {
-  cascadeFallDurationMs,
+  fallSpeedProfile,
+  fallDurationForCells,
+  passDurationMs,
   planCascadeAnimation,
-  terminalOverlayHoldMs,
   springSettleMs,
-  columnDropDelayMs,
-  COLUMN_DROP_STAGGER_MS,
+  PASS_BEAT_MS,
+  SPAWN_FADE_MS,
+  MATCH_POP_MS,
+  MATCH_POP_SCALE,
+  MATCH_POP_OPACITY,
+  BLOCKER_CLEAR_HIGHLIGHT_MS,
   TILE_MOVE_DAMPING_RATIO,
   SQUASH_SCALE_X,
   SQUASH_SCALE_Y,
@@ -13,62 +18,142 @@ import {
   SQUASH_TOTAL_MS,
 } from './cascadeTiming';
 
-describe('cascadeFallDurationMs', () => {
-  test('maps each known speed to a distinct duration, slowest to fastest', () => {
-    const slow = cascadeFallDurationMs('slow');
-    const medium = cascadeFallDurationMs('medium');
-    const fast = cascadeFallDurationMs('fast');
+const MEDIUM = fallSpeedProfile('medium');
 
-    expect(slow).toBeGreaterThan(medium);
-    expect(medium).toBeGreaterThan(fast);
+describe('fallSpeedProfile (a speed is a velocity, not a duration)', () => {
+  test('each known speed maps to a distinct per-cell rate, slowest to fastest', () => {
+    expect(fallSpeedProfile('slow').perCellMs).toBeGreaterThan(fallSpeedProfile('medium').perCellMs);
+    expect(fallSpeedProfile('medium').perCellMs).toBeGreaterThan(fallSpeedProfile('fast').perCellMs);
   });
 
-  test('"medium" matches the value used by the lalas-kitchen config', () => {
-    expect(cascadeFallDurationMs('medium')).toBe(480);
+  test('an unknown speed string falls back to medium', () => {
+    expect(fallSpeedProfile('nonsense' as never)).toEqual(MEDIUM);
   });
 });
 
-describe('planCascadeAnimation', () => {
-  const INTERVAL = 480; // the medium cascade beat used in play
+describe('fallDurationForCells (the core game-feel fix: consistent speed, varying arrival)', () => {
+  test('no travel means no animation at all', () => {
+    expect(fallDurationForCells(MEDIUM, 0)).toBe(0);
+    expect(fallDurationForCells(MEDIUM, -2)).toBe(0);
+  });
 
+  test('duration grows with distance — a deeper fall takes longer, never the same flat time', () => {
+    const one = fallDurationForCells(MEDIUM, 1);
+    const two = fallDurationForCells(MEDIUM, 2);
+    const three = fallDurationForCells(MEDIUM, 3);
+    expect(two).toBeGreaterThan(one);
+    expect(three).toBeGreaterThan(two);
+  });
+
+  test('per-cell travel speed is near-uniform across distances (the base only skews short falls slightly)', () => {
+    // The property the whole overhaul exists for: a 1-cell fall and a 4-cell
+    // fall move at roughly the SAME visual speed. With a flat duration the
+    // 4-cell fall would be 4x faster; here the ratio of per-cell times stays
+    // within the small skew the fixed base introduces (SPEC.md allows 25%).
+    const perCellAt1 = fallDurationForCells(MEDIUM, 1) / 1;
+    const perCellAt3 = fallDurationForCells(MEDIUM, 3) / 3;
+    expect(perCellAt1 / perCellAt3).toBeLessThan(1.25);
+    expect(perCellAt1 / perCellAt3).toBeGreaterThan(1);
+  });
+
+  test('the cap bounds a full-board fall so a tall shaped level can never drag', () => {
+    expect(fallDurationForCells(MEDIUM, 50)).toBe(MEDIUM.capMs);
+    expect(fallDurationForCells(MEDIUM, 50)).toBe(fallDurationForCells(MEDIUM, 100));
+  });
+
+  test('fractional distances are legal — a mid-flight retarget derives from real remaining travel', () => {
+    const half = fallDurationForCells(MEDIUM, 0.5);
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(fallDurationForCells(MEDIUM, 1));
+  });
+
+  test('a typical short cascade fall keeps the calm register the old flat 480ms set', () => {
+    // 2-3 cells lands in the same unhurried neighborhood as before; only the
+    // 1-cell fall (previously glacial at 480ms) genuinely tightens.
+    expect(fallDurationForCells(MEDIUM, 2)).toBeGreaterThanOrEqual(350);
+    expect(fallDurationForCells(MEDIUM, 3)).toBeLessThanOrEqual(560);
+    expect(fallDurationForCells(MEDIUM, 1)).toBeLessThan(300);
+  });
+});
+
+describe('passDurationMs (a pass runs as long as its own content, no metronome)', () => {
+  const base = {
+    maxMotionCells: 0,
+    maxClearDelayMs: 0,
+    hasBlockerClear: false,
+    matchDurationMs: 300,
+    settleMs: 0,
+  };
+
+  test('a clear-only pass is just the pop-and-shrink', () => {
+    expect(passDurationMs(base, MEDIUM)).toBe(300);
+  });
+
+  test('a deep fall extends the pass past its clears', () => {
+    const withFall = { ...base, maxMotionCells: 4 };
+    expect(passDurationMs(withFall, MEDIUM)).toBe(fallDurationForCells(MEDIUM, 4));
+    expect(passDurationMs(withFall, MEDIUM)).toBeGreaterThan(300);
+  });
+
+  test('a staggered clear (sweep/radial/chain) extends the pass by its latest start', () => {
+    const withDelay = { ...base, maxClearDelayMs: 385 };
+    expect(passDurationMs(withDelay, MEDIUM)).toBe(385 + 300);
+  });
+
+  test('a blocker clear waits out its highlight pulse when that is the latest clear', () => {
+    const withBlocker = { ...base, hasBlockerClear: true };
+    expect(passDurationMs(withBlocker, MEDIUM)).toBe(BLOCKER_CLEAR_HIGHLIGHT_MS + 300);
+  });
+
+  test('the blocker pulse and a larger stagger do not stack — the later one wins', () => {
+    const both = { ...base, hasBlockerClear: true, maxClearDelayMs: 500 };
+    expect(passDurationMs(both, MEDIUM)).toBe(500 + 300);
+  });
+
+  test("pass 0's swap settle holds every clear, so it extends the clear side only", () => {
+    const settled = { ...base, settleMs: 500 };
+    expect(passDurationMs(settled, MEDIUM)).toBe(500 + 300);
+    // A concurrent fall is not held by the settle; it only wins if genuinely longer.
+    const settledWithShortFall = { ...settled, maxMotionCells: 1 };
+    expect(passDurationMs(settledWithShortFall, MEDIUM)).toBe(500 + 300);
+  });
+});
+
+describe('planCascadeAnimation (content-driven schedule, one beat of stillness between passes)', () => {
   test('the terminal overlay is revealed only after the single pass of a one-pass move has played', () => {
-    // A single-match winning move still animates one pass; the overlay must not
-    // pop the instant that pass begins (the moment win data resolves), so its
-    // reveal is a full beat after the one and only step start.
-    const { stepStartsMs, overlayRevealMs } = planCascadeAnimation(1, INTERVAL);
-
+    const { stepStartsMs, overlayRevealMs } = planCascadeAnimation([300]);
     expect(stepStartsMs).toEqual([0]);
-    expect(overlayRevealMs).toBe(INTERVAL);
+    expect(overlayRevealMs).toBe(300 + PASS_BEAT_MS);
     expect(overlayRevealMs).toBeGreaterThan(stepStartsMs[stepStartsMs.length - 1]);
   });
 
   test('every cascade pass begins before the terminal overlay, for a multi-pass chain', () => {
-    // The core guarantee: for a winning move whose threshold is crossed early
-    // but that keeps cascading, the overlay reveal comes strictly AFTER the
-    // final pass has begun and had its beat — so no pass is cut off. Checked
-    // across chain lengths, since a real winning move can be any depth.
-    for (const stepCount of [2, 3, 5]) {
-      const { stepStartsMs, overlayRevealMs } = planCascadeAnimation(stepCount, INTERVAL);
+    const durations = [440, 640, 300];
+    const { stepStartsMs, overlayRevealMs } = planCascadeAnimation(durations);
 
-      expect(stepStartsMs).toHaveLength(stepCount);
-      // Passes are evenly spaced, in order, starting at 0.
-      expect(stepStartsMs).toEqual(
-        Array.from({ length: stepCount }, (_, i) => i * INTERVAL)
-      );
-      // The overlay reveal is later than the LAST pass's start (and therefore
-      // later than every pass's start) — animation completion, not data.
-      for (const start of stepStartsMs) {
-        expect(overlayRevealMs).toBeGreaterThan(start);
-      }
-      // Specifically one full beat past the final pass's start.
-      expect(overlayRevealMs).toBe((stepCount - 1) * INTERVAL + terminalOverlayHoldMs(INTERVAL));
+    expect(stepStartsMs).toEqual([0, 440 + PASS_BEAT_MS, 440 + 640 + 2 * PASS_BEAT_MS]);
+    for (const start of stepStartsMs) {
+      expect(overlayRevealMs).toBeGreaterThan(start);
     }
+    // Specifically one beat past the final pass's own end.
+    expect(overlayRevealMs).toBe(440 + 640 + 300 + 3 * PASS_BEAT_MS);
   });
 
-  test('the hold after the final pass is one full between-pass beat', () => {
-    // The last pass gets the exact play time every earlier pass already gets
-    // before the next one starts — no bespoke shorter/longer terminal delay.
-    expect(terminalOverlayHoldMs(INTERVAL)).toBe(INTERVAL);
+  test('pass spacing tracks each pass content, not a fixed interval', () => {
+    // The whole point of the rework: a light pass hands off quickly, a heavy
+    // pass gets its full motion — the gaps differ when the content differs.
+    const { stepStartsMs } = planCascadeAnimation([200, 800, 200]);
+    const gap1 = stepStartsMs[1] - stepStartsMs[0];
+    const gap2 = stepStartsMs[2] - stepStartsMs[1];
+    expect(gap1).toBe(200 + PASS_BEAT_MS);
+    expect(gap2).toBe(800 + PASS_BEAT_MS);
+    expect(gap2).not.toBe(gap1);
+  });
+
+  test('an empty move yields an empty schedule (the zero-pass dropdown case)', () => {
+    const { stepStartsMs, overlayRevealMs } = planCascadeAnimation([]);
+    expect(stepStartsMs).toEqual([]);
+    expect(overlayRevealMs).toBe(0);
   });
 });
 
@@ -98,24 +183,34 @@ describe('springSettleMs (a swap must finish its landing beat before its match c
   });
 });
 
-describe('columnDropDelayMs (a refill should travel, not land as one slab)', () => {
-  test('the leftmost column drops immediately', () => {
-    expect(columnDropDelayMs(0)).toBe(0);
+describe('the ordinary-match anticipation beat fits inside the clear budget', () => {
+  test('the pop is a small fraction of matchDurationMs, so the clear total is unchanged', () => {
+    // Folded into the FRONT of the existing budget (the sweep pop's own
+    // pattern) — if the pop ever grew past the budget the shrink would clamp
+    // to zero and the clear would read as a flash with no exit.
+    expect(MATCH_POP_MS).toBeLessThan(300 / 2);
   });
 
-  test('each column to the right waits one more stagger step', () => {
-    expect(columnDropDelayMs(1)).toBe(COLUMN_DROP_STAGGER_MS);
-    expect(columnDropDelayMs(4)).toBe(4 * COLUMN_DROP_STAGGER_MS);
+  test('milder than every special-effect pop on both axes', () => {
+    // It plays on every single match: acknowledge, never celebrate. The
+    // sweep pops to 1.15 scale / 0.5 wash; this must stay under both.
+    expect(MATCH_POP_SCALE).toBeGreaterThan(1);
+    expect(MATCH_POP_SCALE).toBeLessThan(1.15);
+    expect(MATCH_POP_OPACITY).toBeGreaterThan(0);
+    expect(MATCH_POP_OPACITY).toBeLessThan(0.5);
+  });
+});
+
+describe('spawn/beat constants stay in the calm register', () => {
+  test('the between-pass beat is stillness, not a second metronome', () => {
+    // Short enough that back-to-back passes read as continuous, long enough
+    // that a landing squash (SQUASH_TOTAL_MS = 200) gets most of its room.
+    expect(PASS_BEAT_MS).toBeGreaterThanOrEqual(100);
+    expect(PASS_BEAT_MS).toBeLessThanOrEqual(SQUASH_TOTAL_MS);
   });
 
-  test('the whole ripple stays short enough to read as one cascade, not a wave', () => {
-    // Widest board this game builds is 5 columns; the end-to-end offset must
-    // stay well inside a single cascade beat (cascadeFallDurationMs 480).
-    expect(columnDropDelayMs(4)).toBeLessThan(cascadeFallDurationMs('medium') / 4);
-  });
-
-  test('a negative column can never produce a negative delay', () => {
-    expect(columnDropDelayMs(-1)).toBe(0);
+  test('the enclosed-segment fade is brief — a rare fallback, not a feature', () => {
+    expect(SPAWN_FADE_MS).toBeLessThanOrEqual(300);
   });
 });
 
@@ -125,8 +220,9 @@ describe('tile motion has no position overshoot; squash carries the "juice" inst
   // split, once real here) never converged, because a tile sliding past its
   // own grid cell and back is a structurally worse-looking thing than a
   // spring overshooting in open space, independent of how small the overshoot
-  // is. Position is now critically damped for every motion; the previous
-  // swap-vs-fall damping distinction no longer exists to test.
+  // is. Position is now critically damped for every deliberate motion (falls
+  // run an accelerating timing curve — see Tile.tsx's FALL_EASING — which by
+  // construction cannot overshoot either).
   test('position motion is critically damped — no overshoot, for any distance', () => {
     expect(TILE_MOVE_DAMPING_RATIO).toBe(1);
   });

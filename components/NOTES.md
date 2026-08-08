@@ -124,36 +124,36 @@ and every tile of that piece type (plus the HUD if it's the objective's
 target or the lives icon) switches from its label to the real image
 immediately.
 
-## `cascadeFallSpeed` → milliseconds mapping
+## `cascadeFallSpeed` → velocity-profile mapping (was: flat milliseconds)
 
 `config.animationProfile.cascadeFallSpeed` is a qualitative string
-(`'slow' | 'medium' | 'fast'`), not a duration. `cascadeTiming.ts` maps
-these to `{ slow: 500, medium: 480, fast: 220 }` — `medium` was retuned up
-from its original 350 (and `lalas-kitchen`'s own `matchDurationMs` from 220
-to 300 alongside it, in `config.json`) so a cascade chain resolves slowly
-enough for a player to actually follow what's clearing and why as a chain
-unfolds, rather than reading as a blur. `swapDurationMs` (140) was
-deliberately left alone — that duration is a direct response to the
-player's own tap, not a passive animation they're just watching, so it
-stays snappy. Reads as calm rather than snappy per CLAUDE.md's "calm and
-satisfying, not frantic" constraint (a faster, gamier cascade would
-undercut that). These specific numbers aren't specified anywhere in the
-build spec — a judgment call, easy to retune since every duration flows
-through this one function.
+(`'slow' | 'medium' | 'fast'`), not a duration. It originally mapped to one
+flat duration per speed (`{ slow: 500, medium: 480, fast: 220 }`), which
+the game-feel overhaul (SPEC.md, 2026-08-08 — see `engine/DECISIONS.md`'s
+game-feel-overhaul entry) identified as the single biggest "doesn't feel
+like other match-3s" contributor: a fixed duration means a deep fall
+travels many times faster than a shallow one in the same cascade.
+`cascadeTiming.ts`'s `fallSpeedProfile` now maps each speed to a VELOCITY
+profile (`{ baseMs, perCellMs, capMs }`), and `fallDurationForCells`
+derives each tile's real duration from its own travel distance — so all
+falling pieces move at consistent visual speed and simply arrive at
+different times. The config file is unchanged (still `"medium"`); only the
+mapping's meaning changed, per the leak test. These specific numbers are a
+judgment call, easy to retune since every fall duration flows through this
+one function.
 
-## `swapDurationMs` is reserved for the tapped pair; everything else uses cascade timing
+## `swapDurationMs` is reserved for the tapped pair; everything else derives from distance
 
 A resolved move often moves many pieces at once (the two tapped tiles,
-everything that fell during cascades, everything newly spawned), but
-`applyMove` only returns the final settled board — there's no per-step
-breakdown of "this motion was the swap, this one was a cascade fall" (see
-`engine/DECISIONS.md`). Rather than pick one duration arbitrarily for
-every moved piece, `Board.tsx` tracks which two piece ids were the ones
-the player actually tapped and gives *only those* `swapDurationMs`; every
-other moved or spawned piece in the same settle uses
-`cascadeFallDurationMs`. This is the one place both distinct duration
-values in the config actually get used for what they're named after,
-rather than one of them going unused.
+everything that fell during cascades, everything newly spawned).
+`Board.tsx` tracks which two piece ids were the ones the player actually
+tapped and gives *only those* the fixed `swapDurationMs` clock with the
+critically damped spring (`swapMotion` prop — the tuned-and-accepted swap
+feel); every other moved or spawned piece computes its own duration from
+the distance it genuinely covers (see the section above), and a pure
+downward move additionally runs an accelerating gravity easing
+(`Tile.tsx`'s `FALL_EASING`) so it lands carrying velocity into its
+squash-and-stretch beat.
 
 ## Illegal-move feedback: optimistic swap-and-snap-back, no engine state touched
 
@@ -232,20 +232,16 @@ now split evenly above and below instead of dumped below. Logged in
 `DEFERRED_COMPLEXITY.md` since closing that gap needs either non-square
 tiles or a different row/col ratio, neither of which was asked for.
 
-## Known cosmetic issue: spawned tiles can render behind the HUD
+## ~~Known cosmetic issue: spawned tiles can render behind the HUD~~ — resolved
 
-A freshly spawned tile's entry animation starts at `enterFromRow = landingRow - 2`
-so it visibly falls in from above the board (see `Tile.tsx`). For a piece
-landing in row 0 or 1, that start position is negative, and the board
-container doesn't clip overflow — so for one brief moment (well under
-`cascadeFallDurationMs`) the entering tile can render faintly behind the
-HUD panels instead of appearing to originate from just off the top edge.
-Cosmetic only (confirmed visually in the mid-animation screenshot from this
-session's verification pass), not a functional bug. Logged to
-`DEFERRED_COMPLEXITY.md` — the fix is either clipping the board container's
-overflow or capping `enterFromRow` at 0, deferred since it doesn't affect
-correctness and this session's scope was about getting a real, working
-interaction loop rather than final animation polish.
+The game-feel overhaul (SPEC.md, 2026-08-08) resolved this as a side
+effect of the spawn-streaming redesign: the board container now clips its
+tiles (`overflow: 'hidden'` on `styles.board`), and a spawn enters at a
+real negative row above the board edge (`boardDiff.ts`'s
+`planSpawnEntries` — stacked per column, fully opaque, no fade) and simply
+falls into view. A spawned tile can no longer render outside the board's
+own bounds, behind the HUD or anywhere else. The old `enterFromRow = r - 2`
+fade-in this section described is gone entirely.
 
 ## Home.tsx's recipe-book progress had an implied ceiling that doesn't exist
 

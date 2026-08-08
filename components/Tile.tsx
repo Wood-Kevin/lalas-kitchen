@@ -24,6 +24,12 @@ import {
   SQUASH_SCALE_Y,
   SQUASH_DOWN_MS,
   SQUASH_RECOVER_MS,
+  FallSpeedProfile,
+  fallDurationForCells,
+  SPAWN_FADE_MS,
+  MATCH_POP_MS,
+  MATCH_POP_SCALE,
+  MATCH_POP_OPACITY,
 } from './cascadeTiming';
 import { resolveDragTarget } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -44,12 +50,31 @@ export interface TileProps {
   // accessibilityState below, which VoiceOver/TalkBack already announce
   // natively.
   accessibilityLabel: string;
+  // The fixed swap clock (the skin's swapDurationMs). Read only when
+  // swapMotion is true — every other motion's duration is derived from its
+  // own travel distance via fallProfile below.
   durationMs: number;
+  // True when this tile's next move is the player's own gesture (a swap or
+  // its snap-back): it answers on the fixed durationMs clock with the
+  // critically damped spring, exactly the tuned-and-accepted swap feel.
+  // False for everything gravity/shuffle does, which runs distance-based.
+  swapMotion?: boolean;
+  // The velocity profile every non-swap motion derives its duration from
+  // (cascadeTiming.ts's fallSpeedProfile): base + perCell × distance,
+  // capped. This is the game-feel overhaul's core change — a 1-cell fall
+  // and a 6-cell fall now move at the same visual speed and simply arrive
+  // at different times, instead of sharing one flat duration.
+  fallProfile: FallSpeedProfile;
   // Set only on the render where this piece first appears (a cascade
-  // spawn). Read once, at mount, to make the tile animate down into place
-  // instead of popping directly into its landing row — see
-  // components/NOTES.md.
+  // spawn) whose column segment touches the board's top edge: the negative
+  // row it streams in from (see boardDiff.ts's planSpawnEntries). The board
+  // frame clips it until it crosses the edge, so it enters fully opaque as
+  // a real falling piece — no fade.
   enterFromRow?: number;
+  // Set only on a spawn refilling an ENCLOSED void segment, which has no
+  // edge to stream from: it fades in at its landing cell instead (see
+  // planSpawnEntries' fadeInPlaceIds and SPEC.md's resolved fork).
+  spawnFade?: boolean;
   // Present only for a striped piece — which line it will sweep when matched
   // ('row' = horizontal, 'col' = vertical). Drives the small corner badge
   // that replaces the visual signal the old stripe overlay used to carry (see
@@ -88,10 +113,6 @@ export interface TileProps {
   // and to piecesMatch/matching in general (the piece underneath stays fully
   // ordinary/matchable).
   layersRemaining?: number;
-  // How long this tile waits before starting its drop, so columns don't all
-  // land on the same frame (cascadeTiming.ts's columnDropDelayMs). Only ever
-  // set for falls and spawns — a swap must answer the player instantly.
-  dropDelayMs?: number;
   onPress: () => void;
   // --- Drag-to-swap (an addition alongside tap-to-select, never a
   // replacement) ---
@@ -136,13 +157,15 @@ export function Tile({
   selected,
   accessibilityLabel,
   durationMs,
+  swapMotion = false,
+  fallProfile,
   enterFromRow,
+  spawnFade,
   direction,
   spreadWarning,
   powderWisp,
   hint,
   layersRemaining,
-  dropDelayMs = 0,
   onPress,
   dragTargeted,
   dragEnabled = true,
@@ -154,7 +177,10 @@ export function Tile({
 }: TileProps) {
   const rowShared = useSharedValue(enterFromRow ?? row);
   const colShared = useSharedValue(col);
-  const opacity = useSharedValue(enterFromRow !== undefined ? 0 : 1);
+  // Opaque from the first frame for everything except an enclosed-segment
+  // spawn — an edge-streamed spawn (enterFromRow) is hidden by the board
+  // frame's clipping until it falls into view, so it needs no fade.
+  const opacity = useSharedValue(spawnFade ? 0 : 1);
   // Live finger-follow offset while this tile is being dragged. Layered as a
   // transform on top of the row/col position, so the grid layout is untouched
   // and the tile springs back to 0 on release; a committed swap then animates
@@ -165,22 +191,40 @@ export function Tile({
   // constants for why this exists instead of a bigger spring overshoot.
   const scaleX = useSharedValue(1);
   const scaleY = useSharedValue(1);
-  // Skips the squash on this component's very first render (mount is not a
-  // landing — enterFromRow already handles a spawn's own fade/slide-in — and
-  // firing a squash before the tile has ever been seen at rest would read as
-  // an unmotivated flinch). Every render after that DID move, since this
-  // effect only re-runs on a genuine [row, col] change.
-  const hasSettledOnce = useSharedValue(false);
 
   useEffect(() => {
-    const move = { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO };
-    // The column stagger delays only the grid move. A swap passes 0 here, so
-    // the tile the player just pushed still starts on the very next frame.
-    const stagger = <T,>(animation: T): T =>
-      dropDelayMs > 0 ? (withDelay(dropDelayMs, animation as never) as T) : animation;
-    rowShared.value = stagger(withSpring(row, move));
-    colShared.value = stagger(withSpring(col, move));
-    opacity.value = withTiming(1, { duration: durationMs });
+    // Where this tile actually IS right now (possibly mid-flight, possibly
+    // its streamed entry row above the board) — the distance still to cover
+    // is what the duration derives from, so a retargeted tile always moves
+    // at the same visual speed as everything around it.
+    const prevRow = rowShared.value;
+    const prevCol = colShared.value;
+    const dRow = row - prevRow;
+    const dCol = col - prevCol;
+    const cells = Math.max(Math.abs(dRow), Math.abs(dCol));
+    // A swap answers the player's gesture on the skin's fixed swap clock;
+    // every other motion's duration comes from the distance it genuinely
+    // covers (cascadeTiming.ts's velocity profile) — the core of the
+    // game-feel overhaul: consistent speed, varying arrival times.
+    const moveMs = swapMotion ? durationMs : fallDurationForCells(fallProfile, cells);
+    // A pure downward move is a FALL: it accelerates like gravity
+    // (FALL_EASING) and lands carrying velocity — which is what makes the
+    // squash below read as a real impact instead of an unmotivated flinch.
+    // Everything else (swaps, snap-backs, shuffle relocations, sideways
+    // dropdown slides) keeps the critically damped spring: a deliberate
+    // placement decelerates, a falling object doesn't.
+    const isFall = !swapMotion && dRow > 0.001 && Math.abs(dCol) < 0.001;
+    if (isFall) {
+      rowShared.value = withTiming(row, { duration: moveMs, easing: FALL_EASING });
+      colShared.value = col;
+    } else {
+      rowShared.value = withSpring(row, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+      colShared.value = withSpring(col, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+    }
+    // No-op for every tile already at full opacity; an enclosed-segment
+    // spawn (spawnFade) fades in on its own short clock, decoupled from any
+    // motion duration since it has no motion.
+    opacity.value = withTiming(1, { duration: SPAWN_FADE_MS });
     // Fold any live drag offset back to rest on the SAME clock as the row/col
     // slide above. When a drag commits a swap, this tile re-renders with its new
     // cell, so the grid slide and the finger-offset decay start on the same
@@ -191,42 +235,43 @@ export function Tile({
     // few frames earlier than the grid slide, so the tile briefly retreated
     // toward its origin before sliding out to the destination. A no-op (0 → 0)
     // on every non-drag render, which is every render for a tapped swap.
-    dragX.value = withSpring(0, { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
-    dragY.value = withSpring(0, { duration: durationMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+    dragX.value = withSpring(0, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
+    dragY.value = withSpring(0, { duration: moveMs, dampingRatio: TILE_MOVE_DAMPING_RATIO });
 
-    // The landing beat: fires once position arrives — dropDelayMs (the
-    // column's own head start) plus durationMs (the move itself) — so a
-    // staggered fall squashes when IT lands, not when column 0 does. Squash
-    // is scale-only: it never touches rowShared/colShared, so the tile can
-    // never visually leave its own grid cell, which is the whole point of
-    // moving the "juice" here from position overshoot.
-    if (hasSettledOnce.value) {
-      const landingDelay = dropDelayMs + durationMs;
+    // The landing beat: fires once position arrives, for any move with real
+    // travel — including a streamed spawn's own entry fall, which lands with
+    // velocity like every other fall now (the old "skip the squash at mount"
+    // rule predates streaming, when a mount was a fade, not a landing). A
+    // no-travel render (plain mount, fade-in-place spawn) squashes nothing.
+    // Squash is scale-only: it never touches rowShared/colShared, so the
+    // tile can never visually leave its own grid cell, which is the whole
+    // point of moving the "juice" here from position overshoot.
+    if (cells > 0.001 && moveMs > 0) {
       scaleY.value = withDelay(
-        landingDelay,
+        moveMs,
         withSequence(
           withTiming(SQUASH_SCALE_Y, { duration: SQUASH_DOWN_MS }),
           withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
         )
       );
       scaleX.value = withDelay(
-        landingDelay,
+        moveMs,
         withSequence(
           withTiming(SQUASH_SCALE_X, { duration: SQUASH_DOWN_MS }),
           withSpring(1, { duration: SQUASH_RECOVER_MS, dampingRatio: TILE_MOVE_DAMPING_RATIO })
         )
       );
     }
-    hasSettledOnce.value = true;
-    // Only a change of TARGET CELL retriggers this. durationMs is deliberately
-    // not a dependency: it's read fresh whenever the effect does run, so a tile
-    // that moves always animates at the duration in force for that move — but a
-    // tile that is standing still (or mid-slide) must not restart its animation
-    // just because a bookkeeping flag flipped which duration it would use next.
-    // That restart is visible: when the snap-back cleanup below dropped its
-    // pair from swapDurationIds, the duration prop changed mid-return and a
-    // real frame trace caught the tile lurching 21px back OUT before easing
-    // home again. Reanimated shared values are stable across renders by design.
+    // Only a change of TARGET CELL retriggers this. durationMs/swapMotion/
+    // fallProfile are deliberately not dependencies: they're read fresh
+    // whenever the effect does run, so a tile that moves always animates at
+    // the values in force for that move — but a tile that is standing still
+    // (or mid-slide) must not restart its animation just because a
+    // bookkeeping flag flipped which values it would use next. That restart
+    // is visible: when the snap-back cleanup below dropped its pair from
+    // swapDurationIds, the duration prop changed mid-return and a real frame
+    // trace caught the tile lurching 21px back OUT before easing home again.
+    // Reanimated shared values are stable across renders by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row, col]);
 
@@ -446,10 +491,21 @@ const DRAG_ACTIVATION_SLOP = 6;
 // How long the follow-offset takes to ease back to rest on release.
 const DRAG_RETURN_MS = 120;
 
-// Every tile movement — the live tile's grid move, the drag offset folding
-// home, and a swapped-then-cleared tile's travel (ExitingTile below) — runs as
-// a SPRING rather than a timing curve, so all of them share one physical feel
-// as well as one clock.
+// Gravity's easing: constant acceleration from rest (position ∝ t²), so a
+// falling tile visibly speeds up as it drops and arrives carrying velocity —
+// the physical profile that makes the squash-and-stretch landing read as a
+// real impact. Falls only; every deliberate motion (swap, snap-back, drag
+// return, shuffle relocation) keeps the critically damped spring, which
+// decelerates into place the way a placed piece should.
+const FALL_EASING = Easing.in(Easing.quad);
+
+// Every DELIBERATE tile movement — a swap, its snap-back, the drag offset
+// folding home, and a swapped-then-cleared tile's travel (ExitingTile below) —
+// runs as a critically damped SPRING, so they share one physical feel as well
+// as one clock. FALLS are the one exception, added by the game-feel overhaul
+// (SPEC.md 2026-08-08): they run an accelerating timing curve (FALL_EASING)
+// with a distance-derived duration, because a falling object speeds up and a
+// placed one slows down — see the position effect above.
 //
 // This is the fourth attempt at getting this motion right, and the history is
 // worth keeping here rather than only in engine/DECISIONS.md, since it
@@ -1024,8 +1080,34 @@ export function ExitingTile({
       const timeout = setTimeout(onExited, settle + BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
       return () => clearTimeout(timeout);
     }
-    opacity.value = afterTravel(withTiming(0, { duration: durationMs }));
-    scale.value = afterTravel(withTiming(0, { duration: durationMs }));
+    // An ordinary match's clear — the game's most common event — gets its own
+    // mild anticipation beat (SPEC.md's resolved fork): a brief brighten-and-
+    // swell, then the normal shrink, so a match reads as recognized before it's
+    // removed instead of just evaporating. Folded into the FRONT of durationMs
+    // exactly the way the sweep's pop is, so the clear's total time — and the
+    // pass schedule built on it — is unchanged. Deliberately milder than every
+    // special-effect pop (smaller swell, fainter wash): it plays on every
+    // single match, so it must acknowledge, never celebrate. The powder-burst
+    // case falls through to here too, its cloud playing in its sibling view.
+    const anticipationShrinkMs = Math.max(0, durationMs - MATCH_POP_MS);
+    highlightOpacity.value = afterTravel(
+      withSequence(
+        withTiming(MATCH_POP_OPACITY, { duration: MATCH_POP_MS }),
+        withTiming(0, { duration: anticipationShrinkMs })
+      )
+    );
+    scale.value = afterTravel(
+      withSequence(
+        withTiming(MATCH_POP_SCALE, { duration: MATCH_POP_MS }),
+        withTiming(0, { duration: anticipationShrinkMs })
+      )
+    );
+    // Hold fully opaque through the brighten (the pop should read on a solid
+    // tile), then fade during the shrink — the sweep branch's own pattern.
+    opacity.value = withDelay(
+      settle + MATCH_POP_MS,
+      withTiming(0, { duration: anticipationShrinkMs })
+    );
     const timeout = setTimeout(onExited, settle + durationMs);
     return () => clearTimeout(timeout);
     // Runs once on mount — an exiting tile never changes position, duration,
@@ -1098,6 +1180,16 @@ export function ExitingTile({
             <Animated.View
               style={[styles.convertFlash, { backgroundColor: accentColor }, flashStyle]}
               testID={`convert-flash-${pieceId}`}
+            />
+          )}
+          {!isBlockerClear && sweepDelayMs === undefined && radialDelayMs === undefined && (
+            // The ordinary match's anticipation wash (see the final effect
+            // branch above) — the one clear kind that had no highlight view
+            // of its own until the game-feel overhaul. Same full-tile soft
+            // wash language as every overlay here, held to a fainter peak.
+            <Animated.View
+              style={[styles.matchPop, { backgroundColor: accentColor }, highlightStyle]}
+              testID={`match-pop-${pieceId}`}
             />
           )}
         </Animated.View>
@@ -1188,6 +1280,17 @@ const styles = StyleSheet.create({
   // (a double-blink, see convertedFlash's useEffect) can be tuned independently
   // from the blocker/sweep pulses without touching their opacity animations.
   convertFlash: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 8,
+  },
+  // The ordinary match's anticipation wash — same plain full-tile overlay as
+  // the rest; its own style so the most common clear's look can be tuned
+  // without touching any special effect's.
+  matchPop: {
     position: 'absolute',
     top: 0,
     left: 0,
