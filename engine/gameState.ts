@@ -250,6 +250,15 @@ export interface ApplyMoveResult {
   // 0 for a rejected move (no move, no score) — not undefined, so a caller
   // can always safely add it without a null check.
   score: number;
+  // True when this move's settled board had zero legal moves and the
+  // silent stuck-board rescue (see applyMove's own comment on this
+  // reversal) actually fired a replacement board — false for a rejected
+  // move, an ordinary move that never got stuck, and the rare case where
+  // the rescue itself failed to find a legal rearrangement (nothing
+  // visibly changed, so nothing to announce). Presentation-only: the
+  // engine's own "board is playable" guarantee doesn't depend on whether
+  // anyone is told about it.
+  stuckBoardRescued: boolean;
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -1938,7 +1947,7 @@ const MULTI_SPECIAL_THRESHOLD = 2;
 
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0, stuckBoardRescued: false };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -1950,7 +1959,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0, stuckBoardRescued: false };
   }
 
   // Void cells are holes in the board's shape, never pieces — a swap into or
@@ -1960,7 +1969,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
   // too, so a board is never wrongly judged stuck because of one.
   if (pieceA.type === 'void' || pieceB.type === 'void') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0, stuckBoardRescued: false };
   }
 
   // Special-piece swaps activate on the swap itself, NOT by forming a match, so
@@ -2044,7 +2053,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // unconditional-legal implementation — see engine/DECISIONS.md's
     // dropdown-swap-direction entry.
     if (posA.row !== posB.row) {
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0, stuckBoardRescued: false };
     }
     // Committed, never snapped back — just a plain position swap; the
     // normal cascade loop then checks for both an ordinary match AND a
@@ -2109,7 +2118,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // crossing-run entry.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0, stuckBoardRescued: false };
     }
     swapCommitted = true;
     // The ordinary match path — the one that actually spawns specials from
@@ -2158,9 +2167,20 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // runs this exact hasLegalMoves -> shuffle rescue once at level creation;
   // reusing both functions here rather than writing new logic keeps
   // "board is playable" a single guarantee enforced the same way at both
-  // points it can be violated. No event fires for this — a shuffle should
-  // read as silent and immediate to the player, not an announced
-  // interruption, per CLAUDE.md's calm-pacing constraint.
+  // points it can be violated.
+  //
+  // REVERSED (real playtest feedback, commercial-polish pass): this used to
+  // fire silently, no event, on the reasoning that a shuffle should read as
+  // immediate rather than an announced interruption. That reasoning is gone
+  // now, not just the behavior — a board silently rearranging itself with
+  // no explanation reads as a glitch, not as calm, which is exactly the
+  // DEFERRED_COMPLEXITY.md concern this session closes out. `stuckBoardRescued`
+  // below is presentation-only signal for a brief, calm "the board needed a
+  // little reset" notice (see components/rewardMoment.ts's
+  // resolveLalaMomentCopy) — the engine itself is otherwise unchanged, this
+  // rescue was always exactly this silent-vs-announced question and nothing
+  // about ITS mechanism (shuffle() reused, board replaced, everything else
+  // untouched).
   //
   // shuffle() itself now throws rather than silently handing back an
   // illegal board when it genuinely can't find or construct a legal
@@ -2168,18 +2188,20 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // right contract for a reusable pure function, and exactly what
   // generateLevel's own call site above wants (a level that can never be
   // made legal is a real content bug worth failing loudly on). But THIS
-  // call site is mid-play, not level creation, and the comment above is
-  // explicit that a rescue should read as silent and immediate — turning a
-  // failed safety net into a crash would be the exact "announced
-  // interruption" this was written to avoid. `settledBoard` itself is never
-  // in question here (it's a real move's real cascaded result, always
-  // match/square-free); a failed shuffle only means this specific stuck
-  // state didn't get rescued, not that anything is actually broken. So this
-  // degrades gracefully — logged (not silent), never thrown further.
+  // call site is mid-play, not level creation — turning a failed safety net
+  // into a crash would defeat the whole point of a rescue. `settledBoard`
+  // itself is never in question here (it's a real move's real cascaded
+  // result, always match/square-free); a failed shuffle only means this
+  // specific stuck state didn't get rescued, not that anything is actually
+  // broken. So this degrades gracefully — logged (not silent), never thrown
+  // further, and `stuckBoardRescued` simply stays false so no notice fires
+  // for a rescue that didn't actually happen.
   let resolvedBoard = settledBoard;
+  let stuckBoardRescued = false;
   if (!hasLegalMoves(settledBoard)) {
     try {
       resolvedBoard = shuffle(settledBoard);
+      stuckBoardRescued = true;
     } catch (err) {
       console.error(
         '[gameState] applyMove: the shuffle rescue could not find a legal rearrangement — leaving the board as-is.',
@@ -2277,6 +2299,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     chainWaveByPieceId,
     swapCommitted,
     score: scoreGained,
+    stuckBoardRescued,
   };
 }
 

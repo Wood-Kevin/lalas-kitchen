@@ -1,10 +1,12 @@
 import {
   canGrantBonusMoves,
   canUseHint,
+  canUseShuffle,
   getPauseAction,
   HINT_USES_PER_ATTEMPT,
   MOVE_GRANTS_PER_ATTEMPT,
   nextAttemptUseCount,
+  SHUFFLE_USES_PER_ATTEMPT,
   shouldOfferContinue,
 } from './pauseActions';
 
@@ -107,6 +109,46 @@ describe('canUseHint', () => {
     used = nextAttemptUseCount(used, 'restart');
     expect(used).toBe(0);
     expect(canUseHint(used)).toBe(true);
+  });
+});
+
+describe('canUseShuffle', () => {
+  test('the cap is 2 shuffle uses per attempt', () => {
+    // Guards the design contract itself — reverses the shuffle button's
+    // original "deliberately uncapped" behaviour (real playtest feedback,
+    // see engine/DECISIONS.md) to the same number as the other two
+    // per-attempt caps, tracked independently.
+    expect(SHUFFLE_USES_PER_ATTEMPT).toBe(2);
+  });
+
+  test('the first two shuffle taps of an attempt are allowed', () => {
+    expect(canUseShuffle(0)).toBe(true);
+    expect(canUseShuffle(1)).toBe(true);
+  });
+
+  test('a third shuffle tap in the same attempt is blocked', () => {
+    expect(canUseShuffle(2)).toBe(false);
+    expect(canUseShuffle(3)).toBe(false);
+  });
+
+  test('a full attempt: two shuffle uses land, the third is blocked, a restart resets', () => {
+    let used = 0; // fresh attempt
+
+    expect(canUseShuffle(used)).toBe(true);
+    used = nextAttemptUseCount(used, 'use');
+
+    expect(canUseShuffle(used)).toBe(true);
+    used = nextAttemptUseCount(used, 'use');
+
+    // Third tap in the same attempt: button should already be gone, but the
+    // underlying predicate is blocked regardless.
+    expect(canUseShuffle(used)).toBe(false);
+
+    // A fresh attempt resets the shuffle counter fully, independent of the
+    // hint and bonus-moves grant counters.
+    used = nextAttemptUseCount(used, 'restart');
+    expect(used).toBe(0);
+    expect(canUseShuffle(used)).toBe(true);
   });
 });
 

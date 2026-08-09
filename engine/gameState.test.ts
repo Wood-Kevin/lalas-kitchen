@@ -1452,7 +1452,7 @@ describe('applyMove — mid-play stuck board recovery', () => {
   // queue then refills row 0 with exactly the diagonal-stripe values
   // (A, B, C, A), so the fully-settled board is the complete stripe —
   // provably zero legal moves anywhere on the board, not just in row 0.
-  test('a cascade that settles into a zero-legal-move board gets silently reshuffled back into a playable one', () => {
+  test('a cascade that settles into a zero-legal-move board gets reshuffled back into a playable one, flagged via stuckBoardRescued', () => {
     const board = buildBoard([
       ['A', 'A', 'A', 'A'],
       ['B', 'C', 'A', 'B'],
@@ -1471,10 +1471,20 @@ describe('applyMove — mid-play stuck board recovery', () => {
       pauseReason: null,
       totalCleared: {},
       layerCells: {},
-      // Refills row 0, left to right, with the same diagonal-stripe values
-      // that row already needs — so the fully-settled board is a complete,
-      // legitimate zero-legal-move stripe, not just the cleared row.
-      spawnPiece: queueSpawnPiece(['A', 'B', 'C', 'A']),
+      // Refills (0,1)-(0,3) with the diagonal-stripe values that row already
+      // needs there — only 3 queued values, not 4, because completing this
+      // 4-run spawns a striped piece at its anchor cell (0,0) rather than
+      // refilling all four cleared cells ordinarily (see this project's
+      // spawn-anchor rule — swappedCellIn picks a swapped cell that's part
+      // of the match, and both swapped cells here qualify since they're
+      // equal). (0,0) keeps its original 'A' matchType as that striped
+      // piece, which is exactly what the stripe wants there anyway, so the
+      // fully-settled board is still the complete, legitimate
+      // zero-legal-move stripe this test needs — confirmed directly (not
+      // assumed) by asserting stuckBoardRescued below, which would be
+      // false if this queue were still off by one the way an earlier,
+      // looser version of this test silently was.
+      spawnPiece: queueSpawnPiece(['B', 'C', 'A']),
     };
 
     // Swapping two already-equal 'A' tiles is still a legal move here: the
@@ -1488,6 +1498,68 @@ describe('applyMove — mid-play stuck board recovery', () => {
     // legal move. Before this session's fix, this failed — the board
     // settled as the plain diagonal stripe with hasLegalMoves() === false.
     expect(hasLegalMoves(result.state.board)).toBe(true);
+    // Presentation-only signal (see components/rewardMoment.ts) that the
+    // rescue actually fired this move, so the player sees a calm notice
+    // instead of the board silently rearranging with no explanation.
+    expect(result.stuckBoardRescued).toBe(true);
+  });
+
+  test('an ordinary move that never gets stuck reports stuckBoardRescued: false', () => {
+    // Reuses the exact same fixture shape as the test above, but with row 0
+    // refilled by something OTHER than the diagonal stripe, so the settled
+    // board keeps a real legal move and the rescue branch never runs.
+    const board = buildBoard([
+      ['A', 'A', 'A', 'A'],
+      ['B', 'C', 'A', 'B'],
+      ['C', 'A', 'B', 'C'],
+      ['A', 'B', 'C', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'Z', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      // The completed 4-run spawns a striped piece at (0,0) rather than
+      // refilling it (see the test above's comment on the spawn-anchor
+      // rule), so only 3 values are actually consumed here — (0,1)-(0,3)
+      // become A,B,C instead of the stripe's own B,C,A. That one-cell shift
+      // is enough on its own to open a real legal move (swapping (0,2)
+      // with (1,2) completes an A,A,A run), so the settled board is
+      // playable without any rescue — confirmed directly by this test's
+      // own stuckBoardRescued assertion below, not assumed from the queue
+      // values alone.
+      spawnPiece: queueSpawnPiece(['A', 'B', 'C']),
+    };
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+    expect(hasLegalMoves(result.state.board)).toBe(true);
+    expect(result.stuckBoardRescued).toBe(false);
+  });
+
+  test('a move that never commits (rejected swap) reports stuckBoardRescued: false', () => {
+    const board = buildBoard([
+      ['A', 'B', 'C'],
+      ['D', 'E', 'F'],
+      ['G', 'H', 'I'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 10,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'Z', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['A']),
+    };
+    // No match results from this swap, so applyMove rejects it (snap-back).
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+    expect(result.state).toBe(state);
+    expect(result.stuckBoardRescued).toBe(false);
   });
 });
 

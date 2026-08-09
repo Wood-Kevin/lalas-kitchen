@@ -62,6 +62,23 @@ export function canUseHint(hintUsesUsed: number): boolean {
   return hintUsesUsed < HINT_USES_PER_ATTEMPT;
 }
 
+// A third sibling cap, applied to the manual Shuffle button — added by real
+// playtest feedback reversing that button's original "deliberately
+// uncapped" design (see engine/DECISIONS.md). The original reasoning still
+// holds on its own terms (a reshuffle only permutes the existing piece
+// multiset, so repeated taps can't manufacture an advantage), but an
+// unlimited free action right next to the Hint button's own capped one read
+// as an inconsistency worth closing, and a per-attempt cap keeps the
+// button's presence from ever reading as "shuffle until you like the
+// board," which isn't the mechanic's purpose. Same number as the other two
+// today, same independent-knob caveat.
+export const SHUFFLE_USES_PER_ATTEMPT = 2;
+
+// Same shape as canUseHint, applied to the shuffle button.
+export function canUseShuffle(shuffleUsesUsed: number): boolean {
+  return shuffleUsesUsed < SHUFFLE_USES_PER_ATTEMPT;
+}
+
 // The two things that move a per-attempt use counter: taking a use ('use',
 // +1) and starting the attempt over ('restart', back to zero — Play Again, or
 // a re-entry that remounts Board). Generic over which resource it's counting

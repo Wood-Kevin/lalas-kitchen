@@ -76,6 +76,7 @@ import { PausedOverlay } from './PausedOverlay';
 import { ContinueOffer } from './ContinueOffer';
 import {
   canUseHint,
+  canUseShuffle,
   nextAttemptUseCount,
   shouldOfferContinue,
 } from './pauseActions';
@@ -511,6 +512,10 @@ export function Board({
   // AttemptUseEvent pauseActions.ts already provides for the bonus-moves
   // grant, rather than a second copy of "increment, or reset on restart."
   const [hintUsesUsed, setHintUsesUsed] = useState(0);
+  // Same per-attempt shape as hintUsesUsed just above, now applied to the
+  // manual Shuffle button too — real playtest feedback reversed that
+  // button's original uncapped design (see engine/DECISIONS.md).
+  const [shuffleUsesUsed, setShuffleUsesUsed] = useState(0);
 
   // The board actually drawn: the mid-cascade snapshot when animating, else
   // the committed game state. Grid dimensions are identical either way, so
@@ -716,6 +721,7 @@ export function Board({
       result.chainWaveByPieceId,
       { a: posA, b: posB },
       result.swapCommitted,
+      result.stuckBoardRescued,
       draggedPieceId && dragReleasePx ? { pieceId: draggedPieceId, ...dragReleasePx } : undefined
     );
   }
@@ -800,6 +806,11 @@ export function Board({
     // swapped-then-cleared tile's exit from where the player's finger left it.
     swap: { a: Position; b: Position },
     swapCommitted: boolean,
+    // Presentation-only signal from applyMove's own stuck-board rescue (see
+    // gameState.ts's applyMove and rewardMoment.ts's resolveLalaMomentCopy)
+    // — true when this move's settled board had zero legal moves and the
+    // engine silently replaced it with a freshly shuffled, playable one.
+    stuckBoardRescued: boolean,
     // Present only when this move was committed by a drag: which piece was
     // actually under the finger, and its release offset in px. Lets a
     // dragged-and-cleared tile's exit animation continue from where the drag
@@ -840,18 +851,26 @@ export function Board({
       if (moveScore > 0) {
         const tone = resolveScorePopupTone(multiSpecialFired, effectDescriptor, steps.length);
         setScorePopup({ key: `score-${moveId}`, amount: moveScore, tone });
-
-        const copy = resolveLalaMomentCopy(
-          hasCombo,
-          multiSpecialFired,
-          effectDescriptor,
-          steps.length,
-          moveId === 0,
-          finalState.movesRemaining,
-          moveScore
-        );
-        if (copy) setLalaMoment({ key: `lala-${moveId}`, copy });
       }
+      // Resolved unconditionally, not just when moveScore > 0 — a
+      // stuckBoardRescued notice (or the first-move/one-move-remaining
+      // flavor lines) must still be able to fire on a genuinely zero-score
+      // committed move (the dropdown zero-clear case — see
+      // ApplyMoveResult.steps's own comment). resolveLalaMomentCopy already
+      // returns null on its own for a quiet zero-score move with no other
+      // signal, so this is a strict widening, not a behavior change for the
+      // ordinary case.
+      const lalaCopy = resolveLalaMomentCopy(
+        hasCombo,
+        stuckBoardRescued,
+        multiSpecialFired,
+        effectDescriptor,
+        steps.length,
+        moveId === 0,
+        finalState.movesRemaining,
+        moveScore
+      );
+      if (lalaCopy) setLalaMoment({ key: `lala-${moveId}`, copy: lalaCopy });
       setGameState(finalState);
       // Life-spend timing lives here now, not in App.tsx's generic state-
       // transition check (see appPersistence.ts's now-removed
@@ -1155,19 +1174,24 @@ export function Board({
     setHintPair(findAnyLegalMove(gameState.board));
   }
 
-  // The free, always-available "fresh board" button — distinct from the
-  // removed purchasable power-up tray (nothing to buy here) and from the
-  // hint above (this doesn't reveal a move, it just rearranges the board).
-  // Reuses engine/gameState.ts's requestManualShuffle, which itself reuses
-  // the exact shuffle() the stuck-board rescue already trusts, so "the
-  // board is always playable after a shuffle" stays one guarantee. Gated
-  // by canAcceptMove for the same reason the hint is — no point reshuffling
-  // mid-cascade or while paused — but uncapped otherwise: a reshuffle only
-  // permutes the existing piece multiset, so repeated taps can't manufacture
-  // any advantage a single tap couldn't, and this player's calm/no-pressure
-  // design brief (CLAUDE.md) argues against inventing a use-limit nobody
-  // asked for. Clears any hint currently showing — a hinted pair is a
-  // position pair on the pre-shuffle board, meaningless after one.
+  // The free "fresh board" button — distinct from the removed purchasable
+  // power-up tray (nothing to buy here) and from the hint above (this
+  // doesn't reveal a move, it just rearranges the board). Reuses
+  // engine/gameState.ts's requestManualShuffle, which itself reuses the
+  // exact shuffle() the stuck-board rescue already trusts, so "the board is
+  // always playable after a shuffle" stays one guarantee. Gated by
+  // canAcceptMove for the same reason the hint is — no point reshuffling
+  // mid-cascade or while paused — AND, as of real playtest feedback, by
+  // canUseShuffle/shuffleUsesUsed, the same per-attempt-cap shape the hint
+  // button already uses (see pauseActions.ts's canUseShuffle). This
+  // REVERSES an earlier "deliberately uncapped" decision, whose own
+  // reasoning (a reshuffle only permutes the existing multiset, so repeated
+  // taps can't manufacture an advantage) still holds on its own terms —
+  // what changed is the architect's judgment that an unlimited free action
+  // sitting right beside the Hint button's capped one read as an
+  // inconsistency worth closing, not that the original reasoning was wrong.
+  // Clears any hint currently showing — a hinted pair is a position pair on
+  // the pre-shuffle board, meaningless after one.
   //
   // Real playtest-reported bug, fixed: a shuffle replaces the board's piece
   // *identities* wholesale (shuffle() reassigns each existing piece's id to
@@ -1188,7 +1212,7 @@ export function Board({
   // it a fresh (or absent) spawn entry. Cleared here exactly like
   // handlePlayAgain already clears them for a fresh attempt's board swap.
   function handleRequestShuffle() {
-    if (!canAcceptMove()) return;
+    if (!canAcceptMove() || !canUseShuffle(shuffleUsesUsed)) return;
     stepTimersRef.current.forEach((timer) => clearTimeout(timer));
     stepTimersRef.current = [];
     setHintPair(null);
@@ -1198,6 +1222,7 @@ export function Board({
     setSwapDurationIds(new Set());
     setSwapDetourState(null);
     setFallDelayMs(0);
+    setShuffleUsesUsed((used) => nextAttemptUseCount(used, 'use'));
     setGameState((current) => requestManualShuffle(current));
     // The one LalaMomentBanner trigger that isn't a move outcome (see
     // rewardMoment.ts's resolveLalaMomentCopy) — release-character-pack.md's
@@ -1328,6 +1353,7 @@ export function Board({
     // keeps this Board instance and rebuilds its state in place).
     setBonusGrantsUsed((used) => nextAttemptUseCount(used, 'restart'));
     setHintUsesUsed((used) => nextAttemptUseCount(used, 'restart'));
+    setShuffleUsesUsed((used) => nextAttemptUseCount(used, 'restart'));
   }
 
   return (
@@ -1337,29 +1363,34 @@ export function Board({
         // button rather than a fourth HUD panel, so it never competes with
         // Target/Moves/Lives for width. Immediate, no confirmation dialog,
         // matching this app's calm/low-friction tone everywhere else. The
-        // hint button lives in this same row for the same reason — flex-end
-        // keeps both anchored together at the top-right regardless of
-        // whether the hint button is currently rendered, so the exit button
-        // never shifts position once the hint cap is reached and it drops
-        // away (see canUseHint below).
+        // hint and shuffle buttons live in this same row for the same
+        // reason — flex-end keeps all three anchored together at the
+        // top-right regardless of whether the hint/shuffle buttons are
+        // currently rendered, so the exit button never shifts position once
+        // either cap is reached and that button drops away (see canUseHint/
+        // canUseShuffle below — both now drop the CTA entirely once spent,
+        // matching the bonus-moves grant's own established precedent,
+        // rather than leaving a disabled dead tap target on screen).
         <View style={styles.topBar}>
-          <Pressable
-            onPress={handleRequestShuffle}
-            disabled={!canAcceptMove()}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Shuffle board"
-            style={[
-              styles.hintButton,
-              {
-                borderColor: skinConfig.palette.accent,
-                backgroundColor: skinConfig.palette.panel,
-                opacity: canAcceptMove() ? 1 : 0.5,
-              },
-            ]}
-          >
-            <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>🔀 Shuffle</Text>
-          </Pressable>
+          {canUseShuffle(shuffleUsesUsed) && (
+            <Pressable
+              onPress={handleRequestShuffle}
+              disabled={!canAcceptMove()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Shuffle board"
+              style={[
+                styles.hintButton,
+                {
+                  borderColor: skinConfig.palette.accent,
+                  backgroundColor: skinConfig.palette.panel,
+                  opacity: canAcceptMove() ? 1 : 0.5,
+                },
+              ]}
+            >
+              <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>🔀 Shuffle</Text>
+            </Pressable>
+          )}
           {canUseHint(hintUsesUsed) && (
             <Pressable
               onPress={handleRequestHint}
