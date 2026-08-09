@@ -1,0 +1,333 @@
+{
+  "packId": "recipe-card-watercolor-pack-2026-07-29-expansion",
+  "generatedOn": "2026-07-29",
+  "style": "Cozy watercolor recipe cards with parchment-warm backgrounds, rustic plating, soft vignette edges, and mobile-friendly silhouette readability.",
+  "primaryCount": 40,
+  "alternateCount": 6,
+  "primaryCards": [
+    {
+      "id": "basil_breakfast_eggs",
+      "title": "Basil Breakfast Eggs",
+      "filename": "recipe_basil_breakfast_eggs.png",
+      "category": "breakfast",
+      "flavorText": "Soft morning eggs with a bright basil finish."
+    },
+    {
+      "id": "basil_butter_gnocchi",
+      "title": "Basil Butter Gnocchi",
+      "filename": "recipe_basil_butter_gnocchi.png",
+      "category": "pasta",
+      "flavorText": "Pillowy gnocchi tucked into a buttery basil glow."
+    },
+    {
+      "id": "basil_cream_pasta",
+      "title": "Basil Cream Pasta",
+      "filename": "recipe_basil_cream_pasta.png",
+      "category": "pasta",
+      "flavorText": "Creamy ribbons of pasta with a garden-fresh basil finish."
+    },
+    {
+      "id": "chili_bean_bake",
+      "title": "Chili Bean Bake",
+      "filename": "recipe_chili_bean_bake.png",
+      "category": "bake",
+      "flavorText": "A cozy bake with smoky chili warmth and hearty beans."
+    },
+    {
+      "id": "chili_cheddar_bake",
+      "title": "Chili Cheddar Bake",
+      "filename": "recipe_chili_cheddar_bake.png",
+      "category": "bake",
+      "flavorText": "Golden cheddar comfort with a little red-pepper kick."
+    },
+    {
+      "id": "chili_cornbread_skillet",
+      "title": "Chili Cornbread Skillet",
+      "filename": "recipe_chili_cornbread_skillet.png",
+      "category": "bread",
+      "flavorText": "Sweet skillet cornbread with a spicy chili sparkle."
+    },
+    {
+      "id": "chili_honey_carrots",
+      "title": "Chili Honey Carrots",
+      "filename": "recipe_chili_honey_carrots.png",
+      "category": "side",
+      "flavorText": "Honey-glazed carrots with a sweet little heat."
+    },
+    {
+      "id": "chili_roast_potatoes",
+      "title": "Chili Roast Potatoes",
+      "filename": "recipe_chili_roast_potatoes.png",
+      "category": "side",
+      "flavorText": "Crisp roast potatoes with a smoky chili edge."
+    },
+    {
+      "id": "garden_herb_omelet",
+      "title": "Garden Herb Omelet",
+      "filename": "recipe_garden_herb_omelet.png",
+      "category": "breakfast",
+      "flavorText": "A folded omelet full of soft herbs and sunny comfort."
+    },
+    {
+      "id": "garlic_braised_greens",
+      "title": "Garlic Braised Greens",
+      "filename": "recipe_garlic_braised_greens.png",
+      "category": "side",
+      "flavorText": "Silky greens cooked down with mellow garlic."
+    },
+    {
+      "id": "garlic_herb_rice",
+      "title": "Garlic Herb Rice",
+      "filename": "recipe_garlic_herb_rice.png",
+      "category": "grain",
+      "flavorText": "Fluffy rice with roasted garlic tucked between the grains."
+    },
+    {
+      "id": "garlic_skillet_mushrooms",
+      "title": "Garlic Skillet Mushrooms",
+      "filename": "recipe_garlic_skillet_mushrooms.png",
+      "category": "side",
+      "flavorText": "Savory browned mushrooms with skillet-deep flavor."
+    },
+    {
+      "id": "garlic_tomato_bruschetta",
+      "title": "Garlic Tomato Bruschetta",
+      "filename": "recipe_garlic_tomato_bruschetta.png",
+      "category": "snack",
+      "flavorText": "Toasty bread piled high with juicy tomato and garlic."
+    },
+    {
+      "id": "herb_crumb_chicken",
+      "title": "Herb Crumb Chicken",
+      "filename": "recipe_herb_crumb_chicken.png",
+      "category": "main",
+      "flavorText": "Crisp herb crust over tender golden chicken."
+    },
+    {
+      "id": "herb_garden_flatbread",
+      "title": "Herb Garden Flatbread",
+      "filename": "recipe_herb_garden_flatbread.png",
+      "category": "bread",
+      "flavorText": "A simple flatbread carrying the whole herb garden."
+    },
+    {
+      "id": "herb_market_soup",
+      "title": "Herb Market Soup",
+      "filename": "recipe_herb_market_soup.png",
+      "category": "soup",
+      "flavorText": "Fresh green soup that feels straight from the market stall."
+    },
+    {
+      "id": "herb_roasted_carrots",
+      "title": "Herb Roasted Carrots",
+      "filename": "recipe_herb_roasted_carrots.png",
+      "category": "side",
+      "flavorText": "Roasted carrots with a sweet edge and fresh herb finish."
+    },
+    {
+      "id": "lemon_apron_cookies",
+      "title": "Lemon Apron Cookies",
+      "filename": "recipe_lemon_apron_cookies.png",
+      "category": "dessert",
+      "flavorText": "Bright iced cookies for the happiest kitchen afternoon."
+    },
+    {
+      "id": "lemon_cream_scones",
+      "title": "Lemon Cream Scones",
+      "filename": "recipe_lemon_cream_scones.png",
+      "category": "dessert",
+      "flavorText": "Tender scones with a soft citrus cream drizzle."
+    },
+    {
+      "id": "lemon_herb_couscous",
+      "title": "Lemon Herb Couscous",
+      "filename": "recipe_lemon_herb_couscous.png",
+      "category": "grain",
+      "flavorText": "Tiny golden grains brightened with lemon and herbs."
+    },
+    {
+      "id": "lemon_poppy_loaf",
+      "title": "Lemon Poppy Loaf",
+      "filename": "recipe_lemon_poppy_loaf.png",
+      "category": "dessert",
+      "flavorText": "A sunny loaf cake with soft icing and poppy-speckled crumb."
+    },
+    {
+      "id": "lemon_skillet_greens",
+      "title": "Lemon Skillet Greens",
+      "filename": "recipe_lemon_skillet_greens.png",
+      "category": "side",
+      "flavorText": "Skillet greens with a bright citrus lift."
+    },
+    {
+      "id": "lemon_thyme_biscuits",
+      "title": "Lemon Thyme Biscuits",
+      "filename": "recipe_lemon_thyme_biscuits.png",
+      "category": "bread",
+      "flavorText": "Warm biscuits glossed with lemon and dotted with thyme."
+    },
+    {
+      "id": "pantry_bean_stew",
+      "title": "Pantry Bean Stew",
+      "filename": "recipe_pantry_bean_stew.png",
+      "category": "stew",
+      "flavorText": "A humble pantry stew that still feels hearty and rich."
+    },
+    {
+      "id": "roasted_garlic_mash",
+      "title": "Roasted Garlic Mash",
+      "filename": "recipe_roasted_garlic_mash.png",
+      "category": "side",
+      "flavorText": "Creamy mash with deep roasted garlic warmth."
+    },
+    {
+      "id": "roasted_garlic_soup",
+      "title": "Roasted Garlic Soup",
+      "filename": "recipe_roasted_garlic_soup.png",
+      "category": "soup",
+      "flavorText": "Smooth soup with mellow garlic sweetness."
+    },
+    {
+      "id": "roasted_pepper_stew",
+      "title": "Roasted Pepper Stew",
+      "filename": "recipe_roasted_pepper_stew.png",
+      "category": "stew",
+      "flavorText": "A pepper-rich stew that glows with slow-cooked comfort."
+    },
+    {
+      "id": "rosemary_garlic_rolls",
+      "title": "Rosemary Garlic Rolls",
+      "filename": "recipe_rosemary_garlic_rolls.png",
+      "category": "bread",
+      "flavorText": "Golden rolls brushed with rosemary-garlic butter."
+    },
+    {
+      "id": "skillet_lemon_potatoes",
+      "title": "Skillet Lemon Potatoes",
+      "filename": "recipe_skillet_lemon_potatoes.png",
+      "category": "side",
+      "flavorText": "Crisp-edged potatoes with cheerful lemon brightness."
+    },
+    {
+      "id": "spoon_cake_pudding",
+      "title": "Spoon Cake Pudding",
+      "filename": "recipe_spoon_cake_pudding.png",
+      "category": "dessert",
+      "flavorText": "A soft spoonable dessert with warm bakery comfort."
+    },
+    {
+      "id": "spoon_stirred_polenta",
+      "title": "Spoon-Stirred Polenta",
+      "filename": "recipe_spoon_stirred_polenta.png",
+      "category": "grain",
+      "flavorText": "Golden polenta stirred smooth and finished warm."
+    },
+    {
+      "id": "sunday_herb_stuffing",
+      "title": "Sunday Herb Stuffing",
+      "filename": "recipe_sunday_herb_stuffing.png",
+      "category": "bake",
+      "flavorText": "Toasty bread-cube stuffing made for a full family table."
+    },
+    {
+      "id": "tomato_basil_tart",
+      "title": "Tomato Basil Tart",
+      "filename": "recipe_tomato_basil_tart.png",
+      "category": "bake",
+      "flavorText": "A bright tomato tart with basil leaves like little jewels."
+    },
+    {
+      "id": "tomato_braised_beans",
+      "title": "Tomato Braised Beans",
+      "filename": "recipe_tomato_braised_beans.png",
+      "category": "stew",
+      "flavorText": "Beans simmered low in a rich tomato base."
+    },
+    {
+      "id": "tomato_harvest_pie",
+      "title": "Tomato Harvest Pie",
+      "filename": "recipe_tomato_harvest_pie.png",
+      "category": "bake",
+      "flavorText": "A harvest-style savory pie built around ripe tomatoes."
+    },
+    {
+      "id": "tomato_jam_toast",
+      "title": "Tomato Jam Toast",
+      "filename": "recipe_tomato_jam_toast.png",
+      "category": "snack",
+      "flavorText": "Sweet-savory tomato jam spread over rustic toast."
+    },
+    {
+      "id": "tomato_rice_bake",
+      "title": "Tomato Rice Bake",
+      "filename": "recipe_tomato_rice_bake.png",
+      "category": "bake",
+      "flavorText": "A casserole-style rice bake with baked tomato comfort."
+    },
+    {
+      "id": "garden_tomato_galette",
+      "title": "Garden Tomato Galette",
+      "filename": "recipe_garden_tomato_galette.png",
+      "category": "bake",
+      "flavorText": "Rustic free-form pastry hugging a circle of tomatoes."
+    },
+    {
+      "id": "basil_skillet_bread",
+      "title": "Basil Skillet Bread",
+      "filename": "recipe_basil_skillet_bread.png",
+      "category": "bread",
+      "flavorText": "Round skillet bread with basil baked right into the top."
+    },
+    {
+      "id": "skillet_honey_squash",
+      "title": "Skillet Honey Squash",
+      "filename": "recipe_skillet_honey_squash.png",
+      "category": "side",
+      "flavorText": "Honey-glossed squash with cozy autumn warmth."
+    }
+  ],
+  "alternateCards": [
+    {
+      "id": "basil_summer_pasta",
+      "title": "Basil Summer Pasta",
+      "filename": "recipe_basil_summer_pasta.png",
+      "category": "pasta",
+      "flavorText": "A lighter basil pasta variant with fresh tomato accents."
+    },
+    {
+      "id": "lemon_butter_beans",
+      "title": "Lemon Butter Beans",
+      "filename": "recipe_lemon_butter_beans.png",
+      "category": "bean",
+      "flavorText": "Tender butter beans lifted with lemon and herbs."
+    },
+    {
+      "id": "garlic_herb_noodles",
+      "title": "Garlic Herb Noodles",
+      "filename": "recipe_garlic_herb_noodles.png",
+      "category": "pasta",
+      "flavorText": "Glossy garlic noodles with a mellow herb finish."
+    },
+    {
+      "id": "rustic_chili_pasta",
+      "title": "Rustic Chili Pasta",
+      "filename": "recipe_rustic_chili_pasta.png",
+      "category": "pasta",
+      "flavorText": "A chunkier chili pasta with deep pantry-red color."
+    },
+    {
+      "id": "creamy_herb_potatoes",
+      "title": "Creamy Herb Potatoes",
+      "filename": "recipe_creamy_herb_potatoes.png",
+      "category": "side",
+      "flavorText": "Creamy baked potatoes with a soft herb blanket."
+    },
+    {
+      "id": "tomato_herb_bake",
+      "title": "Tomato Herb Bake",
+      "filename": "recipe_tomato_herb_bake.png",
+      "category": "bake",
+      "flavorText": "A golden tomato casserole variant with simple basil warmth."
+    }
+  ]
+}
