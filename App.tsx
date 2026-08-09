@@ -61,6 +61,10 @@ import {
 import skinConfigJson from './skins/lalas-kitchen/config.json';
 import { spriteRegistry } from './skins/lalas-kitchen/spriteRegistry';
 import { adService } from './services/defaultAdService';
+// Dev-only (see handleOpenGameFeelScenario below) — the RN-vs-Unity
+// game-feel comparison scenario (SPEC.md), never reachable in a release
+// build.
+import { buildScenarioGameState } from './experiments/game-feel-comparison/scenario';
 import { computeStarRating, StarRating } from './components/wonActions';
 import { useAppFonts } from './components/fonts';
 
@@ -343,6 +347,11 @@ function AppRoot() {
   // (or was last active, while screen is 'home'/'levels').
   const [levelIndex, setLevelIndex] = useState(1);
   const [levelConfig, setLevelConfig] = useState<LevelConfig | null>(null);
+  // Dev-only (see handleOpenGameFeelScenario below) — non-null only while
+  // the hidden game-feel-comparison scenario is loaded, threaded straight
+  // through to Board's initialGameStateOverride prop. null on every real
+  // gameplay path.
+  const [gameFeelScenarioOverride, setGameFeelScenarioOverride] = useState<GameState | null>(null);
   const [completedLevels, setCompletedLevels] = useState<number[]>([]);
   // Best-ever star rating per completed level (1-based level number -> 1-3)
   // — see engine/gameState.ts's SaveData.levelStars comment and
@@ -570,6 +579,33 @@ function AppRoot() {
     }
   }, [applyLoadedSave]);
 
+  // Dev-only "load the RN-vs-Unity game-feel comparison scenario" — wired in
+  // below ONLY when __DEV__ is true (see Home's onDevOpenGameFeelScenario
+  // prop), same compiled-out-of-release-builds shape as handleDevReset
+  // above. Reuses the ordinary 'game' screen and Board component (see
+  // SPEC.md's "Track A ships in the real codebase" decision — the whole
+  // point is exercising the real rendering pipeline, not a bespoke one);
+  // only Board's initialGameStateOverride prop diverts it from the normal
+  // createGameState(levelConfig) path onto the hand-authored scenario board.
+  // `levelConfig` here is otherwise-unused filler (movesLimit/objectives
+  // Board reads for HUD display) — the override supplies the real board.
+  const handleOpenGameFeelScenario = useCallback(() => {
+    setGameFeelScenarioOverride(buildScenarioGameState());
+    setLevelConfig({
+      seed: 0,
+      rows: 6,
+      cols: 6,
+      pieceTypeIds: ['A', 'B', 'C', 'D', 'E', 'F'],
+      movesLimit: 10,
+      lives: 5,
+      objectives: [{ type: 'score', targetCount: 999_999 }],
+      displayName: 'Game-Feel Comparison Scenario (Dev)',
+    });
+    setLevelIndex(0);
+    prevStatusRef.current = null;
+    setScreen('game');
+  }, []);
+
   const persistLatestState = useCallback(() => {
     const state = latestStateRef.current;
     if (!state) return;
@@ -789,6 +825,9 @@ function AppRoot() {
     // transition on it is correctly detected as a fresh level ending, not
     // read against the previous level's leftover 'won' status.
     prevStatusRef.current = null;
+    // Defensive: clears any stale dev scenario override so a real level
+    // never accidentally seeds from it (see handleOpenGameFeelScenario).
+    setGameFeelScenarioOverride(null);
   }, []);
 
   // WonOverlay's secondary "Levels" action, and Home's "Browse all levels"
@@ -854,6 +893,9 @@ function AppRoot() {
     if (breather) consecutiveLossesRef.current = 0;
     setLevelConfig(buildLevelConfig(targetLevelIndex, regenerated.lives, breather));
     prevStatusRef.current = null;
+    // Defensive: clears any stale dev scenario override so a real level
+    // never accidentally seeds from it (see handleOpenGameFeelScenario).
+    setGameFeelScenarioOverride(null);
     setScreen('game');
   }, []);
 
@@ -1135,6 +1177,11 @@ function AppRoot() {
             // reset affordance exists solely for testing, never in a release
             // build a real player runs. See handleDevReset.
             onDevReset={__DEV__ ? handleDevReset : undefined}
+            // Dev-only: a plain tap on the same hidden footer control (see
+            // Home.tsx) loads the RN-vs-Unity game-feel comparison scenario
+            // (SPEC.md) instead of resetting the save. See
+            // handleOpenGameFeelScenario.
+            onDevOpenGameFeelScenario={__DEV__ ? handleOpenGameFeelScenario : undefined}
           />
         ) : screen === 'recipeBook' ? (
           <RecipeBook
@@ -1229,6 +1276,14 @@ function AppRoot() {
             })()}
             soundEnabled={soundEnabled}
             hapticsEnabled={hapticsEnabled}
+            // Dev-only — see handleOpenGameFeelScenario. undefined (a no-op)
+            // on every real level-start path.
+            initialGameStateOverride={gameFeelScenarioOverride ?? undefined}
+            // Dev-only — true only while the scenario override above is
+            // loaded, so the experimental particle burst (see SPEC.md and
+            // Tile.tsx's ExitingTile.experimentalBurst) never plays on a
+            // real level.
+            experimentalJuice={gameFeelScenarioOverride !== null}
           />
         )}
         </View>

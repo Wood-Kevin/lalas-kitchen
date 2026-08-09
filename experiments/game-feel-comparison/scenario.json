@@ -1,0 +1,663 @@
+{
+  "description": "RN-vs-Unity game-feel comparison scenario (SPEC.md, 'shared JSON fixture' decision): a 4-run spawns a striped piece that fires its row sweep in the same move.",
+  "board": {
+    "rows": 6,
+    "cols": 6,
+    "pieces": [
+      [
+        {
+          "id": "0-0",
+          "matchType": "A"
+        },
+        {
+          "id": "0-1",
+          "matchType": "B"
+        },
+        {
+          "id": "0-2",
+          "matchType": "A"
+        },
+        {
+          "id": "0-3",
+          "matchType": "A"
+        },
+        {
+          "id": "0-4",
+          "matchType": "E"
+        },
+        {
+          "id": "0-5",
+          "matchType": "F"
+        }
+      ],
+      [
+        {
+          "id": "1-0",
+          "matchType": "B"
+        },
+        {
+          "id": "1-1",
+          "matchType": "A"
+        },
+        {
+          "id": "1-2",
+          "matchType": "D"
+        },
+        {
+          "id": "1-3",
+          "matchType": "E"
+        },
+        {
+          "id": "1-4",
+          "matchType": "F"
+        },
+        {
+          "id": "1-5",
+          "matchType": "A"
+        }
+      ],
+      [
+        {
+          "id": "2-0",
+          "matchType": "C"
+        },
+        {
+          "id": "2-1",
+          "matchType": "D"
+        },
+        {
+          "id": "2-2",
+          "matchType": "E"
+        },
+        {
+          "id": "2-3",
+          "matchType": "F"
+        },
+        {
+          "id": "2-4",
+          "matchType": "A"
+        },
+        {
+          "id": "2-5",
+          "matchType": "B"
+        }
+      ],
+      [
+        {
+          "id": "3-0",
+          "matchType": "D"
+        },
+        {
+          "id": "3-1",
+          "matchType": "M"
+        },
+        {
+          "id": "3-2",
+          "matchType": "M"
+        },
+        {
+          "id": "3-3",
+          "matchType": "A"
+        },
+        {
+          "id": "3-4",
+          "matchType": "M"
+        },
+        {
+          "id": "3-5",
+          "matchType": "C"
+        }
+      ],
+      [
+        {
+          "id": "4-0",
+          "matchType": "E"
+        },
+        {
+          "id": "4-1",
+          "matchType": "F"
+        },
+        {
+          "id": "4-2",
+          "matchType": "A"
+        },
+        {
+          "id": "4-3",
+          "matchType": "M"
+        },
+        {
+          "id": "4-4",
+          "matchType": "C"
+        },
+        {
+          "id": "4-5",
+          "matchType": "D"
+        }
+      ],
+      [
+        {
+          "id": "5-0",
+          "matchType": "F"
+        },
+        {
+          "id": "5-1",
+          "matchType": "A"
+        },
+        {
+          "id": "5-2",
+          "matchType": "B"
+        },
+        {
+          "id": "5-3",
+          "matchType": "C"
+        },
+        {
+          "id": "5-4",
+          "matchType": "D"
+        },
+        {
+          "id": "5-5",
+          "matchType": "E"
+        }
+      ]
+    ]
+  },
+  "move": {
+    "from": {
+      "row": 0,
+      "col": 1
+    },
+    "to": {
+      "row": 1,
+      "col": 1
+    }
+  },
+  "spawnQueue": [
+    "A",
+    "A",
+    "C",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L"
+  ],
+  "expected": {
+    "passCount": 2,
+    "steps": [
+      [
+        [
+          {
+            "id": "scenario-spawn-1",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "1-1",
+            "type": "striped",
+            "matchType": "A",
+            "direction": "row"
+          },
+          {
+            "id": "scenario-spawn-2",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-3",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "0-4",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "0-5",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "1-0",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "0-1",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "1-2",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "1-3",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "1-4",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "1-5",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "2-0",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "2-1",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "2-2",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "2-3",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "2-4",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "2-5",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "3-0",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "3-1",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-2",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-3",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "3-4",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-5",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "4-0",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "4-1",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "4-2",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "4-3",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "4-4",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "4-5",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "5-0",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "5-1",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "5-2",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "5-3",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "5-4",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "5-5",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          }
+        ]
+      ],
+      [
+        [
+          {
+            "id": "scenario-spawn-4",
+            "type": "normal",
+            "matchType": "G",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-5",
+            "type": "normal",
+            "matchType": "H",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-6",
+            "type": "normal",
+            "matchType": "I",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-7",
+            "type": "normal",
+            "matchType": "J",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-8",
+            "type": "normal",
+            "matchType": "K",
+            "direction": null
+          },
+          {
+            "id": "scenario-spawn-9",
+            "type": "normal",
+            "matchType": "L",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "1-0",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "0-1",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "1-2",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "1-3",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "1-4",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "1-5",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "2-0",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "2-1",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "2-2",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "2-3",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "2-4",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "2-5",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "3-0",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "3-1",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-2",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-3",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "3-4",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "3-5",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "4-0",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          },
+          {
+            "id": "4-1",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "4-2",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "4-3",
+            "type": "normal",
+            "matchType": "M",
+            "direction": null
+          },
+          {
+            "id": "4-4",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "4-5",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          }
+        ],
+        [
+          {
+            "id": "5-0",
+            "type": "normal",
+            "matchType": "F",
+            "direction": null
+          },
+          {
+            "id": "5-1",
+            "type": "normal",
+            "matchType": "A",
+            "direction": null
+          },
+          {
+            "id": "5-2",
+            "type": "normal",
+            "matchType": "B",
+            "direction": null
+          },
+          {
+            "id": "5-3",
+            "type": "normal",
+            "matchType": "C",
+            "direction": null
+          },
+          {
+            "id": "5-4",
+            "type": "normal",
+            "matchType": "D",
+            "direction": null
+          },
+          {
+            "id": "5-5",
+            "type": "normal",
+            "matchType": "E",
+            "direction": null
+          }
+        ]
+      ]
+    ],
+    "finalRow0MatchTypes": [
+      "G",
+      "H",
+      "I",
+      "J",
+      "K",
+      "L"
+    ],
+    "score": 263,
+    "swapCommitted": true,
+    "multiSpecialFired": false,
+    "chainWaveByPieceId": {}
+  }
+}

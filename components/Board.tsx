@@ -217,6 +217,25 @@ export interface BoardProps {
   // token ends up spent this attempt, so it's never re-offered to a later
   // level (see App.tsx's handleDailyBonusConsumed).
   onDailyBonusConsumed: () => void;
+  // Dev-only escape hatch: when present, this exact GameState seeds the
+  // mount instead of createGameState(levelConfig) — used solely by the
+  // hidden game-feel-comparison dev harness (see App.tsx's
+  // handleOpenGameFeelScenario and experiments/game-feel-comparison/) to
+  // play a hand-authored board/move through the real rendering pipeline
+  // rather than a generator-seeded one. `levelConfig` is still required and
+  // still read for everything else (moves/objectives display, tutorial
+  // gating) — only the initial board is overridden. Undefined in every real
+  // gameplay path, so ordinary levels are completely unaffected.
+  initialGameStateOverride?: GameState;
+  // Dev-only, and ONLY ever true from the game-feel-comparison dev harness
+  // (see App.tsx's handleOpenGameFeelScenario and SPEC.md's "Track A's
+  // particle burst deliberately overrides the calm constraint" decision).
+  // Turns on ExitingTile's experimental particle burst for every clear this
+  // Board renders. Undefined/false everywhere else, so every real level's
+  // clear animation is byte-identical to before this flag existed — the
+  // project's documented "calm, not frantic" constraint (see Tile.tsx's
+  // ExitingTile) stays intact for real players.
+  experimentalJuice?: boolean;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -259,8 +278,12 @@ export function Board({
   hapticsEnabled,
   dailyBonusAvailable,
   onDailyBonusConsumed,
+  initialGameStateOverride,
+  experimentalJuice,
 }: BoardProps) {
-  const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
+  const [gameState, setGameState] = useState<GameState>(
+    () => initialGameStateOverride ?? createGameState(levelConfig)
+  );
   // Computed once at mount, from this level's own starting props — same
   // "genuinely fresh save" gate as appPersistence.ts's
   // shouldShowOnboardingTutorial (levelIndex === 1 and nothing ever
@@ -1602,6 +1625,8 @@ export function Board({
                 effectColor={resolveEffectColor(entry, skinConfig.palette)}
                 rewardIntensity={entry.rewardIntensity}
                 onExited={() => removeExiting(entry.key)}
+                // Dev-only — see BoardProps.experimentalJuice.
+                experimentalBurst={experimentalJuice}
               />
             ))}
             {comboKey && (

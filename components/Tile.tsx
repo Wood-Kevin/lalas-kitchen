@@ -4,6 +4,7 @@ import { Text } from './AppText';
 import Animated, {
   Easing,
   runOnJS,
+  SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -1022,12 +1023,73 @@ export interface ExitingTileProps {
   // omitted prop always having meant before this feature existed.
   rewardIntensity?: number;
   onExited: () => void;
+  // Dev-only, ONLY ever true from the game-feel-comparison harness (see
+  // Board.tsx's experimentalJuice / SPEC.md's "Track A's particle burst
+  // deliberately overrides the calm constraint" decision). Plays an
+  // additional radial particle burst alongside whichever pop/wash
+  // treatment above already plays — it does not replace or gate any of
+  // them, so this is purely additive. Undefined/false everywhere else,
+  // which is every real gameplay path — the calm-not-frantic constraint
+  // this file otherwise documents stays fully intact.
+  experimentalBurst?: boolean;
+}
+
+// Dev-only (see experimentalBurst above) — how many sparks radiate outward
+// per clear, evenly spaced around the tile.
+const EXPERIMENTAL_BURST_PARTICLE_COUNT = 8;
+// How far a spark travels, as a fraction of tileSize, at full progress.
+const EXPERIMENTAL_BURST_DISTANCE_FRACTION = 1.1;
+// One angle per particle, evenly spaced around the circle.
+const EXPERIMENTAL_BURST_ANGLES_RAD = Array.from(
+  { length: EXPERIMENTAL_BURST_PARTICLE_COUNT },
+  (_, i) => (i / EXPERIMENTAL_BURST_PARTICLE_COUNT) * 2 * Math.PI
+);
+
+// Dev-only (see experimentalBurst above) — one outward-flying spark. A
+// small child component (not inlined in ExitingTile) so each of the 8
+// instances gets its own useAnimatedStyle reading the SAME shared
+// `progress` value, without needing a variable number of hooks in the
+// parent.
+function ExperimentalBurstParticle({
+  progress,
+  angleRad,
+  color,
+  tileSize,
+}: {
+  progress: SharedValue<number>;
+  angleRad: number;
+  color: string;
+  tileSize: number;
+}) {
+  const maxDistance = tileSize * EXPERIMENTAL_BURST_DISTANCE_FRACTION;
+  const particleStyle = useAnimatedStyle(() => {
+    const dist = progress.value * maxDistance;
+    return {
+      position: 'absolute',
+      top: tileSize / 2 - 4,
+      left: tileSize / 2 - 4,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: color,
+      opacity: 1 - progress.value,
+      transform: [
+        { translateX: Math.cos(angleRad) * dist },
+        { translateY: Math.sin(angleRad) * dist },
+        { scale: 1 - progress.value * 0.6 },
+      ],
+    };
+  });
+  return <Animated.View style={particleStyle} pointerEvents="none" />;
 }
 
 // A piece that just matched. Plays a calm pop-and-shrink (per the
 // lalas-kitchen config's matchStyle) and unmounts itself once the
 // animation finishes — deliberately no particle burst or flash, per
-// CLAUDE.md's "calm, not frantic" design constraint.
+// CLAUDE.md's "calm, not frantic" design constraint. The one deliberate
+// exception is `experimentalBurst` (see its own doc comment) — a dev-only,
+// opt-in override for the RN-vs-Unity game-feel comparison (SPEC.md),
+// never on for a real player.
 export function ExitingTile({
   pieceId,
   row,
@@ -1049,7 +1111,13 @@ export function ExitingTile({
   effectColor,
   rewardIntensity = 0,
   onExited,
+  experimentalBurst,
 }: ExitingTileProps) {
+  // Always created (rules-of-hooks), only ever animated when
+  // experimentalBurst is true — same "declared unconditionally, driven
+  // conditionally" shape burstOpacity/burstScale below already use for
+  // isPowderBurst.
+  const experimentalBurstProgress = useSharedValue(0);
   // Falls back to the shared accentColor when omitted — every existing
   // caller (tests, any future one that doesn't care about per-mechanism
   // color) renders identically to before this feature.
@@ -1108,6 +1176,24 @@ export function ExitingTile({
       );
     }
     // convertedFlash never changes for the lifetime of one exiting tile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Dev-only (see experimentalBurst's doc comment) — fires independently
+    // of whichever branch the main effect below takes, so it layers on top
+    // of every clear kind (ordinary, sweep, blocker, radial) the same way.
+    // A snappier ease-out than this game's usual calm timings on purpose —
+    // the whole point of this flag is testing the louder end of the
+    // spectrum, not a gentler version of the existing pop.
+    if (experimentalBurst) {
+      experimentalBurstProgress.value = withTiming(1, {
+        duration: Math.round(durationMs * 0.9),
+        easing: Easing.out(Easing.cubic),
+      });
+    }
+    // experimentalBurst/durationMs never change for the lifetime of one
+    // exiting tile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1335,6 +1421,19 @@ export function ExitingTile({
     zIndex: Math.round(exitRow.value * 1000) + 500,
   }));
 
+  // Dev-only (see experimentalBurst) — the particles' positioning wrapper,
+  // same shape as burstStyle above: tracks the tile's own animated
+  // position/stacking so the sparks originate from wherever it actually
+  // is (relevant on a swapped-and-cleared tile, which travels first).
+  const experimentalBurstContainerStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: exitRow.value * tileSize,
+    left: exitCol.value * tileSize,
+    width: tileSize,
+    height: tileSize,
+    zIndex: Math.round(exitRow.value * 1000) + 600,
+  }));
+
   return (
     <>
       <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
@@ -1389,6 +1488,23 @@ export function ExitingTile({
               },
             ]}
           />
+        </Animated.View>
+      )}
+      {experimentalBurst && (
+        <Animated.View
+          style={experimentalBurstContainerStyle}
+          pointerEvents="none"
+          testID={`experimental-burst-${pieceId}`}
+        >
+          {EXPERIMENTAL_BURST_ANGLES_RAD.map((angleRad, i) => (
+            <ExperimentalBurstParticle
+              key={i}
+              progress={experimentalBurstProgress}
+              angleRad={angleRad}
+              color={washColor}
+              tileSize={tileSize}
+            />
+          ))}
         </Animated.View>
       )}
     </>

@@ -79,6 +79,12 @@ export interface HomeProps {
   // exist for them. Deliberately hidden (no visible button, no hint) because
   // this is a testing convenience, not a feature.
   onDevReset?: () => void;
+  // Dev-only, same shape as onDevReset above: a plain TAP (not a long-press,
+  // so the two dev affordances on this one hidden control stay unambiguous)
+  // on the footer line loads the RN-vs-Unity game-feel comparison scenario
+  // (SPEC.md) instead of resetting the save. Undefined in every release
+  // build.
+  onDevOpenGameFeelScenario?: () => void;
 }
 
 const HERO_HEIGHT = 260;
@@ -104,6 +110,7 @@ export function Home({
   onOpenRecipeBook,
   onOpenSettings,
   onDevReset,
+  onDevOpenGameFeelScenario,
 }: HomeProps) {
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
   const nextRecipeIcon = nextRecipeSprite ? resolveSpriteAsset(nextRecipeSprite, spriteAssets) : undefined;
@@ -349,16 +356,18 @@ export function Home({
 
       <View style={{ flex: 1 }} />
 
-      {/* The footer doubles as the hidden dev-reset target in development: a
-          long-press (never a plain tap) triggers onDevReset. It looks and
-          behaves as ordinary static text otherwise — onDevReset is undefined in
-          release builds, so onLongPress is a no-op and there is nothing for a
-          player to trigger. A long-press with no visible affordance is chosen
-          precisely so it can't be stumbled into. */}
+      {/* The footer doubles as two hidden dev targets in development: a
+          long-press triggers onDevReset, a plain tap triggers
+          onDevOpenGameFeelScenario. It looks and behaves as ordinary static
+          text otherwise — both are undefined in release builds, so both
+          handlers are no-ops and there is nothing for a player to trigger. A
+          long-press/tap pair with no visible affordance is chosen precisely
+          so neither can be stumbled into. */}
       <Pressable
+        onPress={onDevOpenGameFeelScenario}
         onLongPress={onDevReset}
         delayLongPress={800}
-        disabled={!onDevReset}
+        disabled={!onDevReset && !onDevOpenGameFeelScenario}
         // Keep the text's normal layout/appearance — no press feedback, so the
         // footer never hints that it's interactive.
         style={styles.footerPressable}
