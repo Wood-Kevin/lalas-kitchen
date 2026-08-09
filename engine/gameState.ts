@@ -240,6 +240,16 @@ export interface ApplyMoveResult {
   // a third copy of applyMove's branch order — which is exactly the
   // duplication that let the pre-swap-anchor bug drift in the first place.
   swapCommitted: boolean;
+  // This move's real total score (CascadeResolution.score, straight through
+  // — see SCORE_TIER_POINTS/passScoreMultiplier), regardless of objective
+  // type. Previously computed on every move but consumed ONLY internally,
+  // to update a 'score'-type Objective's currentCount, then discarded —
+  // every other objective type had this number computed and thrown away.
+  // Exposed here so the presentation layer can accumulate a running total
+  // on every level (see SPEC.md's HUD reward-texture-and-character spec).
+  // 0 for a rejected move (no move, no score) — not undefined, so a caller
+  // can always safely add it without a null check.
+  score: number;
 }
 
 // mulberry32, same implementation as generator.ts. Duplicated rather than
@@ -1928,7 +1938,7 @@ const MULTI_SPECIAL_THRESHOLD = 2;
 
 export function applyMove(state: GameState, posA: Position, posB: Position): ApplyMoveResult {
   if (state.status !== 'in_progress') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
   }
 
   // Blockers aren't swappable at all — moving one out of its cell would
@@ -1940,7 +1950,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   const pieceA = state.board[posA.row][posA.col];
   const pieceB = state.board[posB.row][posB.col];
   if (pieceA.type === 'blocker' || pieceB.type === 'blocker') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
   }
 
   // Void cells are holes in the board's shape, never pieces — a swap into or
@@ -1950,7 +1960,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
   // bounds-checks the rectangle, not the shape); hasLegalMoves excludes voids
   // too, so a board is never wrongly judged stuck because of one.
   if (pieceA.type === 'void' || pieceB.type === 'void') {
-    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
+    return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
   }
 
   // Special-piece swaps activate on the swap itself, NOT by forming a match, so
@@ -2034,7 +2044,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // unconditional-legal implementation — see engine/DECISIONS.md's
     // dropdown-swap-direction entry.
     if (posA.row !== posB.row) {
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
     }
     // Committed, never snapped back — just a plain position swap; the
     // normal cascade loop then checks for both an ordinary match AND a
@@ -2099,7 +2109,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     // crossing-run entry.
     if (checkMatches(swapped).length === 0 && checkSquares(swapped).length === 0) {
       // Illegal move: no match, snap back. No move spent, no state change.
-      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false };
+      return { state, events: [], steps: [], multiSpecialFired: false, chainWaveByPieceId: {}, swapCommitted: false, score: 0 };
     }
     swapCommitted = true;
     // The ordinary match path — the one that actually spawns specials from
@@ -2266,6 +2276,7 @@ export function applyMove(state: GameState, posA: Position, posB: Position): App
     multiSpecialFired: maxSpecialsFired >= MULTI_SPECIAL_THRESHOLD,
     chainWaveByPieceId,
     swapCommitted,
+    score: scoreGained,
   };
 }
 

@@ -420,6 +420,15 @@ export function Board({
   // runStep above, whether that pause spends this attempt's life immediately.
   // See pauseActions.ts.
   const [bonusGrantsUsed, setBonusGrantsUsed] = useState(0);
+  // The attempt's running score, surfaced on every level regardless of
+  // objective type (SPEC.md's HUD reward-texture-and-character spec) —
+  // incremented by each committed move's real ApplyMoveResult.score in
+  // attemptSwap below. Presentation-only, never persisted: a 'collect'/
+  // 'clearance'/'escort' level never gates winning on this number, so it
+  // doesn't belong in GameState/SaveData any more than the combo-streak
+  // banner's own trigger does. Reset alongside every other per-attempt
+  // state in handlePlayAgain.
+  const [runningScore, setRunningScore] = useState(0);
   // Measured via onLayout rather than Dimensions.get('window'), since the
   // board area's actual available space is whatever's left after the HUD
   // and safe-area insets are applied — Dimensions.get('window') only knows
@@ -656,6 +665,11 @@ export function Board({
       );
       return;
     }
+
+    // Every committed move's real score, whether or not this level's
+    // objective is 'score'-type — the running total the redesigned Hud
+    // shows on every level (see runningScore's own comment above).
+    setRunningScore((prev) => prev + result.score);
 
     const tappedIds = new Set([
       gameState.board[posA.row][posA.col].id,
@@ -1242,6 +1256,7 @@ export function Board({
     setSwapDurationIds(new Set());
     setSnapBack(null);
     setComboKey(null);
+    setRunningScore(0);
     // A restart is a brand-new attempt, so both per-attempt caps start over —
     // same reasoning as a fresh mount, just without the remount (Play Again
     // keeps this Board instance and rebuilds its state in place).
@@ -1320,6 +1335,7 @@ export function Board({
         config={skinConfig}
         spriteAssets={spriteAssets}
         levelLabel={resolveLevelDisplayName(levelConfig.displayName, levelIndex)}
+        score={runningScore}
       />
       <View
         style={styles.boardArea}

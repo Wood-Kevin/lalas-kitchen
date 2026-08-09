@@ -104,6 +104,58 @@ describe('applyMove — full playthrough', () => {
   });
 });
 
+describe('applyMove — score is exposed on every move, not just score-type objectives', () => {
+  // The gap this pins: ApplyMoveResult used to compute a real per-move score
+  // for every move (CascadeResolution.score) but only ever forward it into a
+  // 'score'-type Objective's currentCount — every other objective type had
+  // it computed and thrown away. See SPEC.md's HUD reward-texture-and-
+  // character spec.
+  test('a plain 3-match on a collect-type level still returns its real score', () => {
+    const board = buildBoard([
+      ['A', 'A', 'B'],
+      ['B', 'C', 'A'],
+      ['C', 'B', 'C'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['X1', 'X2', 'X3']),
+    };
+    const result = applyMove(state, { row: 0, col: 2 }, { row: 1, col: 2 });
+    // 3 ordinary cells at 10 points each, pass 0's 1x multiplier — the same
+    // SCORE_TIER_POINTS/passScoreMultiplier math a 'score'-type objective
+    // already relied on, now visible regardless of objective type.
+    expect(result.score).toBe(30);
+  });
+
+  test('a rejected (illegal) move scores exactly 0, not undefined', () => {
+    const board = buildBoard([
+      ['A', 'B'],
+      ['B', 'A'],
+    ]);
+    const state: GameState = {
+      board,
+      movesRemaining: 5,
+      lives: 5,
+      objectives: [{ type: 'collect', targetMatchType: 'A', targetCount: 100, currentCount: 0 }],
+      status: 'in_progress',
+      pauseReason: null,
+      totalCleared: {},
+      layerCells: {},
+      spawnPiece: queueSpawnPiece(['X1']),
+    };
+    const result = applyMove(state, { row: 0, col: 0 }, { row: 0, col: 1 });
+    expect(result.state).toBe(state); // confirms this really was rejected
+    expect(result.score).toBe(0);
+  });
+});
+
 describe('applyMove — moves exhausted', () => {
   test('hitting zero moves enters paused_awaiting_input with reason "moves", and grantBonusMoves resumes play', () => {
     const board = buildBoard([

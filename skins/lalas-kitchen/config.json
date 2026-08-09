@@ -36,6 +36,11 @@
       "areaBomb": "#23395B",
       "colorBomb": "#8B5FC7",
       "supercombo": "#6B1E3C"
+    },
+    "tray": {
+      "background": "#A87543",
+      "border": "#7D512D",
+      "chipBorder": "#D8B37B"
     }
   },
   "recipeCards": [

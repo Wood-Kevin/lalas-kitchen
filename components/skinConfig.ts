@@ -97,6 +97,21 @@ export interface SkinPalette {
     colorBomb: string;
     supercombo: string;
   };
+  // The HUD's "Kitchen Tray" character redesign (see SPEC.md's HUD
+  // reward-texture-and-character spec, superseding the old flat-panel
+  // `Hud.tsx` — real playtest signal: "just not bland"). Only the OUTER
+  // tray surface gets its own dedicated warm-wood color; the chips and
+  // score plaque inside it deliberately keep reusing `panel`/`border`
+  // above, so the redesign reads as a new material housing the same
+  // familiar cream/cookbook surfaces, not a second palette competing
+  // with the first. `chipBorder` is the one exception — a warmer gold
+  // than the plain `border` above, giving the chips inside the tray
+  // their own small accent without a whole new hue family.
+  tray: {
+    background: string;
+    border: string;
+    chipBorder: string;
+  };
 }
 
 export interface SkinConfig {
