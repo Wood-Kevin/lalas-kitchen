@@ -1,4 +1,4 @@
-import { computeStarRating } from './wonActions';
+import { computeStarRating, isStrongWin } from './wonActions';
 
 describe('computeStarRating', () => {
   // movesLimit: 15 gives clean thirds (5 and 10) so the boundary tests land
@@ -44,5 +44,22 @@ describe('computeStarRating', () => {
 
   test('a degenerate zero-length move budget does not throw or divide into NaN', () => {
     expect(computeStarRating(0, 0)).toBe(3);
+  });
+});
+
+describe('isStrongWin', () => {
+  test('a perfect 3-star finish is a strong win, with or without a recipe unlock', () => {
+    expect(isStrongWin(3, false)).toBe(true);
+    expect(isStrongWin(3, true)).toBe(true);
+  });
+
+  test('a fresh recipe-card unlock is a strong win even at 1 or 2 stars', () => {
+    expect(isStrongWin(1, true)).toBe(true);
+    expect(isStrongWin(2, true)).toBe(true);
+  });
+
+  test('an ordinary 1- or 2-star win with no recipe unlock is not a strong win', () => {
+    expect(isStrongWin(1, false)).toBe(false);
+    expect(isStrongWin(2, false)).toBe(false);
   });
 });

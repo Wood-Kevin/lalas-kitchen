@@ -69,6 +69,7 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
           { backgroundColor: palette.tray.background, borderColor: palette.tray.border },
         ]}
       >
+        <View pointerEvents="none" style={styles.trayInset} />
         <View style={styles.chipRow}>
           <Chip config={config} label="Target">
             {/* One icon+count pair per objective, stacked — a single-
@@ -105,7 +106,7 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
             })}
           </Chip>
           <Chip config={config} label="Moves">
-            <Text style={[styles.value, { color: palette.text }]}>{movesRemaining}</Text>
+            <Text style={[styles.value, { color: palette.accent }]}>{movesRemaining}</Text>
           </Chip>
           <Chip config={config} label="Lives">
             <View style={styles.glyphRow}>
@@ -167,6 +168,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   tray: {
+    position: 'relative',
     marginHorizontal: 8,
     paddingHorizontal: 10,
     // Kept deliberately tight — this HUD's total height was reasoned
@@ -180,6 +182,13 @@ const styles = StyleSheet.create({
     // redesign is going for comes from shape/color/material (pills, the
     // tray surface, the shadow), not raw size, so trimming padding here
     // doesn't undercut the actual goal.
+    //
+    // Re-tightened again (commercial-polish consolidation pass): a
+    // consolidated set of "more character" changes — the trayInset ring,
+    // bigger chip minHeight, bigger glyphs, a bigger score plaque — grew
+    // this back to 145px measured live (real tileSize regression: 63→59
+    // on the 8x5 reference level), undoing the earlier tightening. Retuned
+    // back down with the same live-measurement discipline, not guessed.
     paddingTop: 6,
     paddingBottom: 4,
     borderWidth: 1.5,
@@ -193,16 +202,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
+  trayInset: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 239, 199, 0.28)',
+    borderRadius: 14,
+  },
   chipRow: {
     flexDirection: 'row',
-    gap: 7,
+    gap: 8,
   },
   chip: {
     flex: 1,
     minHeight: 42,
     paddingHorizontal: 6,
     paddingVertical: 4,
-    borderWidth: 1,
+    borderWidth: 1.5,
     // A real pill, not the old chip's plain rounded rectangle — the
     // single biggest legibility-free shape change that reads as "tray
     // holding chips" rather than "three boxes in a row."
@@ -241,16 +260,16 @@ const styles = StyleSheet.create({
     marginTop: 4,
     paddingHorizontal: 16,
     paddingVertical: 1,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderRadius: 12,
   },
   scoreLabel: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   scoreValue: {
     fontFamily: Fonts.headingBold,
-    fontSize: 15,
+    fontSize: 17,
   },
 });

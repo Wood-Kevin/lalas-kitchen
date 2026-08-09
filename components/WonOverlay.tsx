@@ -16,7 +16,8 @@ import {
 } from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
 import { RecipeCardReveal } from './RecipeCardReveal';
-import { computeStarRating } from './wonActions';
+import { computeStarRating, isStrongWin } from './wonActions';
+import { WinCelebrationBurst } from './WinCelebrationBurst';
 
 export interface WonOverlayProps {
   objectives: Objective[];
@@ -106,6 +107,40 @@ function Sparkle({ style, color, delayMs }: { style: object; color: string; dela
   return <Animated.View style={[styles.sparkle, style, { backgroundColor: color }, animatedStyle]} />;
 }
 
+function AnimatedStar({
+  active,
+  delayMs,
+  filledColor,
+  emptyColor,
+}: {
+  active: boolean;
+  delayMs: number;
+  filledColor: string;
+  emptyColor: string;
+}) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = active
+      ? withDelay(
+          delayMs,
+          withSequence(withTiming(1.12, { duration: 180 }), withTiming(1, { duration: 120 }))
+        )
+      : withTiming(1, { duration: 0 });
+  }, [active, delayMs, progress]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: active ? Math.min(1, progress.value + 0.2) : 0.72,
+    transform: [{ scale: active ? progress.value : 1 }],
+  }));
+
+  return (
+    <Animated.Text style={[styles.star, { color: active ? filledColor : emptyColor }, animatedStyle]}>
+      ★
+    </Animated.Text>
+  );
+}
+
 // Mirrors PausedOverlay.tsx's card/backdrop shape and the same
 // one-primary-plus-two-quiet-secondary-links structure — same warm cream
 // card, same border, differentiated by color balance (yolk/flame sparkle
@@ -139,37 +174,48 @@ export function WonOverlay({
           : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, secondaryAccentText, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
+  // A perfect-play finish or a fresh recipe unlock both already read as this
+  // screen's own stand-out moment (the star row's top tier, or
+  // RecipeCardReveal replacing the plated dish entirely) — see
+  // wonActions.ts's isStrongWin. The burst amplifies a peak the screen is
+  // already marking, applied to whichever of the two branches below is
+  // actually showing.
+  const strongWin = isStrongWin(stars, unlockedRecipeCard !== null);
 
   return (
     <View style={styles.backdrop}>
       <View style={[styles.card, { backgroundColor: panel, borderColor: border }]}>
-        {unlockedRecipeCard ? (
-          <RecipeCardReveal card={unlockedRecipeCard} config={config} spriteAssets={spriteAssets} />
-        ) : (
-          <View style={styles.illustration}>
-            <SteamWisp left="38%" delayMs={0} />
-            <SteamWisp left="50%" delayMs={500} />
-            <SteamWisp left="62%" delayMs={1000} />
-            <Sparkle style={{ left: '16%', top: '14%' }} color={YOLK} delayMs={0} />
-            <Sparkle style={{ right: '14%', top: '20%' }} color={FLAME} delayMs={550} />
+        <View style={styles.celebrationSlot}>
+          {unlockedRecipeCard ? (
+            <RecipeCardReveal card={unlockedRecipeCard} config={config} spriteAssets={spriteAssets} />
+          ) : (
+            <View style={styles.illustration}>
+              <SteamWisp left="38%" delayMs={0} />
+              <SteamWisp left="50%" delayMs={500} />
+              <SteamWisp left="62%" delayMs={1000} />
+              <Sparkle style={{ left: '16%', top: '14%' }} color={YOLK} delayMs={0} />
+              <Sparkle style={{ right: '14%', top: '20%' }} color={FLAME} delayMs={550} />
 
-            <View style={[styles.plateRim, { backgroundColor: border }]} />
-            <View style={[styles.plateFace, { backgroundColor: panel, borderColor: border }]}>
-              <SpriteIcon sprite={sprite} size={44} labelColor={accent} />
+              <View style={[styles.plateRim, { backgroundColor: border }]} />
+              <View style={[styles.plateFace, { backgroundColor: panel, borderColor: border }]}>
+                <SpriteIcon sprite={sprite} size={44} labelColor={accent} />
+              </View>
             </View>
-          </View>
-        )}
+          )}
+          {strongWin && <WinCelebrationBurst colors={[YOLK, FLAME, accent, secondaryAccent]} />}
+        </View>
 
         <Text style={[styles.levelLabel, { color: accent }]}>LEVEL {levelIndex}</Text>
         <Text style={[styles.headline, { color: text }]}>Order&apos;s Up!</Text>
         <View style={styles.starRow}>
           {[1, 2, 3].map((slot) => (
-            <Text
+            <AnimatedStar
               key={slot}
-              style={[styles.star, { color: slot <= stars ? YOLK : border }]}
-            >
-              ★
-            </Text>
+              active={slot <= stars}
+              delayMs={(slot - 1) * 180}
+              filledColor={YOLK}
+              emptyColor={border}
+            />
           ))}
         </View>
         <Text style={[styles.subtext, { color: mutedText }]}>
@@ -274,6 +320,18 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 22,
     paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  // Positions WinCelebrationBurst as an absolute sibling over whichever
+  // branch (RecipeCardReveal or the plain plated-dish illustration) is
+  // actually rendered, so one burst placement works for both without
+  // duplicating it into each branch. `position: 'relative'` with no fixed
+  // height so it sizes to whichever child is present, same as any other
+  // plain wrapper here — the burst's own absoluteFillObject then fills
+  // exactly that.
+  celebrationSlot: {
+    position: 'relative',
+    width: '100%',
     alignItems: 'center',
   },
   illustration: {

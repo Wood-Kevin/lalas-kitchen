@@ -82,6 +82,10 @@ import {
 import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
+import { LalaMomentBanner } from './LalaMomentBanner';
+import { ScorePopup, ScorePopupTone } from './ScorePopup';
+import { KitchenSceneDecor } from './KitchenSceneDecor';
+import { resolveLalaMomentCopy, resolveScorePopupTone } from './rewardMoment';
 import { triggerPassEffects } from './soundEffects';
 
 export interface BoardProps {
@@ -409,6 +413,15 @@ export function Board({
   // than a second event landing mid-fade doing nothing because the banner
   // was already mounted.
   const [comboKey, setComboKey] = useState<string | null>(null);
+  // Presentation-only reward beats. These are keyed per committed move so a
+  // new move always gets a fresh animation instead of retriggering an already
+  // mounted banner mid-fade.
+  const [scorePopup, setScorePopup] = useState<{
+    key: string;
+    amount: number;
+    tone: ScorePopupTone;
+  } | null>(null);
+  const [lalaMoment, setLalaMoment] = useState<{ key: string; copy: string } | null>(null);
   // How many "watch a video for more moves" grants this attempt has taken.
   // Per-attempt state, on purpose: it starts at 0 on every fresh mount (a
   // brand-new entry from Home / All Levels remounts Board, see App.tsx's
@@ -479,6 +492,10 @@ export function Board({
   // Monotonic per-move id, used only to key exiting tiles uniquely across
   // moves (a piece clears at most once per move, so id+move is unique).
   const moveCounterRef = useRef(0);
+  // A separate counter from moveCounterRef so a shuffle before the first
+  // real move (a plausible opening action) can't shift moveId away from 0
+  // and silently break resolveLalaMomentCopy's "first move" detection.
+  const shuffleMomentCounterRef = useRef(0);
   // The calm stuck-player hint (see CLAUDE.md's Playtest Feedback Protocol's
   // calm-not-frantic principle and engine/DECISIONS.md's stuck-player-hint
   // entry): tapping the HUD hint button glows a real legal move
@@ -694,6 +711,7 @@ export function Board({
       tappedIds,
       hasCombo,
       result.multiSpecialFired,
+      result.score,
       effectDescriptor,
       result.chainWaveByPieceId,
       { a: posA, b: posB },
@@ -774,6 +792,7 @@ export function Board({
     tappedIds: Set<string>,
     hasCombo: boolean,
     multiSpecialFired: boolean,
+    moveScore: number,
     effectDescriptor: SpecialEffectDescriptor | undefined,
     chainWaveByPieceId: Record<string, number>,
     // The two cells this move swapped, and whether the engine actually
@@ -818,6 +837,21 @@ export function Board({
     // doesn't exist.
     const commitFinalState = () => {
       if (hasCombo) setComboKey(`combo-${moveId}`);
+      if (moveScore > 0) {
+        const tone = resolveScorePopupTone(multiSpecialFired, effectDescriptor, steps.length);
+        setScorePopup({ key: `score-${moveId}`, amount: moveScore, tone });
+
+        const copy = resolveLalaMomentCopy(
+          hasCombo,
+          multiSpecialFired,
+          effectDescriptor,
+          steps.length,
+          moveId === 0,
+          finalState.movesRemaining,
+          moveScore
+        );
+        if (copy) setLalaMoment({ key: `lala-${moveId}`, copy });
+      }
       setGameState(finalState);
       // Life-spend timing lives here now, not in App.tsx's generic state-
       // transition check (see appPersistence.ts's now-removed
@@ -1138,6 +1172,11 @@ export function Board({
     if (!canAcceptMove()) return;
     setHintPair(null);
     setGameState((current) => requestManualShuffle(current));
+    // The one LalaMomentBanner trigger that isn't a move outcome (see
+    // rewardMoment.ts's resolveLalaMomentCopy) — release-character-pack.md's
+    // "Manual shuffle" row, fired directly here since a shuffle never goes
+    // through applyMove/commitFinalState at all.
+    setLalaMoment({ key: `shuffle-${shuffleMomentCounterRef.current++}`, copy: "Let's freshen the board." });
   }
 
   // ContinueOffer's two decline paths — restarting or leaving instead of
@@ -1349,6 +1388,20 @@ export function Board({
         }}
       >
         {tileSize > 0 && (
+          // Scoped to boardArea (not the whole screen — see this component's
+          // own consolidation-pass note below) and gated on the same
+          // tileSize > 0 condition the board grid itself uses, so it can
+          // never render before layout has been measured or paint over an
+          // overlay on a paused/won state (this View unmounts along with the
+          // grid whenever gameState.status leaves 'in_progress', per the
+          // conditional this whole block already lives inside).
+          <KitchenSceneDecor
+            accentColor={skinConfig.palette.accent}
+            panelColor={skinConfig.palette.panel}
+            spriteAssets={spriteAssets}
+          />
+        )}
+        {tileSize > 0 && (
           <View style={[styles.board, { width: boardWidth, height: rows * tileSize }]}>
             {renderBoard.flatMap((rowPieces, r) =>
               rowPieces.map((piece, c) => {
@@ -1505,6 +1558,25 @@ export function Board({
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 onDone={() => setComboKey(null)}
+              />
+            )}
+            {scorePopup && (
+              <ScorePopup
+                key={scorePopup.key}
+                amount={scorePopup.amount}
+                tone={scorePopup.tone}
+                accentColor={skinConfig.palette.accent}
+                panelColor={skinConfig.palette.panel}
+                onDone={() => setScorePopup(null)}
+              />
+            )}
+            {lalaMoment && (
+              <LalaMomentBanner
+                key={lalaMoment.key}
+                copy={lalaMoment.copy}
+                accentColor={skinConfig.palette.accent}
+                panelColor={skinConfig.palette.panel}
+                onDone={() => setLalaMoment(null)}
               />
             )}
           </View>

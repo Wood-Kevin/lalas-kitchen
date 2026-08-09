@@ -31,3 +31,16 @@ export function computeStarRating(movesRemaining: number, movesLimit: number): S
   if (ratio >= TWO_STAR_UNUSED_RATIO) return 2;
   return 1;
 }
+
+// Gates the win-celebration particle burst (see WinCelebrationBurst.tsx) to
+// genuine peaks rather than every win — the same floor/ceiling reward-
+// hierarchy shape cascadeTiming.ts's passRewardIntensity already established
+// for board effects, applied here to the win overlay. A perfect-play 3-star
+// finish or a win that unlocked a recipe card both already read as the
+// stand-out moment on this screen (the star row's own top tier, or
+// RecipeCardReveal replacing the plated-dish illustration entirely) — the
+// burst amplifies a peak the screen is already marking, it doesn't invent
+// a new one.
+export function isStrongWin(stars: StarRating, unlockedRecipeCard: boolean): boolean {
+  return stars === 3 || unlockedRecipeCard;
+}

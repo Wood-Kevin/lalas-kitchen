@@ -32,13 +32,22 @@ function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labe
 // card wasn't already unlocked (see appPersistence.ts's
 // findRecipeCardForLevel / App.tsx's handleBoardStateChange).
 //
-// Deliberately just a slight tilt, a soft glow behind the card, and one
-// gentle fade/scale-in on mount — no confetti, no burst, no particle
-// animation, no card-flip motion — per CLAUDE.md's calm-not-frantic
-// constraint and this feature's own approved design brief ("the only
-// celebration cue"). WonOverlay's existing Sparkle/steam accents on its own
-// default win illustration are untouched; this is a distinct, calmer
-// treatment shown instead of that illustration, not layered on top of it.
+// Just a slight tilt, a soft glow behind the card, and one gentle
+// fade/scale-in on mount — no card-flip motion, no motion of its own beyond
+// that. WonOverlay's existing Sparkle/steam accents on its own default win
+// illustration are untouched; this is a distinct, calmer treatment shown
+// instead of that illustration, not layered on top of it.
+//
+// Revised: this component's own doc comment used to add "no confetti, no
+// burst, no particle animation" on top of that, per this feature's own
+// approved design brief ("the only celebration cue") and CLAUDE.md's
+// calm-not-frantic constraint. Both were reasoned from the same "calm"
+// framing the architect corrected during the commercial-polish pass — a
+// recipe unlock is exactly the kind of genuine peak wonActions.ts's
+// isStrongWin now flags, so WonOverlay now layers WinCelebrationBurst over
+// this component too (see WonOverlay.tsx's celebrationSlot), not just over
+// the plain plated-dish illustration. This component itself still adds no
+// burst of its own — the layering happens one level up, in WonOverlay.
 export function RecipeCardReveal({ card, config, spriteAssets }: RecipeCardRevealProps) {
   const sprite = resolveSpriteAsset(card.sprite, spriteAssets);
   const { panel, border, text, mutedText, accent } = config.palette;
