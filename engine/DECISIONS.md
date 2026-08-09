@@ -6562,3 +6562,33 @@ took effect as designed, not just as written. Not confirmed by a human eye — t
 every visual feature here discloses — but this is now the second Home-screen pass with real
 DOM-level verification behind it, including a verified fix for a defect that would otherwise have
 shipped invisibly.
+
+## Real playtest report: white stripes at the top/bottom of the Level Map (2026-08-09)
+
+**The report.** A screenshot of the real Level Map screen, level ~94: a distinct light/white
+horizontal band sitting right at the top of the visible map (behind and just below the header) and
+another at the bottom. Investigated directly rather than guessed: `LevelMap.tsx`'s `mapArea` had two
+sibling overlay Views, `mapGlowTop` (height 88, `${panel}99`) and `mapGlowBottom` (height 140,
+`${panel}66`) — semi-transparent `palette.panel` (`#FBF3E1`, a light cream) fills, absolutely
+positioned at the top/bottom edges of the scrollable map, apparently meant as a vignette so level
+nodes fade out approaching the visible boundary rather than clipping abruptly. No comment in the
+code explained this intent, and against the screen's actual `background[0]` fill (`#F6D9A8`, a
+noticeably warmer tan), a 60%/40%-opacity cream overlay reads as a distinct lighter stripe rather
+than a subtle fade — exactly the reported symptom.
+
+**The fix.** Removed both overlay Views and their now-unused `mapGlowTop`/`mapGlowBottom` styles
+outright, per direct instruction ("we can remove"). `mapArea` already has `overflow: 'hidden'`, so
+level nodes still clip cleanly at the visible boundary — they just no longer get a fade effect
+first, a deliberate simplification rather than a compromise, since the fade was actively causing the
+reported problem, not preventing a worse one.
+
+**Verification:** 860/860 tests (no test covered these two purely decorative Views, so none needed
+updating). `tsc` override shows the same 4 pre-existing, unrelated errors only. Live-verified over
+CDP in a genuinely fresh tab: navigated Home -> Browse all levels -> Level Map with zero console
+errors, and a direct DOM scan for any element resolving to a translucent `rgba(251, 243, 225, ...)`
+background (the removed overlays' exact color) found none.
+
+**Not yet addressed, flagged rather than assumed in scope:** `LevelMap.tsx`'s own screen background
+is still the same flat `background[0]` fill the two facelift passes above replaced with a real
+gradient on `Board.tsx`/`Home.tsx` — this session's actual ask was specifically the white stripe, so
+that inconsistency was left alone rather than assumed included. See `DEFERRED_COMPLEXITY.md`.

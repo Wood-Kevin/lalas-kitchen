@@ -206,9 +206,6 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           setViewportHeight(event.nativeEvent.layout.height);
         }}
       >
-        <View pointerEvents="none" style={[styles.mapGlowTop, { backgroundColor: `${panel}99` }]} />
-        <View pointerEvents="none" style={[styles.mapGlowBottom, { backgroundColor: `${panel}66` }]} />
-
         <ScrollView
           ref={scrollRef}
           style={styles.scroll}
@@ -447,22 +444,6 @@ const styles = StyleSheet.create({
   mapArea: {
     flex: 1,
     overflow: 'hidden',
-  },
-  mapGlowTop: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 88,
-    zIndex: 1,
-  },
-  mapGlowBottom: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 140,
-    zIndex: 1,
   },
   scroll: {
     flex: 1,
