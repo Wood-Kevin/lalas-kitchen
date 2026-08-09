@@ -122,14 +122,14 @@ export function springSettleMs(perceptualMs: number): number {
 export const PASS_BEAT_MS = 140;
 
 // The ordinary-match anticipation beat (SPEC.md's resolved fork): a matched
-// tile brightens and swells briefly BEFORE it shrinks away, so the game's
-// most common event gets the same "recognize → celebrate → remove" grammar
-// every special effect already has, instead of just evaporating. Folded into
+// tile swells briefly BEFORE it shrinks away, so the game's most common
+// event gets the same "recognize → celebrate → remove" grammar every
+// special effect already has, instead of just evaporating. Folded into
 // the FRONT of matchDurationMs — exactly the pattern the sweep's
 // SWEEP_GLOW_POP_MS established — so a clear's total time, and therefore the
-// pass schedule, is unchanged. Milder than the sweep/radial pops on every
-// axis (smaller swell, fainter wash) because it plays on every single match,
-// not on a special moment. Calm brief: a soft acknowledgement, not a flash.
+// pass schedule, is unchanged. Milder than the sweep/radial pops (a smaller
+// swell) because it plays on every single match, not on a special moment.
+// Calm brief: a soft acknowledgement, not a flash.
 // Revised as part of the visual-reward-language spec (SPEC.md, same day):
 // these were tuned under the old, over-narrow reading of "calm, not
 // frantic" — a real playtest report ("a whatever moment") plus the
@@ -137,26 +137,33 @@ export const PASS_BEAT_MS = 140;
 // sounds and micro transaction pressures," not visual intensity, both
 // confirmed that reading was too cautious. Ordinary matches still stay the
 // most subdued mechanism in the reward hierarchy (see the reward-budget
-// decision) — SCALE/OPACITY moved up a real, felt amount, but stay well
-// under every named mechanism's own peak (sweep 1.15/0.5, radial 1.3/0.55,
-// blocker 1.18/0.35 — see their own constants below).
+// decision) — SCALE moved up a real, felt amount, but stays well under
+// every named mechanism's own peak (sweep 1.15, radial 1.3, blocker 1.18 —
+// see their own constants below). MATCH_POP_OPACITY (the anticipation
+// beat's colored brighten-wash) was removed on unity-migration-exploration
+// alongside every other mechanism's wash color (see this file's own
+// colors-removed rework note further down and engine/DECISIONS.md's
+// matching entry) — the swell below is now the entire beat, no flash.
 export const MATCH_POP_MS = 90;
 export const MATCH_POP_SCALE = 1.11;
-export const MATCH_POP_OPACITY = 0.38;
 
-// Every clear mechanism used to share the exact same MOTION shape (brighten,
-// scale-pop, shrink to 0) and differ only by wash color/shape/timing — a real
-// playtest gap once the per-mechanism color work above shipped ("still all
-// look like the same thing happening, just tinted differently"). This
-// constant is the ordinary match's own answer: instead of a flat symmetric
-// scale-to-zero, a cleared tile also twists a small, DETERMINISTIC amount
+// Every clear mechanism used to share the exact same MOTION shape (a
+// scale-pop, shrink to 0) and differ only by wash color/shape/timing — a
+// real playtest gap that first surfaced as "still all look like the same
+// thing happening, just tinted differently," and then, once every wash
+// color was tried and retuned, resolved into a sharper complaint: "I've
+// never seen that in a match 3 ... just an animation" (see
+// engine/DECISIONS.md's colors-removed rework entry — the per-mechanism
+// color system this comment originally described is gone entirely, not
+// retuned). This constant is the ordinary match's own answer: instead of a
+// flat symmetric scale-to-zero, a cleared tile also twists a small,
+// DETERMINISTIC amount
 // (see Tile.tsx's matchRotationSeed, derived from the piece's own id so
 // several tiles clearing in the same match don't all spin identically,
 // which would read as choreographed rather than organic) as it shrinks — a
 // little tumble-away instead of a uniform dissolve. Kept small: this is
 // still the calm, most-subdued mechanism in the reward hierarchy (see
-// MATCH_POP_SCALE/OPACITY's own comment), so the twist reads as texture, not
-// a spin.
+// MATCH_POP_SCALE's own comment), so the twist reads as texture, not a spin.
 export const MATCH_POP_ROTATE_DEG = 16;
 
 // The blocker clear's shatter — its own genuinely different DESTRUCTION
@@ -164,7 +171,7 @@ export const MATCH_POP_ROTATE_DEG = 16;
 // reuse: a blocker is a physical container (jar/lid/wrapped bundle) in this
 // skin, so "breaking apart" reads as a truer match to what's actually
 // happening than "shrinking away" does. Layered ADDITIVELY alongside the
-// existing highlight-pulse-then-fade (Tile.tsx's ExitingTile isBlockerClear
+// existing pre-shatter scale pulse (Tile.tsx's ExitingTile isBlockerClear
 // branch is otherwise unchanged) — four quadrant fragments of the same
 // sprite fly outward from the tile's centre, rotating and fading, timed to
 // the same durationMs window the base sprite already fades out over so no
@@ -175,20 +182,7 @@ export const MATCH_POP_ROTATE_DEG = 16;
 export const BLOCKER_SHATTER_TRAVEL_FRACTION = 0.62;
 export const BLOCKER_SHATTER_ROTATE_DEG = 70;
 
-// The radial family's (color bomb / area bomb) own genuinely different
-// SHAPE of motion: on top of the existing filled circular wash
-// (ExitingTile's radialGlow), a thin ring expands outward from the tile like
-// a real shockwave and fades as it grows — a shape a filled wash and a
-// scale-pop can't produce, since a ring is defined by its ABSENCE of fill in
-// the centre. MAX_SCALE is relative to the tile's own diameter (2.6× reads
-// as a wave that visibly outgrows its origin cell without sprawling across
-// several neighbours at peak, since the underlying wash/pop already covers
-// the near field). Runs across the mechanism's own full durationMs window,
-// purely additive — it never gates onExited or any other timing.
-export const RADIAL_RING_MAX_SCALE = 2.6;
-export const RADIAL_RING_PEAK_OPACITY = 0.55;
-
-// How much of a mechanism's peak wash opacity a pass gets regardless of
+// How much of a mechanism's peak magnitude a pass gets regardless of
 // cascade depth — the rest scales in with passRewardIntensity below. A
 // single flat match still needs to read as a real pop on its own (the
 // "whatever moment" report was about ordinary matches specifically, most
@@ -198,14 +192,18 @@ export const RADIAL_RING_PEAK_OPACITY = 0.55;
 // consistently, even though each mechanism's own peak differs.
 const REWARD_FLOOR_FRACTION = 0.65;
 
-// Scales a mechanism's peak wash opacity by this pass's reward intensity
-// (0..1, see passRewardIntensity), linearly between REWARD_FLOOR_FRACTION
-// and 1 of that peak. `peak` stays each branch's own already-tuned value
-// (SWEEP/RADIAL/BLOCKER's existing opacity constants, MATCH_POP_OPACITY
-// above) — this never pushes a mechanism past its own ceiling, only
-// varies how much of it a given pass earns, which is what keeps the
-// mechanism hierarchy (ordinary < blocker/sweep < bomb < supercombo)
-// intact even as cascade-size scaling is layered on top of it.
+// Scales a mechanism's peak MOTION MAGNITUDE by this pass's reward
+// intensity (0..1, see passRewardIntensity), linearly between
+// REWARD_FLOOR_FRACTION and 1 of that peak — this never pushes a
+// mechanism past its own ceiling, only varies how much of it a given pass
+// earns, which is what keeps the mechanism hierarchy (ordinary < blocker/
+// sweep < bomb < supercombo) intact even as cascade-size scaling is
+// layered on top of it. Originally scaled each mechanism's wash opacity;
+// currently unused within Tile.tsx (the colors-removed rework deleted
+// every wash it used to scale — see engine/DECISIONS.md's matching
+// entry) until the sweep-stretch/radial-pulse/particle-count magnitudes
+// that replace it land, at which point `peak` becomes a stretch scale, a
+// pulse distance, or a particle count instead of an opacity.
 export function scaledByReward(peak: number, intensity: number): number {
   return peak * (REWARD_FLOOR_FRACTION + (1 - REWARD_FLOOR_FRACTION) * intensity);
 }
@@ -234,8 +232,9 @@ export function passRewardIntensity(passIndex: number, clearedCount: number): nu
 // clearing blocker before its normal pop-and-shrink, so the disappearance
 // reads as "something hit this" rather than an unexplained glitch. Kept
 // short and proportionate to matchDurationMs's 300ms default per CLAUDE.md's
-// calm-not-frantic constraint — a glow pulse, not a shake, since this
-// player's phone plays with sound off and doesn't need a jarring cue.
+// calm-not-frantic constraint — a motion-only scale pulse, not a shake,
+// since this player's phone plays with sound off and doesn't need a
+// jarring cue.
 export const BLOCKER_CLEAR_HIGHLIGHT_MS = 200;
 
 // A striped piece's row/column sweep clears a whole line at once in the engine,
@@ -243,7 +242,7 @@ export const BLOCKER_CLEAR_HIGHLIGHT_MS = 200;
 // just appears and vanishes — it never looks like the beam actually *travelled*
 // (real play feedback: the sweep felt lackluster). Instead the presentation
 // layer staggers each tile's pop by its distance (in tiles) from the striped
-// piece, so a gentle glow visibly runs down the line one tile at a time (see
+// piece, so the reaction visibly runs down the line one tile at a time (see
 // components/sweepAnimation.ts + Tile.tsx's ExitingTile sweep branch).
 //
 // 55ms per tile is a calm-pacing judgment call, not a spec value: it's slow
@@ -256,10 +255,10 @@ export const BLOCKER_CLEAR_HIGHLIGHT_MS = 200;
 // the flat all-at-once wash this replaces.
 export const SWEEP_TILE_STAGGER_MS = 55;
 
-// Once the beam reaches a tile, that tile brightens and swells slightly (the
-// "pop") before it shrinks away — this is the brighten phase's duration, the
-// texture that makes each tile's reaction read as a deliberate beat rather than
-// a plain fade. Kept a small fraction of matchDurationMs (300ms) so the pop is a
+// Once the beam reaches a tile, that tile swells slightly (the "pop") before
+// it shrinks away — this is the swell phase's duration, the texture that
+// makes each tile's reaction read as a deliberate beat rather than a plain
+// fade. Kept a small fraction of matchDurationMs (300ms) so the pop is a
 // gentle swell folded into the front of the normal pop-and-shrink, not an extra
 // stage that stretches the clear. See ExitingTile's sweep branch.
 export const SWEEP_GLOW_POP_MS = 110;
@@ -289,7 +288,7 @@ export const COLOR_BOMB_WAVE_MS = 280;
 // reasoning SWEEP_TILE_STAGGER_MS's own comment already establishes.
 export const AREA_BOMB_WAVE_MS = 90;
 
-// The supercombo's two beats share one timing knob: the "conversion" flash
+// The supercombo's two beats share one timing knob: the "conversion" pulse
 // plays for exactly this long, and the synchronized pop-and-shrink for every
 // converted piece begins the instant it ends (see specialEffectAnimation.ts's
 // buildPassAnimation, which sets every converted piece's sweepDelayMs to this
@@ -300,12 +299,22 @@ export const AREA_BOMB_WAVE_MS = 90;
 // move visibly stalling before it resolves.
 export const SUPERCOMBO_CONVERT_MS = 170;
 
-// The conversion flash's own pulse rate within SUPERCOMBO_CONVERT_MS — a
-// double-blink (up/down/up/down) rather than one smooth brighten, since a
-// flicker reads as "this is becoming something new" in a way a single steady
-// glow (the sweep/radial pop's own language, reused elsewhere) doesn't. Four
-// even beats fit inside SUPERCOMBO_CONVERT_MS exactly.
+// The conversion pulse's own beat rate within SUPERCOMBO_CONVERT_MS — a
+// double-pulse (up/down/up/down) rather than one smooth swell, since a
+// flicker reads as "this is becoming something new" in a way a single
+// steady bump doesn't. Four even beats fit inside SUPERCOMBO_CONVERT_MS
+// exactly. Named for the pulse rate, not a flash — see
+// SUPERCOMBO_CONVERT_PULSE_SCALE below for what actually moves (motion
+// only, no color, per the "colors gone" rework).
 export const SUPERCOMBO_FLASH_PULSE_MS = SUPERCOMBO_CONVERT_MS / 4;
+
+// How far the supercombo's "converting to a special" beat scales UP at each
+// of its two pulses (see SUPERCOMBO_FLASH_PULSE_MS) — replaces what used to
+// be a colored opacity double-blink with a plain scale double-bump, once
+// per-mechanism color washes were removed. Kept modest (smaller than a
+// striped/radial pop's own peak) since this is a pre-beat announcing a
+// bigger beat is about to follow, not the payoff itself.
+export const SUPERCOMBO_CONVERT_PULSE_SCALE = 1.12;
 
 // One chain LINK's worth of stagger: every cell a chain reaction cleared at
 // wave w (see engine/gameState.ts's ApplyMoveResult.chainWaveByPieceId) waits

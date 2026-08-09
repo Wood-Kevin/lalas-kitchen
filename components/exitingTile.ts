@@ -1,6 +1,6 @@
 import { Piece } from '../engine/matrix';
 import { Position } from '../engine/gameState';
-import { SkinConfig, SkinPalette } from './skinConfig';
+import { SkinConfig } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
 
 // One exiting/clearing tile — a piece from diffBoards' `cleared` list that
@@ -46,8 +46,8 @@ export interface ExitingEntry {
   // a new engine field.
   isBlockerClear: boolean;
   // Set only on a tile swept by a striped piece's line clear — how long it
-  // waits before it brightens and pops, so the glow travels down the line
-  // instead of the whole row/column flashing at once. Derived purely from the
+  // waits before it pops, so the sequence travels down the line instead of
+  // the whole row/column clearing at once. Derived purely from the
   // pass's diff (see sweepAnimation.ts), no new engine data. Undefined for an
   // ordinary match cell. Also reused, with a UNIFORM value across every
   // converted piece, as the supercombo's synchronized beat-2 delay (see
@@ -63,7 +63,7 @@ export interface ExitingEntry {
   // effect's own swap-triggered origin) — see DEFERRED_COMPLEXITY.md.
   radialDelayMs?: number;
   // Set only on the supercombo's own converted pieces (never the bomb cell
-  // itself) — plays a brief "this just became a special" flicker BEFORE the
+  // itself) — plays a brief "this just became a special" pulse BEFORE the
   // synchronized sweepDelayMs pop begins, so the two real beats (convert, then
   // sweep together) both read on screen instead of collapsing into one
   // instant (see specialEffectAnimation.ts's supercomboConvertedIds and
@@ -73,8 +73,8 @@ export interface ExitingEntry {
   // color bomb's board-spanning wave and a solo area bomb's local blast
   // both ride the same radialDelayMs channel/geometry (see
   // specialEffectAnimation.ts's buildPassAnimation), but need different
-  // colors (see resolveEffectColor below). Undefined whenever
-  // radialDelayMs itself is undefined.
+  // pulse-distance/particle-count magnitudes (Tile.tsx's ExitingTile).
+  // Undefined whenever radialDelayMs itself is undefined.
   radialKind?: 'color_bomb' | 'area_bomb';
   // How rewarding this pass's clear should feel (0..1, see
   // cascadeTiming.ts's passRewardIntensity) — captured once, when the
@@ -143,31 +143,6 @@ export function buildExitingEntry(
     rewardIntensity,
     experimentalHitStopMs,
   };
-}
-
-// Resolves which color THIS exiting entry's wash overlay should use, from
-// the same per-cell flags Tile.tsx's ExitingTile already branches on to
-// decide WHICH overlay to render — this decides what color that overlay
-// gets, the presentation-only half of SPEC.md's visual-reward-language
-// work. Priority mirrors ExitingTile's own branch order (a blocker clear
-// and a convert-flash can theoretically coincide with sweepDelayMs being
-// set too — see ExitingEntry's own doc comments on why convertedFlash
-// layers ADDITIVELY alongside sweepDelayMs — so the more specific signal
-// wins). Falls back to the skin's plain `accent` for an ordinary match,
-// unchanged from before this feature — the reward-budget decision that
-// ordinary matches don't get their own new color, only more of the one
-// they already had.
-export function resolveEffectColor(
-  entry: Pick<ExitingEntry, 'isBlockerClear' | 'convertedFlash' | 'radialDelayMs' | 'radialKind' | 'sweepDelayMs'>,
-  palette: SkinPalette
-): string {
-  if (entry.isBlockerClear) return palette.effectColors.blocker;
-  if (entry.convertedFlash) return palette.effectColors.supercombo;
-  if (entry.radialDelayMs !== undefined) {
-    return entry.radialKind === 'area_bomb' ? palette.effectColors.areaBomb : palette.effectColors.colorBomb;
-  }
-  if (entry.sweepDelayMs !== undefined) return palette.effectColors.sweep;
-  return palette.accent;
 }
 
 // Resolves the sprite for an exiting tile through getSpriteForPiece — the exact

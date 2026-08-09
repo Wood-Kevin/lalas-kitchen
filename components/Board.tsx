@@ -51,7 +51,7 @@ import {
   resolveSpecialEffectDescriptor,
 } from './specialEffectAnimation';
 import { getSpriteForPiece } from './spriteMap';
-import { ExitingEntry, buildExitingEntry, exitingTileSprite, resolveEffectColor } from './exitingTile';
+import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import {
   fallSpeedProfile,
@@ -1635,12 +1635,6 @@ export function Board({
                 isPowderBurst={entry.pieceType === 'area_bomb'}
                 radialDelayMs={entry.radialDelayMs}
                 convertedFlash={entry.convertedFlash}
-                // Per-mechanism wash color (SPEC.md's visual-reward-language
-                // spec) — resolved from the same flags that already decide
-                // WHICH overlay renders, plus the skin's new effectColors
-                // palette. The tile's own border stays on the plain accent
-                // above, unchanged.
-                effectColor={resolveEffectColor(entry, skinConfig.palette)}
                 rewardIntensity={entry.rewardIntensity}
                 onExited={() => removeExiting(entry.key)}
                 // Dev-only — see BoardProps.experimentalJuice.

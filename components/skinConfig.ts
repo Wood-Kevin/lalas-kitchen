@@ -83,36 +83,23 @@ export interface SkinPalette {
   mutedText: string;
   border: string;
   text: string;
-  // Per-mechanism colors for the momentary clear-time wash overlays
-  // (blocker highlight, striped sweep, radial detonation, supercombo
-  // convert flash) — see SPEC.md's "visual reward language" spec and
-  // engine/DECISIONS.md's matching entry. Every one of these used to
-  // share the single `accent` color above, differentiated only by shape
-  // and duration; real playtest feedback ("mechanics don't really
-  // vary") traced directly to that. An ordinary match deliberately has
-  // no entry here — it keeps using `accent` unchanged, the reward-budget
-  // decision that ordinary matches stay the most subdued mechanism.
-  // Chosen and verified against a real protanopia/deuteranopia
-  // simulation (SPEC.md section 3a) — a pure hue-wheel spread failed
-  // that check, so these vary in lightness too, not hue alone.
-  // Re-saturated on unity-migration-exploration after real feedback that
-  // the original set "feels lame, doesn't match genre" — the ORIGINAL
-  // MISTAKE was assuming vividness itself was the problem the CVD check
-  // ruled out; re-simulating (a fresh Machado/Oliveira/Fairchild-class
-  // pass) confirmed hue-only spread was the actual failure, and pushing
-  // each color's SATURATION up while holding its lightness rung fixed
-  // (dark navy stays dark, just a richer blue; pale gold becomes a vivid
-  // amber; etc.) kept every pair well-separated (min pairwise distance
-  // 43.4 protanopia / 42.5 deuteranopia, vs. the original 32.7/45.0 —
-  // both nowhere near the rejected pass's 3.0 failure). See
-  // engine/DECISIONS.md's effect-color-resaturation entry.
-  effectColors: {
-    blocker: string;
-    sweep: string;
-    areaBomb: string;
-    colorBomb: string;
-    supercombo: string;
-  };
+  // NOTE: this skin used to carry a `effectColors` field here — one fixed
+  // wash color per clear MECHANISM (blocker/sweep/radial/supercombo),
+  // introduced by SPEC.md's "visual reward language" spec after real
+  // feedback that every clear effect shared one color and only varied by
+  // shape/duration. Two follow-up passes then chased "the colors feel
+  // lame, doesn't match genre" by retuning those hues (see
+  // engine/DECISIONS.md's effect-color-resaturation entry and its
+  // correction). Removed entirely on unity-migration-exploration after
+  // Kevin rejected the whole premise, not the tuning: "I want the colors
+  // gone... We don't want a color line! Just an animation." Real match-3
+  // games never tint a clearing tile by a mechanism color code — effect
+  // identity now comes entirely from motion/shape/timing of the piece's
+  // own real sprite art (see Tile.tsx's ExitingTile and
+  // engine/DECISIONS.md's colors-removed rework entry). The
+  // colorblind-simulation work itself wasn't wasted — it's the reason
+  // this rework could confidently drop color as an identity channel
+  // rather than leaning on it harder.
   // The HUD's "Kitchen Tray" character redesign (see SPEC.md's HUD
   // reward-texture-and-character spec, superseding the old flat-panel
   // `Hud.tsx` — real playtest signal: "just not bland"). Only the OUTER

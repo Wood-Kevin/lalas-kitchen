@@ -25,7 +25,6 @@ const sampleConfig: SkinConfig = {
     mutedText: '#333',
     border: '#ccc',
     text: '#111',
-    effectColors: { blocker: '#eb0', sweep: '#0be', areaBomb: '#036', colorBomb: '#80e', supercombo: '#b06' },
     tray: { background: '#a87', border: '#751', chipBorder: '#db7' },
   },
   recipeCards: [],

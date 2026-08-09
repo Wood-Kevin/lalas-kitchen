@@ -12,7 +12,6 @@ import {
   SPAWN_FADE_MS,
   MATCH_POP_MS,
   MATCH_POP_SCALE,
-  MATCH_POP_OPACITY,
   BLOCKER_CLEAR_HIGHLIGHT_MS,
   TILE_MOVE_DAMPING_RATIO,
   SQUASH_SCALE_X,
@@ -24,8 +23,7 @@ import {
   MATCH_POP_ROTATE_DEG,
   BLOCKER_SHATTER_TRAVEL_FRACTION,
   BLOCKER_SHATTER_ROTATE_DEG,
-  RADIAL_RING_MAX_SCALE,
-  RADIAL_RING_PEAK_OPACITY,
+  SUPERCOMBO_CONVERT_PULSE_SCALE,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -271,13 +269,11 @@ describe('the ordinary-match anticipation beat fits inside the clear budget', ()
     expect(MATCH_POP_MS).toBeLessThan(300 / 2);
   });
 
-  test('milder than every special-effect pop on both axes', () => {
+  test('milder than every special-effect pop', () => {
     // It plays on every single match: acknowledge, never celebrate. The
-    // sweep pops to 1.15 scale / 0.5 wash; this must stay under both.
+    // sweep pops to 1.15 scale; this must stay under it.
     expect(MATCH_POP_SCALE).toBeGreaterThan(1);
     expect(MATCH_POP_SCALE).toBeLessThan(1.15);
-    expect(MATCH_POP_OPACITY).toBeGreaterThan(0);
-    expect(MATCH_POP_OPACITY).toBeLessThan(0.5);
   });
 });
 
@@ -296,14 +292,9 @@ describe('per-mechanism clear motion stays distinct and in the calm register', (
     expect(BLOCKER_SHATTER_ROTATE_DEG).toBeGreaterThan(MATCH_POP_ROTATE_DEG);
   });
 
-  test('the radial shockwave ring outgrows its own tile but stays a legible near-field wave', () => {
-    expect(RADIAL_RING_MAX_SCALE).toBeGreaterThan(1);
-    expect(RADIAL_RING_MAX_SCALE).toBeLessThan(4);
-  });
-
-  test('the ring peak opacity stays a wash, never a solid fill', () => {
-    expect(RADIAL_RING_PEAK_OPACITY).toBeGreaterThan(0);
-    expect(RADIAL_RING_PEAK_OPACITY).toBeLessThan(0.8);
+  test('the supercombo convert pulse is a modest pre-beat bump, not the payoff itself', () => {
+    expect(SUPERCOMBO_CONVERT_PULSE_SCALE).toBeGreaterThan(1);
+    expect(SUPERCOMBO_CONVERT_PULSE_SCALE).toBeLessThan(MATCH_POP_SCALE + 0.1);
   });
 });
 

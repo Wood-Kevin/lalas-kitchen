@@ -30,13 +30,6 @@
     "mutedText": "#6E5C49",
     "border": "#D9C79E",
     "text": "#2B211A",
-    "effectColors": {
-      "blocker": "#FFB300",
-      "sweep": "#00E5C9",
-      "areaBomb": "#122A5E",
-      "colorBomb": "#9B30FF",
-      "supercombo": "#8C1F44"
-    },
     "tray": {
       "background": "#A87543",
       "border": "#7D512D",

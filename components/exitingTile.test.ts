@@ -1,4 +1,4 @@
-import { buildExitingEntry, exitingTileSprite, resolveEffectColor } from './exitingTile';
+import { buildExitingEntry, exitingTileSprite } from './exitingTile';
 import { getSpriteForMatchType } from './spriteMap';
 import { resolveSpriteAsset } from './spriteAsset';
 import { SkinConfig } from './skinConfig';
@@ -19,7 +19,6 @@ const config: SkinConfig = {
   palette: {
     background: ['#fff', '#eee'], panel: '#fff', accent: '#000',
     secondaryAccent: '#0a0', secondaryAccentText: '#070', mutedText: '#333', border: '#ccc', text: '#111',
-    effectColors: { blocker: '#eb0', sweep: '#0be', areaBomb: '#036', colorBomb: '#80e', supercombo: '#b06' },
     tray: { background: '#a87', border: '#751', chipBorder: '#db7' },
   },
   recipeCards: [],
@@ -179,43 +178,5 @@ describe('buildExitingEntry experimentalHitStopMs (dev-only game-feel-comparison
       90
     );
     expect(entry.experimentalHitStopMs).toBe(90);
-  });
-});
-
-describe('resolveEffectColor (the visual-reward-language spec: one color per mechanism)', () => {
-  const palette = {
-    accent: '#red',
-    effectColors: {
-      blocker: '#gold',
-      sweep: '#teal',
-      areaBomb: '#navy',
-      colorBomb: '#violet',
-      supercombo: '#wine',
-    },
-  } as never;
-
-  test('an ordinary match (no flags set) keeps the plain skin accent, unchanged', () => {
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: undefined, radialDelayMs: undefined, radialKind: undefined, sweepDelayMs: undefined }, palette)).toBe('#red');
-  });
-
-  test('a blocker clear gets its own color even if it also carries a sweep delay', () => {
-    expect(resolveEffectColor({ isBlockerClear: true, convertedFlash: undefined, radialDelayMs: undefined, radialKind: undefined, sweepDelayMs: 40 }, palette)).toBe('#gold');
-  });
-
-  test('a striped sweep gets the sweep color', () => {
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: undefined, radialDelayMs: undefined, radialKind: undefined, sweepDelayMs: 40 }, palette)).toBe('#teal');
-  });
-
-  test('a color bomb wave (radialKind color_bomb, or undefined - the historical default) gets the color-bomb color', () => {
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: undefined, radialDelayMs: 20, radialKind: 'color_bomb', sweepDelayMs: undefined }, palette)).toBe('#violet');
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: undefined, radialDelayMs: 20, radialKind: undefined, sweepDelayMs: undefined }, palette)).toBe('#violet');
-  });
-
-  test('an area bomb blast (radialKind area_bomb) gets its own distinct color, not the color-bomb one', () => {
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: undefined, radialDelayMs: 20, radialKind: 'area_bomb', sweepDelayMs: undefined }, palette)).toBe('#navy');
-  });
-
-  test('a supercombo converted piece gets its own color even though it also carries a sweep delay', () => {
-    expect(resolveEffectColor({ isBlockerClear: false, convertedFlash: true, radialDelayMs: undefined, radialKind: undefined, sweepDelayMs: 170 }, palette)).toBe('#wine');
   });
 });

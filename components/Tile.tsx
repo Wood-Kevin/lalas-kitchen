@@ -19,6 +19,7 @@ import {
   BLOCKER_CLEAR_HIGHLIGHT_MS,
   SWEEP_GLOW_POP_MS,
   SUPERCOMBO_FLASH_PULSE_MS,
+  SUPERCOMBO_CONVERT_PULSE_SCALE,
   springSettleMs,
   TILE_MOVE_DAMPING_RATIO,
   SQUASH_SCALE_X,
@@ -30,13 +31,9 @@ import {
   SPAWN_FADE_MS,
   MATCH_POP_MS,
   MATCH_POP_SCALE,
-  MATCH_POP_OPACITY,
   MATCH_POP_ROTATE_DEG,
   BLOCKER_SHATTER_TRAVEL_FRACTION,
   BLOCKER_SHATTER_ROTATE_DEG,
-  RADIAL_RING_MAX_SCALE,
-  RADIAL_RING_PEAK_OPACITY,
-  scaledByReward,
 } from './cascadeTiming';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -985,11 +982,12 @@ export interface ExitingTileProps {
   // BLOCKER_CLEAR_HIGHLIGHT_MS's comment for why this needs its own beat.
   isBlockerClear?: boolean;
   // Present only for a tile swept by a striped piece's row/column clear — how
-  // long this tile waits, after the pass begins, before it brightens and pops.
-  // Board.tsx derives it from the tile's distance to the striped piece (see
-  // sweepAnimation.ts), so a larger value = further down the line = later, which
-  // is what makes the glow read as a beam travelling rather than a flat wash.
-  // Undefined for an ordinary match cell, which clears immediately as before.
+  // long this tile waits, after the pass begins, before it pops. Board.tsx
+  // derives it from the tile's distance to the striped piece (see
+  // sweepAnimation.ts), so a larger value = further down the line = later,
+  // which is what makes the sequence read as a beam travelling rather than
+  // the whole line clearing at once. Undefined for an ordinary match cell,
+  // which clears immediately as before.
   sweepDelayMs?: number;
   // True when this exiting piece is a detonating area bomb (engine type
   // 'area_bomb' — it lands in diff.cleared, carrying its type, whenever it
@@ -1002,7 +1000,7 @@ export interface ExitingTileProps {
   // waits before its radial ripple pop, staggered by real distance from the
   // swapped bomb (see components/specialEffectAnimation.ts's
   // radialDelaysForClears) so a board-spanning detonation visibly reaches
-  // outward instead of the whole board vanishing in one flat wash. Mutually
+  // outward instead of the whole board vanishing at once. Mutually
   // exclusive with sweepDelayMs — a cell is cleared by exactly one effect.
   radialDelayMs?: number;
   // True only on the supercombo's own converted pieces (never its bomb cell).
@@ -1013,19 +1011,12 @@ export interface ExitingTileProps {
   // the supercombo also sets, to a uniform value, for its synchronized second
   // beat) rather than being mutually exclusive with it.
   convertedFlash?: boolean;
-  // Which color this clear's wash overlay uses — resolved by Board.tsx via
-  // exitingTile.ts's resolveEffectColor (SPEC.md's visual-reward-language
-  // spec). Distinct from `accentColor` above, which stays the tile's own
-  // static border/chrome color unchanged; this only affects the
-  // blocker-highlight/sweep-glow/radial-glow/convert-flash/match-pop
-  // overlays. Defaults to `accentColor` when omitted, so any caller that
-  // doesn't pass it renders exactly as before this feature.
-  effectColor?: string;
   // How rewarding this pass's clear should feel (0..1, see
-  // cascadeTiming.ts's passRewardIntensity/scaledByReward) — scales each
-  // wash overlay's peak opacity within its own mechanism ceiling, never
-  // past it. Defaults to 0 (the floor fraction only), the same as an
-  // omitted prop always having meant before this feature existed.
+  // cascadeTiming.ts's passRewardIntensity) — will scale each mechanism's
+  // own motion magnitude (stretch/pulse distance, particle count) once
+  // those land; unused within this file until then. Defaults to 0, the
+  // same as an omitted prop always having meant before this feature
+  // existed.
   rewardIntensity?: number;
   onExited: () => void;
   // Branch-wide on unity-migration-exploration (Board.tsx's
@@ -1033,7 +1024,7 @@ export interface ExitingTileProps {
   // deliberately overrides the calm constraint" decision, and its
   // follow-up extending that override branch-wide rather than
   // scenario-only, Kevin's own call). Plays an additional radial particle
-  // burst alongside whichever pop/wash treatment above already plays — it
+  // burst alongside whichever pop treatment above already plays — it
   // does not replace or gate any of them, so this is purely additive.
   // Undefined/false when omitted, which every OTHER branch's call sites
   // still do — the calm-not-frantic override is real but confined to this
@@ -1242,7 +1233,6 @@ export function ExitingTile({
   isPowderBurst,
   radialDelayMs,
   convertedFlash,
-  effectColor,
   rewardIntensity = 0,
   onExited,
   experimentalBurst,
@@ -1253,9 +1243,8 @@ export function ExitingTile({
   // conditionally" shape burstOpacity/burstScale below already use for
   // isPowderBurst.
   const experimentalBurstProgress = useSharedValue(0);
-  // Dev-only — how many sparks this specific clear throws, scaled by how
-  // rewarding it is (the same rewardIntensity every wash overlay already
-  // scales by): a plain 3-match gets the base count, the striped-sweep
+  // Dev-only — how many sparks this specific clear throws, scaled by
+  // rewardIntensity: a plain 3-match gets the base count, the striped-sweep
   // pass gets visibly more. A plain slice of the precomputed pool, not a
   // fresh random draw per render — stable across re-renders of the same
   // exiting tile, and never touches a worklet.
@@ -1265,10 +1254,6 @@ export function ExitingTile({
         EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT + Math.round(rewardIntensity * EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES)
       )
     : EMPTY_BURST_PARTICLES;
-  // Falls back to the shared accentColor when omitted — every existing
-  // caller (tests, any future one that doesn't care about per-mechanism
-  // color) renders identically to before this feature.
-  const washColor = effectColor ?? accentColor;
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
   // travel = the swap spring's PERCEPTUAL duration (how long the slide is
@@ -1294,14 +1279,16 @@ export function ExitingTile({
   // begins.
   const exitRow = useSharedValue((fromRow ?? row) + (startOffsetPx ? startOffsetPx.dy / tileSize : 0));
   const exitCol = useSharedValue((fromCol ?? col) + (startOffsetPx ? startOffsetPx.dx / tileSize : 0));
-  // Animates for a blocker clear, a striped sweep, or a color-bomb ripple;
-  // stays at 0 (invisible) for an ordinary match cell.
-  const highlightOpacity = useSharedValue(0);
-  // The supercombo's own "converting to a special" flicker — a separate
-  // shared value from highlightOpacity because it plays ADDITIVELY alongside
-  // the sweepDelayMs pop below (both fire on the same converted piece, at
-  // different moments), not as one more mutually-exclusive branch.
-  const flashOpacity = useSharedValue(0);
+  // The supercombo's own "converting to a special" pulse — a separate
+  // shared value from the main `scale` because it plays IMMEDIATELY on
+  // mount (before the synchronized sweepDelayMs pop below, which for a
+  // supercombo doesn't begin until settle + SUPERCOMBO_CONVERT_MS), and
+  // layering it as its own multiplicative transform entry (rather than
+  // reusing `scale`) avoids the two competing to set the same shared value
+  // in the same tick. Motion-only — no color — per the "convert-flash goes
+  // colorless" decision: a quick double scale-bump instead of an opacity
+  // blink. At rest (1, a no-op transform) for every non-supercombo exit.
+  const convertPulse = useSharedValue(1);
   // The powder-poof cloud for a detonating area bomb — a soft cloud that
   // expands past the tile and fades as the bag clears. Its own shared values,
   // kept off the bag's shrink transform (the cloud lives in a sibling view, so
@@ -1317,10 +1304,6 @@ export function ExitingTile({
   // The blocker shatter's single driver (0..1, see BlockerShatterFragments) —
   // only ever animated in the isBlockerClear branch below.
   const shatterProgress = useSharedValue(0);
-  // The radial family's expanding shockwave ring (see RADIAL_RING_MAX_SCALE's
-  // doc comment) — only ever animated in the radialDelayMs branch below.
-  const ringScale = useSharedValue(0.3);
-  const ringOpacity = useSharedValue(0);
   // A deterministic per-tile sign/magnitude for the ordinary-match twist
   // (MATCH_POP_ROTATE_DEG) — hashed from the piece's own stable id rather
   // than Math.random(), so this component's animation stays reproducible
@@ -1339,17 +1322,18 @@ export function ExitingTile({
 
   useEffect(() => {
     if (convertedFlash) {
-      // A quick double-blink (up/down/up/down) — a flicker reads as "this is
-      // becoming something new," which a single smooth brighten (the
-      // sweep/radial pop's own language, reused for this piece's OWN beat 2
-      // below) doesn't communicate. Fully independent of whichever branch the
-      // main effect below runs: this plays over the pre-beat-2 window while
-      // the tile itself still sits at rest.
-      flashOpacity.value = withSequence(
-        withTiming(0.6, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
-        withTiming(0.15, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
-        withTiming(0.6, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
-        withTiming(0, { duration: SUPERCOMBO_FLASH_PULSE_MS })
+      // A quick double-pulse (up/down/up/down) — motion only, no color (see
+      // convertPulse's own doc comment for why this is a separate shared
+      // value from `scale`). A flicker reads as "this is becoming something
+      // new" the same way it did as a colored blink; only the channel
+      // changed. Fully independent of whichever branch the main effect
+      // below runs: this plays over the pre-beat-2 window while the tile's
+      // OWN position/scale still sits at rest.
+      convertPulse.value = withSequence(
+        withTiming(SUPERCOMBO_CONVERT_PULSE_SCALE, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(1, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(SUPERCOMBO_CONVERT_PULSE_SCALE, { duration: SUPERCOMBO_FLASH_PULSE_MS }),
+        withTiming(1, { duration: SUPERCOMBO_FLASH_PULSE_MS })
       );
     }
     // convertedFlash never changes for the lifetime of one exiting tile.
@@ -1398,9 +1382,11 @@ export function ExitingTile({
       // Puff outward from the bag on the same clock as the clear (durationMs):
       // a quick swell to full, then an ease-out expansion past the tile's
       // bounds into the 3×3 it's about to clear, fading as it grows. One soft
-      // cloud, no particles/flash — per CLAUDE.md's calm-not-frantic brief and
-      // the blocker/sweep overlays' soft-wash language. Starts at the front of
-      // the clear so the burst reads as the cause, not an afterthought.
+      // cloud, no particles — per CLAUDE.md's calm-not-frantic brief; this is
+      // established world/material color (matches SteamWisp elsewhere),
+      // deliberately out of scope for the colors-removed clear-effect
+      // rework. Starts at the front of the clear so the burst reads as the
+      // cause, not an afterthought.
       burstOpacity.value = afterTravel(
         withSequence(
           withTiming(0.85, { duration: Math.round(durationMs * 0.25) }),
@@ -1418,20 +1404,17 @@ export function ExitingTile({
     }
     if (sweepDelayMs !== undefined) {
       // A striped sweep tile: sit still until the beam reaches it (sweepDelayMs),
-      // then brighten-and-swell (the "pop"), then shrink away like any cleared
-      // tile. Staggering these delays down the line is what makes the glow read
-      // as travelling. The pop + shrink together still total durationMs, so a
-      // swept tile takes exactly the normal clear time *after* the beam arrives
-      // — the stagger adds the travel, not extra intensity (see CLAUDE.md's
+      // then swells (the "pop"), then shrinks away like any cleared tile.
+      // Staggering these delays down the line is what makes the pop read as
+      // travelling — motion/timing carries the identity, not a color wash
+      // (see engine/DECISIONS.md's colors-removed rework entry). The pop +
+      // shrink together still total durationMs, so a swept tile takes
+      // exactly the normal clear time *after* the beam arrives — the
+      // stagger adds the travel, not extra intensity (see CLAUDE.md's
       // calm-not-frantic constraint and SWEEP_TILE_STAGGER_MS's rationale).
+      // TODO(sweep-stretch): this uniform scale pop is a placeholder — a
+      // directional stretch along the beam's real axis replaces it next.
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
-      highlightOpacity.value = withDelay(
-        settle + sweepDelayMs,
-        withSequence(
-          withTiming(scaledByReward(0.5, rewardIntensity), { duration: SWEEP_GLOW_POP_MS }),
-          withTiming(0, { duration: shrinkMs })
-        )
-      );
       scale.value = withDelay(
         settle + sweepDelayMs,
         withSequence(
@@ -1439,7 +1422,7 @@ export function ExitingTile({
           withTiming(0, { duration: shrinkMs })
         )
       );
-      // Hold fully opaque through the brighten so the pop is visible on a solid
+      // Hold fully opaque through the swell so the pop is visible on a solid
       // tile, then fade during the shrink.
       opacity.value = withDelay(
         settle + sweepDelayMs + SWEEP_GLOW_POP_MS,
@@ -1449,21 +1432,16 @@ export function ExitingTile({
       return () => clearTimeout(timeout);
     }
     if (radialDelayMs !== undefined) {
-      // A color-bomb detonation tile: sits still until the ripple reaches it
-      // (radialDelayMs, staggered by real distance from the swapped bomb —
-      // see specialEffectAnimation.ts's radialDelaysForClears), then a
-      // circular ripple pop — a rounder shape and a bigger scale overshoot
-      // than the sweep's square glow, so a board-spanning detonation reads as
-      // a genuinely different kind of travel, not a recolored beam — then the
-      // same shrink every cleared tile gets.
+      // A color-bomb/area-bomb detonation tile: sits still until the wave
+      // reaches it (radialDelayMs, staggered by real distance from the
+      // swapped bomb — see specialEffectAnimation.ts's
+      // radialDelaysForClears), then a pop with a bigger scale overshoot
+      // than the sweep's, so a board-spanning detonation reads as a
+      // genuinely different kind of travel — then the same shrink every
+      // cleared tile gets.
+      // TODO(radial-pulse): this uniform scale pop is a placeholder — an
+      // outward pulse from the real blast origin replaces it next.
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
-      highlightOpacity.value = withDelay(
-        settle + radialDelayMs,
-        withSequence(
-          withTiming(scaledByReward(0.55, rewardIntensity), { duration: SWEEP_GLOW_POP_MS }),
-          withTiming(0, { duration: shrinkMs })
-        )
-      );
       scale.value = withDelay(
         settle + radialDelayMs,
         withSequence(
@@ -1475,37 +1453,17 @@ export function ExitingTile({
         settle + radialDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
-      // The shockwave ring (see RADIAL_RING_MAX_SCALE's doc comment) — its
-      // own shape of motion layered on top of the filled wash above, not a
-      // recolored copy of it: a thin ring expanding from near-nothing to
-      // RADIAL_RING_MAX_SCALE tile-diameters while it fades, across this
-      // effect's full window, purely additive.
-      ringOpacity.value = withDelay(
-        settle + radialDelayMs,
-        withSequence(
-          withTiming(RADIAL_RING_PEAK_OPACITY, { duration: Math.round(durationMs * 0.25) }),
-          withTiming(0, { duration: Math.round(durationMs * 0.75) })
-        )
-      );
-      ringScale.value = withDelay(
-        settle + radialDelayMs,
-        withTiming(RADIAL_RING_MAX_SCALE, { duration: durationMs, easing: Easing.out(Easing.quad) })
-      );
       const timeout = setTimeout(onExited, settle + radialDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
     if (isBlockerClear) {
       const halfPulse = BLOCKER_CLEAR_HIGHLIGHT_MS / 2;
-      // A brief glow-and-pop draws the eye here first, then the same
+      // A brief scale pulse draws the eye here first, then the same
       // pop-and-shrink every other cleared tile gets — so a blocker cleared
       // several cascade steps from the player's tap still reads as "this
-      // just got hit" instead of vanishing with no explanation.
-      highlightOpacity.value = afterTravel(
-        withSequence(
-          withTiming(scaledByReward(0.35, rewardIntensity), { duration: halfPulse }),
-          withTiming(0, { duration: halfPulse })
-        )
-      );
+      // just got hit" instead of vanishing with no explanation. Motion-only:
+      // this bump (1.18, bigger than the ordinary pop's own 1.11 swell) IS
+      // the attention cue, no color layered on top of it.
       scale.value = afterTravel(
         withSequence(
           withTiming(1.18, { duration: halfPulse }),
@@ -1529,37 +1487,32 @@ export function ExitingTile({
       return () => clearTimeout(timeout);
     }
     // An ordinary match's clear — the game's most common event — gets its own
-    // mild anticipation beat (SPEC.md's resolved fork): a brief brighten-and-
-    // swell, then the normal shrink, so a match reads as recognized before it's
-    // removed instead of just evaporating. Folded into the FRONT of durationMs
-    // exactly the way the sweep's pop is, so the clear's total time — and the
-    // pass schedule built on it — is unchanged. Deliberately milder than every
-    // special-effect pop (smaller swell, fainter wash): it plays on every
-    // single match, so it must acknowledge, never celebrate. The powder-burst
-    // case falls through to here too, its cloud playing in its sibling view.
+    // mild anticipation beat (SPEC.md's resolved fork): a brief swell, then
+    // the normal shrink, so a match reads as recognized before it's removed
+    // instead of just evaporating. Folded into the FRONT of durationMs
+    // exactly the way the sweep's pop is, so the clear's total time — and
+    // the pass schedule built on it — is unchanged. Deliberately milder
+    // than every special-effect pop (smaller swell): it plays on every
+    // single match, so it must acknowledge, never celebrate. Plain scale —
+    // no flash of any kind, colored or otherwise (see engine/DECISIONS.md's
+    // colors-removed rework entry). The powder-burst case falls through to
+    // here too, its cloud playing in its sibling view.
     const anticipationShrinkMs = Math.max(0, durationMs - MATCH_POP_MS);
-    highlightOpacity.value = afterTravel(
-      withSequence(
-        withTiming(scaledByReward(MATCH_POP_OPACITY, rewardIntensity), { duration: MATCH_POP_MS }),
-        withTiming(0, { duration: anticipationShrinkMs })
-      )
-    );
     scale.value = afterTravel(
       withSequence(
         withTiming(MATCH_POP_SCALE, { duration: MATCH_POP_MS }),
         withTiming(0, { duration: anticipationShrinkMs })
       )
     );
-    // Hold fully opaque through the brighten (the pop should read on a solid
-    // tile), then fade during the shrink — the sweep branch's own pattern.
+    // Fade during the shrink, same as every other branch's pattern.
     opacity.value = withDelay(
       settle + MATCH_POP_MS,
       withTiming(0, { duration: anticipationShrinkMs })
     );
     // The organic twist (see MATCH_POP_ROTATE_DEG's doc comment) — only
     // during the shrink phase, same window as the fade above, so the pop
-    // itself still reads as a clean brighten-and-swell before the tile
-    // starts tumbling away.
+    // itself still reads as a clean swell before the tile starts tumbling
+    // away.
     rotation.value = withDelay(
       settle + MATCH_POP_MS,
       withTiming(matchRotationSeed * MATCH_POP_ROTATE_DEG, { duration: anticipationShrinkMs })
@@ -1581,8 +1534,16 @@ export function ExitingTile({
     // rotation stays 0 for every clear kind except the ordinary match (see
     // matchRotationSeed above), so this is a no-op transform for blocker/
     // sweep/radial exits — a single shared array rather than a per-branch
-    // transform list.
-    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
+    // transform list. convertPulse likewise stays at 1 (a no-op scale) for
+    // every clear except a supercombo's converted pieces; applying two
+    // `scale` transform entries multiplies them together, so this reads as
+    // "the pop's own scale, further bumped by the convert pulse" without
+    // the two ever needing to touch the same shared value.
+    transform: [
+      { scale: scale.value },
+      { scale: convertPulse.value },
+      { rotate: `${rotation.value}deg` },
+    ],
     // Exiting tiles join the same live-row stacking scheme the live tiles
     // use (see Tile's animatedStyle: row × 1000, lower-on-screen paints
     // over higher), offset half a step UP so a clearing tile always paints
@@ -1599,14 +1560,6 @@ export function ExitingTile({
     // between different rows; an actively dragged live tile's 100000 lift
     // still beats every exit.
     zIndex: Math.round(exitRow.value * 1000) + 500,
-  }));
-
-  const highlightStyle = useAnimatedStyle(() => ({
-    opacity: highlightOpacity.value,
-  }));
-
-  const flashStyle = useAnimatedStyle(() => ({
-    opacity: flashOpacity.value,
   }));
 
   // The poof lives in a SEPARATE positioned view, not inside the tile above —
@@ -1648,24 +1601,6 @@ export function ExitingTile({
     zIndex: Math.round(exitRow.value * 1000) + 600,
   }));
 
-  // The radial family's shockwave ring — sized to exactly tileSize at rest
-  // (scale 1) so RADIAL_RING_MAX_SCALE reads directly as "this many tile
-  // diameters," expanding about its own centre via the scale transform.
-  // A separate positioned view for the same reason burstStyle is: it grows
-  // past the tile's own bounds, so it must sit outside the box the base
-  // sprite's own pop-and-shrink is confined to.
-  const ringStyle = useAnimatedStyle(() => ({
-    position: 'absolute',
-    top: exitRow.value * tileSize,
-    left: exitCol.value * tileSize,
-    width: tileSize,
-    height: tileSize,
-    borderRadius: tileSize / 2,
-    opacity: ringOpacity.value,
-    transform: [{ scale: ringScale.value }],
-    zIndex: Math.round(exitRow.value * 1000) + 500,
-  }));
-
   // The blocker shatter's four-fragment wrapper — same shape as
   // experimentalBurstContainerStyle: tracks the tile's own animated
   // position/stacking so the shards originate from wherever the bag
@@ -1684,40 +1619,6 @@ export function ExitingTile({
       <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
         <Animated.View style={[styles.tile, { backgroundColor: panelColor, borderColor: accentColor }]}>
           <SpriteContent sprite={sprite} accentColor={accentColor} />
-          {isBlockerClear && (
-            <Animated.View
-              style={[styles.blockerHighlight, { backgroundColor: washColor }, highlightStyle]}
-              testID={`blocker-highlight-${pieceId}`}
-            />
-          )}
-          {sweepDelayMs !== undefined && (
-            <Animated.View
-              style={[styles.sweepGlow, { backgroundColor: washColor }, highlightStyle]}
-              testID={`sweep-glow-${pieceId}`}
-            />
-          )}
-          {radialDelayMs !== undefined && (
-            <Animated.View
-              style={[styles.radialGlow, { backgroundColor: washColor }, highlightStyle]}
-              testID={`radial-glow-${pieceId}`}
-            />
-          )}
-          {convertedFlash && (
-            <Animated.View
-              style={[styles.convertFlash, { backgroundColor: washColor }, flashStyle]}
-              testID={`convert-flash-${pieceId}`}
-            />
-          )}
-          {!isBlockerClear && sweepDelayMs === undefined && radialDelayMs === undefined && (
-            // The ordinary match's anticipation wash (see the final effect
-            // branch above) — the one clear kind that had no highlight view
-            // of its own until the game-feel overhaul. Same full-tile soft
-            // wash language as every overlay here, held to a fainter peak.
-            <Animated.View
-              style={[styles.matchPop, { backgroundColor: washColor }, highlightStyle]}
-              testID={`match-pop-${pieceId}`}
-            />
-          )}
         </Animated.View>
       </Animated.View>
       {isPowderBurst && (
@@ -1734,13 +1635,6 @@ export function ExitingTile({
             ]}
           />
         </Animated.View>
-      )}
-      {radialDelayMs !== undefined && (
-        <Animated.View
-          style={[styles.radialRing, { borderColor: washColor }, ringStyle]}
-          pointerEvents="none"
-          testID={`radial-ring-${pieceId}`}
-        />
       )}
       {isBlockerClear && (
         <Animated.View
@@ -1774,7 +1668,10 @@ export function ExitingTile({
               angleRad={particle.angleRad}
               speedMultiplier={particle.speedMultiplier}
               size={particle.size}
-              color={washColor}
+              // TODO(sprite-crop-debris): temporary — accentColor stands in
+              // for the deleted per-mechanism washColor until this whole
+              // spark burst is replaced by sprite-crop debris.
+              color={accentColor}
               tileSize={tileSize}
             />
           ))}
@@ -1810,78 +1707,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Soft color wash over the whole tile, faded in/out by highlightOpacity —
-  // deliberately a plain overlay (no ring/border/particle shape) to stay
-  // inside CLAUDE.md's "calm, not frantic" constraint.
-  blockerHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
-  },
-  // The traveling sweep's per-tile glow — same soft, full-tile accent wash as
-  // the blocker highlight (a plain overlay, no ring/particle shape, per
-  // CLAUDE.md's calm-not-frantic rule), peaked a touch brighter so the beam
-  // carries more visual weight as it passes. Its own style rather than reusing
-  // blockerHighlight so the two effects can be tuned independently later.
-  sweepGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
-  },
-  // The color bomb's ripple — a CIRCULAR wash (a large enough radius that a
-  // square frame renders as a circle) rather than the sweep's square-cornered
-  // fill, so a board-spanning detonation reads as a distinct shape of travel
-  // (a ripple radiating outward) rather than the same beam recolored.
-  radialGlow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 999,
-  },
-  // The radial family's shockwave ring (see RADIAL_RING_MAX_SCALE's doc
-  // comment) — a THIN BORDERED circle, not a filled one, so it reads as a
-  // genuinely different shape of motion from radialGlow's filled wash
-  // rather than a recolored copy of it. backgroundColor stays transparent;
-  // borderColor is set inline per-entry (washColor), same convention as
-  // every other overlay here.
-  radialRing: {
-    borderWidth: 3,
-    backgroundColor: 'transparent',
-  },
-  // The supercombo's conversion flicker — same plain full-tile wash language
-  // as every other overlay here; its own style purely so this effect's timing
-  // (a double-blink, see convertedFlash's useEffect) can be tuned independently
-  // from the blocker/sweep pulses without touching their opacity animations.
-  convertFlash: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
-  },
-  // The ordinary match's anticipation wash — same plain full-tile overlay as
-  // the rest; its own style so the most common clear's look can be tuned
-  // without touching any special effect's.
-  matchPop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 8,
-  },
-  // Live drag-destination wash — same soft, full-tile accent overlay as the
-  // clear-time highlights, held at a low opacity so the target reads clearly
-  // without competing with the pieces (per CLAUDE.md's calm-not-frantic rule).
+  // Live drag-destination wash — a soft, full-tile accent overlay, held at
+  // a low opacity so the target reads clearly without competing with the
+  // pieces (per CLAUDE.md's calm-not-frantic rule). This is a LIVE-tile
+  // affordance (showing where a drag would land), not a clear effect —
+  // unrelated to, and unaffected by, the colors-removed clear-effect
+  // rework (see engine/DECISIONS.md's colors-removed entry): a clearing
+  // tile's own effects now carry identity through motion/shape/timing
+  // alone, with no added color layer anywhere.
   dragTargetHighlight: {
     position: 'absolute',
     top: 0,
