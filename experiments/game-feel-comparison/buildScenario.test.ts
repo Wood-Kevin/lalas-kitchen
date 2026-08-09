@@ -44,18 +44,20 @@ describe('game-feel comparison scenario fixture', () => {
     expect(result.steps.length).toBe(2);
 
     // Pass 0: anchor (0,1) is now a live 'row' striped piece; the rest of
-    // row 0's run cleared and refilled ('A' at col0/col2 per the queue).
+    // row 0's run cleared and refilled ('tomato' at col0/col2 per the queue).
     const pass0 = result.steps[0];
-    expect(pass0[0][1]).toMatchObject({ type: 'striped', direction: 'row', matchType: 'A' });
-    expect(pass0[0][0].matchType).toBe('A');
-    expect(pass0[0][2].matchType).toBe('A');
+    expect(pass0[0][1]).toMatchObject({ type: 'striped', direction: 'row', matchType: 'tomato' });
+    expect(pass0[0][0].matchType).toBe('tomato');
+    expect(pass0[0][2].matchType).toBe('tomato');
 
     // Pass 1: the striped piece was caught in the new 3-run and fired its
     // row sweep — the entire row 0 is now fresh filler, no piece carries
-    // 'A' anymore in that row, and the anchor is no longer striped (it
+    // 'tomato' anymore in that row, and the anchor is no longer striped (it
     // cleared as part of its own sweep).
     const finalBoard = result.state.board;
-    expect(finalBoard[0].map((p) => p.matchType)).toEqual(['G', 'H', 'I', 'J', 'K', 'L']);
+    expect(finalBoard[0].map((p) => p.matchType)).toEqual([
+      'tomato', 'lemon', 'herb', 'garlic', 'chili', 'spoon',
+    ]);
     expect(finalBoard[0].every((p) => p.type === 'normal')).toBe(true);
 
     // Nothing left unresolved — a settled board after this move.

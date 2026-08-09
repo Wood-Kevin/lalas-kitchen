@@ -7,85 +7,85 @@
       [
         {
           "id": "0-0",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "0-1",
-          "matchType": "B"
+          "matchType": "lemon"
         },
         {
           "id": "0-2",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "0-3",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "0-4",
-          "matchType": "E"
+          "matchType": "chili"
         },
         {
           "id": "0-5",
-          "matchType": "F"
+          "matchType": "spoon"
         }
       ],
       [
         {
           "id": "1-0",
-          "matchType": "B"
+          "matchType": "lemon"
         },
         {
           "id": "1-1",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "1-2",
-          "matchType": "D"
+          "matchType": "garlic"
         },
         {
           "id": "1-3",
-          "matchType": "E"
+          "matchType": "chili"
         },
         {
           "id": "1-4",
-          "matchType": "F"
+          "matchType": "spoon"
         },
         {
           "id": "1-5",
-          "matchType": "A"
+          "matchType": "tomato"
         }
       ],
       [
         {
           "id": "2-0",
-          "matchType": "C"
+          "matchType": "herb"
         },
         {
           "id": "2-1",
-          "matchType": "D"
+          "matchType": "garlic"
         },
         {
           "id": "2-2",
-          "matchType": "E"
+          "matchType": "chili"
         },
         {
           "id": "2-3",
-          "matchType": "F"
+          "matchType": "spoon"
         },
         {
           "id": "2-4",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "2-5",
-          "matchType": "B"
+          "matchType": "lemon"
         }
       ],
       [
         {
           "id": "3-0",
-          "matchType": "D"
+          "matchType": "garlic"
         },
         {
           "id": "3-1",
@@ -97,7 +97,7 @@
         },
         {
           "id": "3-3",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "3-4",
@@ -105,21 +105,21 @@
         },
         {
           "id": "3-5",
-          "matchType": "C"
+          "matchType": "herb"
         }
       ],
       [
         {
           "id": "4-0",
-          "matchType": "E"
+          "matchType": "chili"
         },
         {
           "id": "4-1",
-          "matchType": "F"
+          "matchType": "spoon"
         },
         {
           "id": "4-2",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "4-3",
@@ -127,37 +127,37 @@
         },
         {
           "id": "4-4",
-          "matchType": "C"
+          "matchType": "herb"
         },
         {
           "id": "4-5",
-          "matchType": "D"
+          "matchType": "garlic"
         }
       ],
       [
         {
           "id": "5-0",
-          "matchType": "F"
+          "matchType": "spoon"
         },
         {
           "id": "5-1",
-          "matchType": "A"
+          "matchType": "tomato"
         },
         {
           "id": "5-2",
-          "matchType": "B"
+          "matchType": "lemon"
         },
         {
           "id": "5-3",
-          "matchType": "C"
+          "matchType": "herb"
         },
         {
           "id": "5-4",
-          "matchType": "D"
+          "matchType": "garlic"
         },
         {
           "id": "5-5",
-          "matchType": "E"
+          "matchType": "chili"
         }
       ]
     ]
@@ -173,15 +173,15 @@
     }
   },
   "spawnQueue": [
-    "A",
-    "A",
-    "C",
-    "G",
-    "H",
-    "I",
-    "J",
-    "K",
-    "L"
+    "tomato",
+    "tomato",
+    "herb",
+    "tomato",
+    "lemon",
+    "herb",
+    "garlic",
+    "chili",
+    "spoon"
   ],
   "expected": {
     "passCount": 2,
@@ -191,37 +191,37 @@
           {
             "id": "scenario-spawn-1",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "1-1",
             "type": "striped",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": "row"
           },
           {
             "id": "scenario-spawn-2",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "scenario-spawn-3",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "0-4",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "0-5",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           }
         ],
@@ -229,37 +229,37 @@
           {
             "id": "1-0",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "0-1",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "1-2",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "1-3",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "1-4",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "1-5",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           }
         ],
@@ -267,37 +267,37 @@
           {
             "id": "2-0",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "2-1",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "2-2",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "2-3",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "2-4",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "2-5",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           }
         ],
@@ -305,7 +305,7 @@
           {
             "id": "3-0",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
@@ -323,7 +323,7 @@
           {
             "id": "3-3",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
@@ -335,7 +335,7 @@
           {
             "id": "3-5",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           }
         ],
@@ -343,19 +343,19 @@
           {
             "id": "4-0",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "4-1",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "4-2",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
@@ -367,13 +367,13 @@
           {
             "id": "4-4",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "4-5",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           }
         ],
@@ -381,37 +381,37 @@
           {
             "id": "5-0",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "5-1",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "5-2",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "5-3",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "5-4",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "5-5",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           }
         ]
@@ -421,37 +421,37 @@
           {
             "id": "scenario-spawn-4",
             "type": "normal",
-            "matchType": "G",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "scenario-spawn-5",
             "type": "normal",
-            "matchType": "H",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "scenario-spawn-6",
             "type": "normal",
-            "matchType": "I",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "scenario-spawn-7",
             "type": "normal",
-            "matchType": "J",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "scenario-spawn-8",
             "type": "normal",
-            "matchType": "K",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "scenario-spawn-9",
             "type": "normal",
-            "matchType": "L",
+            "matchType": "spoon",
             "direction": null
           }
         ],
@@ -459,37 +459,37 @@
           {
             "id": "1-0",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "0-1",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "1-2",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "1-3",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "1-4",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "1-5",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           }
         ],
@@ -497,37 +497,37 @@
           {
             "id": "2-0",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "2-1",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "2-2",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "2-3",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "2-4",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "2-5",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           }
         ],
@@ -535,7 +535,7 @@
           {
             "id": "3-0",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
@@ -553,7 +553,7 @@
           {
             "id": "3-3",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
@@ -565,7 +565,7 @@
           {
             "id": "3-5",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           }
         ],
@@ -573,19 +573,19 @@
           {
             "id": "4-0",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           },
           {
             "id": "4-1",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "4-2",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
@@ -597,13 +597,13 @@
           {
             "id": "4-4",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "4-5",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           }
         ],
@@ -611,49 +611,49 @@
           {
             "id": "5-0",
             "type": "normal",
-            "matchType": "F",
+            "matchType": "spoon",
             "direction": null
           },
           {
             "id": "5-1",
             "type": "normal",
-            "matchType": "A",
+            "matchType": "tomato",
             "direction": null
           },
           {
             "id": "5-2",
             "type": "normal",
-            "matchType": "B",
+            "matchType": "lemon",
             "direction": null
           },
           {
             "id": "5-3",
             "type": "normal",
-            "matchType": "C",
+            "matchType": "herb",
             "direction": null
           },
           {
             "id": "5-4",
             "type": "normal",
-            "matchType": "D",
+            "matchType": "garlic",
             "direction": null
           },
           {
             "id": "5-5",
             "type": "normal",
-            "matchType": "E",
+            "matchType": "chili",
             "direction": null
           }
         ]
       ]
     ],
     "finalRow0MatchTypes": [
-      "G",
-      "H",
-      "I",
-      "J",
-      "K",
-      "L"
+      "tomato",
+      "lemon",
+      "herb",
+      "garlic",
+      "chili",
+      "spoon"
     ],
     "score": 263,
     "swapCommitted": true,
