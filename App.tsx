@@ -1279,11 +1279,17 @@ function AppRoot() {
             // Dev-only — see handleOpenGameFeelScenario. undefined (a no-op)
             // on every real level-start path.
             initialGameStateOverride={gameFeelScenarioOverride ?? undefined}
-            // Dev-only — true only while the scenario override above is
-            // loaded, so the experimental particle burst (see SPEC.md and
-            // Tile.tsx's ExitingTile.experimentalBurst) never plays on a
-            // real level.
-            experimentalJuice={gameFeelScenarioOverride !== null}
+            // Branch-wide, not scenario-gated: Kevin's call — this branch
+            // (unity-migration-exploration) is a disposable place to feel
+            // the RN game-feel push (particle burst, hit-stop, juiced
+            // audio — see SPEC.md and Tile.tsx's ExitingTile.
+            // experimentalBurst) directly against real levels instead of
+            // through the isolated comparison scenario; if it doesn't work
+            // out, the branch is simply never merged rather than this flag
+            // being unwound level by level. Still real, disclosed override
+            // of CLAUDE.md's calm-not-frantic constraint (see SPEC.md's
+            // decision blocks) — just no longer scenario-only.
+            experimentalJuice
           />
         )}
         </View>

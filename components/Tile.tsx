@@ -1023,14 +1023,17 @@ export interface ExitingTileProps {
   // omitted prop always having meant before this feature existed.
   rewardIntensity?: number;
   onExited: () => void;
-  // Dev-only, ONLY ever true from the game-feel-comparison harness (see
-  // Board.tsx's experimentalJuice / SPEC.md's "Track A's particle burst
-  // deliberately overrides the calm constraint" decision). Plays an
-  // additional radial particle burst alongside whichever pop/wash
-  // treatment above already plays — it does not replace or gate any of
-  // them, so this is purely additive. Undefined/false everywhere else,
-  // which is every real gameplay path — the calm-not-frantic constraint
-  // this file otherwise documents stays fully intact.
+  // Branch-wide on unity-migration-exploration (Board.tsx's
+  // experimentalJuice — see SPEC.md's "Track A's particle burst
+  // deliberately overrides the calm constraint" decision, and its
+  // follow-up extending that override branch-wide rather than
+  // scenario-only, Kevin's own call). Plays an additional radial particle
+  // burst alongside whichever pop/wash treatment above already plays — it
+  // does not replace or gate any of them, so this is purely additive.
+  // Undefined/false when omitted, which every OTHER branch's call sites
+  // still do — the calm-not-frantic override is real but confined to this
+  // one disposable branch, not a change to the engine or a permanent
+  // reversal of the constraint itself.
   experimentalBurst?: boolean;
   // Dev-only, ONLY ever set from the game-feel-comparison harness (see
   // cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS and exitingTile.ts's
@@ -1128,11 +1131,12 @@ function ExperimentalBurstParticle({
 
 // A piece that just matched. Plays a calm pop-and-shrink (per the
 // lalas-kitchen config's matchStyle) and unmounts itself once the
-// animation finishes — deliberately no particle burst or flash, per
-// CLAUDE.md's "calm, not frantic" design constraint. The one deliberate
-// exception is `experimentalBurst` (see its own doc comment) — a dev-only,
-// opt-in override for the RN-vs-Unity game-feel comparison (SPEC.md),
-// never on for a real player.
+// animation finishes — deliberately no particle burst or flash by
+// default, per CLAUDE.md's "calm, not frantic" design constraint. The one
+// deliberate exception is `experimentalBurst` (see its own doc comment) —
+// active branch-wide on unity-migration-exploration (SPEC.md), so real
+// levels on THIS branch do show it; still gated off by default on every
+// other branch/build.
 export function ExitingTile({
   pieceId,
   row,

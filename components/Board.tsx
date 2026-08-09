@@ -228,14 +228,18 @@ export interface BoardProps {
   // gating) — only the initial board is overridden. Undefined in every real
   // gameplay path, so ordinary levels are completely unaffected.
   initialGameStateOverride?: GameState;
-  // Dev-only, and ONLY ever true from the game-feel-comparison dev harness
-  // (see App.tsx's handleOpenGameFeelScenario and SPEC.md's "Track A's
-  // particle burst deliberately overrides the calm constraint" decision).
-  // Turns on ExitingTile's experimental particle burst for every clear this
-  // Board renders. Undefined/false everywhere else, so every real level's
-  // clear animation is byte-identical to before this flag existed — the
-  // project's documented "calm, not frantic" constraint (see Tile.tsx's
-  // ExitingTile) stays intact for real players.
+  // Active branch-wide on unity-migration-exploration — App.tsx passes
+  // this true unconditionally (Kevin's call: test the RN game-feel push
+  // directly against real levels rather than only through the isolated
+  // game-feel-comparison scenario; toss the branch if it doesn't work
+  // out, per SPEC.md's "Track A's particle burst deliberately overrides
+  // the calm constraint" decision and its follow-up). Turns on
+  // ExitingTile's particle burst, the hit-stop freeze, and the juiced
+  // audio cues for every clear this Board renders. Still a real,
+  // disclosed override of the project's "calm, not frantic" constraint —
+  // just no longer scenario-only. Any OTHER caller that omits this prop
+  // (there are none left on this branch, but the type stays optional)
+  // gets byte-identical calm behavior.
   experimentalJuice?: boolean;
 }
 

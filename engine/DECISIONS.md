@@ -6894,3 +6894,35 @@ physics active, zero console errors during or after the animation. **Not verifie
 feel of the new arc/drag motion — a static screenshot can't reliably catch a ~700ms particle burst
 mid-flight in this automation environment, so whether it reads as an improvement is Kevin's own call to
 make live, the same standing gap every other "feel" change in this file discloses.
+
+## Track A goes branch-wide: real levels get the juice, not just the isolated scenario (2026-08-09)
+
+**The trigger.** Kevin, directly: "Why are we still fucking with a scenario. This is a branch of main we
+can just work on the code and toss it if it doesn't work out." Correct, and it exposed that the
+scenario-only gating had outlived its reason to exist: it was built so the RN-vs-Unity comparison had an
+identical, controlled board on both sides, and separately so a real player's install could never see an
+unrequested calm-not-frantic override while that comparison was still open. Unity is now paused (Kevin's
+own prior redirect, this session) and this is a disposable branch nobody is shipping without a deliberate
+merge decision — both reasons for the scenario-only gate are gone.
+
+**The change.** One flag flip: `App.tsx`'s `experimentalJuice={gameFeelScenarioOverride !== null}` →
+`experimentalJuice` (always true), so every real level played on `unity-migration-exploration` now shows
+the particle burst (with its drag/gravity physics and reward-scaled count), the 90ms hit-stop on
+special-trigger passes, and the juiced `match_juice`/`cascade_juice`/`special_trigger` audio cues — the
+exact same code paths the scenario already exercised, just reachable from real play instead of a hidden
+dev-harness footer tap. No engine change, no new branch logic — `experimentalJuice` already threaded
+cleanly through `Board.tsx`/`Tile.tsx`/`soundEffects.ts` from the original scenario work, so this was
+genuinely a one-line flip, not new plumbing. Updated the stale doc comments that claimed these fields
+were "ONLY ever true from the game-feel-comparison harness," since that's no longer accurate.
+
+**What did NOT change:** the calm-not-frantic constraint itself, or its status for any build other than
+this branch — `Tile.tsx`'s `ExitingTile` still defaults to the calm pop-and-shrink with no burst
+whenever `experimentalBurst` is unset, which remains true for any other caller. This is a real,
+disclosed override active on one disposable branch, not a reversal of the constraint or a change to
+`main`.
+
+**Verification:** `npx jest` 871/871 unchanged. Live-verified over CDP on a REAL hand-built level
+(Tomato Toss, not the scenario): a genuine 3-match swap committed correctly (moves 24→23), zero console
+errors. The scenario dev harness itself (`experiments/game-feel-comparison/`, App.tsx's hidden footer
+tap) is left in place, unused for feel-testing going forward but still real, working code — no reason to
+rip it out along with the gate.
