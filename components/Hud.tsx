@@ -54,6 +54,16 @@ export interface HudProps {
 // where it matters before starting an attempt). Lives are still tracked and
 // enforced by the engine exactly as before; only this redundant mid-play
 // display is gone.
+//
+// Removing that third chip left Target/Moves as two flex:1 chips stretched
+// across the tray's full width — a lot of mostly-empty pill for two short
+// numbers. Rather than let that stretch stand, the mascot moved into the
+// same row as a fixed-size avatar (grown from its old 34px medallion to
+// 52px) ahead of the two chips, so the reclaimed width goes to a bigger,
+// more present portrait instead of wider-but-emptier chips. This also drops
+// the old dedicated mascotRow entirely — a net height win on top of the
+// visual one, which matters for tileSize the same way every other sizing
+// comment in this file already cares about.
 export function Hud({ objectives, movesRemaining, config, spriteAssets }: HudProps) {
   const { palette } = config;
   // The mascot is fixed skin art, not per-level data — a plain filename
@@ -77,6 +87,18 @@ export function Hud({ objectives, movesRemaining, config, spriteAssets }: HudPro
     >
       <View pointerEvents="none" style={styles.trayInset} />
         <View style={styles.chipRow}>
+          <View
+            style={[styles.mascotFrame, { backgroundColor: palette.panel, borderColor: palette.tray.chipBorder }]}
+          >
+            {/* Same "always show something, never silently vanish" fallback
+                convention as Glyph below — a two-letter placeholder if the
+                mascot sprite is ever missing, rather than an empty frame. */}
+            {mascotSprite.kind === 'image' ? (
+              <Image source={mascotSprite.source} style={styles.mascotImage} resizeMode="cover" />
+            ) : (
+              <Text style={[styles.mascotFallbackLabel, { color: palette.accent }]}>{mascotSprite.label}</Text>
+            )}
+          </View>
           <Chip config={config} label="Target">
             {/* One icon+count pair per objective, stacked — a single-
                 objective level (still every hand-built level today)
@@ -114,21 +136,6 @@ export function Hud({ objectives, movesRemaining, config, spriteAssets }: HudPro
           <Chip config={config} label="Moves">
             <Text style={[styles.value, { color: palette.accent }]}>{movesRemaining}</Text>
           </Chip>
-        </View>
-
-        <View style={styles.mascotRow}>
-          <View
-            style={[styles.mascotFrame, { backgroundColor: palette.panel, borderColor: palette.tray.chipBorder }]}
-          >
-            {/* Same "always show something, never silently vanish" fallback
-                convention as Glyph above — a two-letter placeholder if the
-                mascot sprite is ever missing, rather than an empty frame. */}
-            {mascotSprite.kind === 'image' ? (
-              <Image source={mascotSprite.source} style={styles.mascotImage} resizeMode="cover" />
-            ) : (
-              <Text style={[styles.mascotFallbackLabel, { color: palette.accent }]}>{mascotSprite.label}</Text>
-            )}
-          </View>
         </View>
       </View>
   );
@@ -211,6 +218,7 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   chip: {
@@ -249,19 +257,16 @@ const styles = StyleSheet.create({
     height: 18,
     marginRight: 4,
   },
-  mascotRow: {
-    alignItems: 'center',
-    // Kept tight, same live-measurement discipline as the tray's own
-    // padding comment above — the first pass here (40px frame, 4px
-    // margin) measured out taller than the score plaque it replaced (105px
-    // tray vs. 96px), costing a real tileSize pixel at the reference
-    // viewport (60 -> 59). Retuned back down to match, not guessed.
-    marginTop: 2,
-  },
   mascotFrame: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    // Grown from the old 34px medallion now that it sits in the chip row
+    // instead of its own line below — see this file's own header comment
+    // on why the freed post-Lives-chip width goes here instead of into
+    // wider Target/Moves pills. Live-measured against the same 8x5
+    // reference-level tileSize check every other size in this file is
+    // tuned against, not guessed.
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1.5,
     overflow: 'hidden',
     alignItems: 'center',
@@ -273,6 +278,6 @@ const styles = StyleSheet.create({
   },
   mascotFallbackLabel: {
     fontFamily: Fonts.headingBold,
-    fontSize: 12,
+    fontSize: 16,
   },
 });
