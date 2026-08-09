@@ -1466,7 +1466,6 @@ export function Board({
       <Hud
         objectives={gameState.objectives}
         movesRemaining={gameState.movesRemaining}
-        lives={gameState.lives}
         config={skinConfig}
         spriteAssets={spriteAssets}
       />

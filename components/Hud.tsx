@@ -17,7 +17,6 @@ import {
 export interface HudProps {
   objectives: Objective[];
   movesRemaining: number;
-  lives: number;
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
 }
@@ -25,9 +24,8 @@ export interface HudProps {
 // The "Kitchen Tray" redesign (SPEC.md, 2026-08-08) — replaces the old flat,
 // borderless panel row after real feedback that the HUD read as bland. A
 // warm wood-tray surface (skinConfig.palette.tray) houses rounded pill chips
-// for Target/Moves/Lives plus a character-portrait medallion — the same
-// three at-a-glance stats this HUD always had, restyled with real material
-// and shadow instead of flat rectangles. Deliberately NOT a second competing
+// for Target/Moves plus a character-portrait medallion — restyled with real
+// material and shadow instead of flat rectangles. Deliberately NOT a second competing
 // palette: only the tray's own outer surface gets a dedicated color
 // (tray.background/border); the chips inside it keep reusing the game's
 // existing panel/border/accent, so the warmth reads as a new material
@@ -49,13 +47,15 @@ export interface HudProps {
 // 'score'-type objective's own Target panel (this Hud's objectives prop),
 // so a transient "+263" popup on every level was a number with nothing
 // for the player to connect it to.
-export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }: HudProps) {
+//
+// The Lives chip that used to sit in this row was also removed — a
+// standalone in-play lives counter isn't standard for the genre (LivesBadge
+// already covers the actual "can I still play" signal on Home/LevelMap,
+// where it matters before starting an attempt). Lives are still tracked and
+// enforced by the engine exactly as before; only this redundant mid-play
+// display is gone.
+export function Hud({ objectives, movesRemaining, config, spriteAssets }: HudProps) {
   const { palette } = config;
-  // config.lives.icon is a sprite reference with the same shape as a
-  // pieceTypes entry (see lalas-kitchen-build-spec.md), so it goes through
-  // the exact same resolveSpriteAsset() pipeline as any board piece —
-  // "flame.webp" today, swapped for a real icon the same file-drop way.
-  const livesSprite = resolveSpriteAsset(config.lives.icon, spriteAssets);
   // The mascot is fixed skin art, not per-level data — a plain filename
   // reference (matching Home.tsx's own 'home-hero-500h-crop.webp'
   // convention for the hero image), not a config field, since no skin-swap
@@ -113,12 +113,6 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }:
           </Chip>
           <Chip config={config} label="Moves">
             <Text style={[styles.value, { color: palette.accent }]}>{movesRemaining}</Text>
-          </Chip>
-          <Chip config={config} label="Lives">
-            <View style={styles.glyphRow}>
-              <Glyph sprite={livesSprite} color={palette.accent} />
-              <Text style={[styles.value, { color: palette.text }]}>{Math.max(lives, 0)}</Text>
-            </View>
           </Chip>
         </View>
 
