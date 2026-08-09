@@ -65,6 +65,7 @@ import {
   AREA_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
   CHAIN_LINK_STAGGER_MS,
+  EXPERIMENTAL_HIT_STOP_MS,
 } from './cascadeTiming';
 import { Hud } from './Hud';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
@@ -1035,6 +1036,17 @@ export function Board({
         chainWaveByPieceId
       );
 
+      // Whether THIS pass fires a special effect at all — a striped sweep or
+      // a bomb/combo's radial blast, in-cascade trigger or swap-triggered
+      // alike (buildPassAnimation already resolves both into these two
+      // maps). Deliberately pass-scoped rather than reusing effectDescriptor
+      // (which only ever covers a SWAP-triggered effect on pass 0) — the
+      // fixed game-feel-comparison scenario's own striped trigger is an
+      // in-cascade one, firing on a later pass, so effectDescriptor alone
+      // would never see it. Dev-only consumers: the experimental hit-stop
+      // below and soundEffects.ts's special_trigger cue.
+      const specialEffectFired = passAnimation.sweepDelays.size > 0 || passAnimation.radialDelays.size > 0;
+
       // Sound/haptic cue for this pass, fired in the same tick the visual
       // pop begins (not deferred to the terminal-overlay timeout below,
       // which is specifically about the overlay card not popping over
@@ -1051,6 +1063,11 @@ export function Board({
         hapticsEnabled,
         soundService,
         hapticsService,
+        // Dev-only — see BoardProps.experimentalJuice and
+        // soundEffects.ts's own doc comment. Both undefined/false on every
+        // real gameplay path.
+        experimentalJuice,
+        specialEffectFired,
       });
 
       // How long THIS pass waits before any of its tiles begin clearing. Only
@@ -1064,13 +1081,18 @@ export function Board({
       // piece that completed it had arrived. The swap is one gesture; the pass
       // that resolves it is one beat.
       const passTravelMs = i === 0 && swapCommitted ? swapDurationMs : 0;
+      // Dev-only (see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS) — a brief
+      // freeze folded into this pass's settle wait, whenever this pass fires
+      // a special effect and the harness's opt-in override is active. 0 on
+      // every real gameplay path.
+      const experimentalHitStopMs = experimentalJuice && specialEffectFired ? EXPERIMENTAL_HIT_STOP_MS : 0;
       // What the SCHEDULE waits for. passTravelMs is the swap's position-move
       // budget, but the tile still has its squash-and-stretch landing beat to
       // play after arriving (position no longer overshoots — see Tile.tsx's
       // TILE_MOVE_DAMPING_RATIO), so anything gated on "the swap has fully
       // landed" must wait for that too. Real play: "the match needs to settle
       // then disappear." See cascadeTiming.ts's springSettleMs.
-      const passSettleMs = springSettleMs(passTravelMs);
+      const passSettleMs = springSettleMs(passTravelMs) + experimentalHitStopMs;
 
       // Only the first pass carries the just-tapped pair, which uses the
       // snappier swap duration — but ONLY for a tapped piece that actually
@@ -1134,7 +1156,10 @@ export function Board({
               ? { dx: dragRelease.dx, dy: dragRelease.dy }
               : undefined,
             radialKind,
-            passReward
+            passReward,
+            // Dev-only — see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS. 0
+            // on every real gameplay path.
+            experimentalHitStopMs
           )
         ),
       ]);
@@ -1627,6 +1652,7 @@ export function Board({
                 onExited={() => removeExiting(entry.key)}
                 // Dev-only — see BoardProps.experimentalJuice.
                 experimentalBurst={experimentalJuice}
+                experimentalHitStopMs={entry.experimentalHitStopMs}
               />
             ))}
             {comboKey && (

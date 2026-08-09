@@ -2,7 +2,22 @@
 // triggerPassEffects for the exact call sites. Kept as a closed union (not a
 // bare string) so an unregistered/misspelled id is a compile error, not a
 // silent no-op discovered at runtime.
-export type SoundEffectId = 'match' | 'cascade' | 'win';
+//
+// The three `_juice`/`special_trigger` ids below are dev-only, opt-in via
+// the RN-vs-Unity game-feel-comparison harness (SPEC.md, Board.tsx's
+// BoardProps.experimentalJuice) — brighter/punchier stand-ins for match/
+// cascade plus a genuinely new "a special effect just fired" cue, all
+// deliberately overriding this game's calm-tuned production match/cascade/
+// win set (see scripts/generate-sound-assets.js's own redesign history) for
+// the comparison only. See components/soundEffects.ts's triggerPassEffects
+// for exactly when each plays; never triggered on a real level.
+export type SoundEffectId =
+  | 'match'
+  | 'cascade'
+  | 'win'
+  | 'match_juice'
+  | 'cascade_juice'
+  | 'special_trigger';
 
 export interface SoundService {
   // Fire-and-forget: plays the named effect if a real asset is registered

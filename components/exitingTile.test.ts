@@ -158,6 +158,30 @@ describe('buildExitingEntry drag-release offset (a dragged tile that clears must
   });
 });
 
+describe('buildExitingEntry experimentalHitStopMs (dev-only game-feel-comparison hit-stop)', () => {
+  test('defaults to 0 — every real gameplay call site never passes it', () => {
+    const entry = buildExitingEntry({ id: 'n1', type: 'normal', matchType: 'tomato' }, from, 7, undefined);
+    expect(entry.experimentalHitStopMs).toBe(0);
+  });
+
+  test('is carried through when the harness supplies it', () => {
+    const entry = buildExitingEntry(
+      stripedTomato,
+      from,
+      7,
+      40,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      90
+    );
+    expect(entry.experimentalHitStopMs).toBe(90);
+  });
+});
+
 describe('resolveEffectColor (the visual-reward-language spec: one color per mechanism)', () => {
   const palette = {
     accent: '#red',

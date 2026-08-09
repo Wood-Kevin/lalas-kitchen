@@ -67,3 +67,45 @@ describe('triggerPassEffects', () => {
     expect(fired).toEqual([]);
   });
 });
+
+describe('triggerPassEffects experimentalJuice (dev-only game-feel-comparison harness)', () => {
+  test('plays match_juice instead of match on the first pass', () => {
+    const { played, options } = fakeOptions({ experimentalJuice: true });
+    triggerPassEffects(0, false, undefined, options);
+    expect(played).toEqual(['match_juice']);
+  });
+
+  test('plays cascade_juice instead of cascade on a later pass', () => {
+    const { played, options } = fakeOptions({ experimentalJuice: true });
+    triggerPassEffects(1, false, undefined, options);
+    expect(played).toEqual(['cascade_juice']);
+  });
+
+  test('layers special_trigger on top of match_juice when this pass fires a special effect', () => {
+    const { played, options } = fakeOptions({ experimentalJuice: true, specialEffectFired: true });
+    triggerPassEffects(0, false, undefined, options);
+    expect(played).toEqual(['match_juice', 'special_trigger']);
+  });
+
+  test('an in-cascade special trigger on a later pass still layers special_trigger', () => {
+    // The fixed comparison scenario's own striped sweep fires on a cascade
+    // pass, not the swap pass — this must not assume i === 0.
+    const { played, options } = fakeOptions({ experimentalJuice: true, specialEffectFired: true });
+    triggerPassEffects(1, false, undefined, options);
+    expect(played).toEqual(['cascade_juice', 'special_trigger']);
+  });
+
+  test('specialEffectFired alone, without experimentalJuice, never plays special_trigger', () => {
+    // Real gameplay's own special-piece triggers must stay silent beyond the
+    // calm production match/cascade/win set.
+    const { played, options } = fakeOptions({ specialEffectFired: true });
+    triggerPassEffects(0, false, undefined, options);
+    expect(played).toEqual(['match']);
+  });
+
+  test('every existing real-gameplay call (experimentalJuice omitted) is unaffected', () => {
+    const { played, options } = fakeOptions();
+    triggerPassEffects(0, true, 'won', options);
+    expect(played).toEqual(['match', 'win']);
+  });
+});

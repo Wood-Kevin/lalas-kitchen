@@ -6709,3 +6709,78 @@ or could fix), so the new `tileSize=50`/board `350x400` numbers are confirmed by
 against the unchanged, already-verified `tileSize` formula (`components/Board.tsx:545-556`) rather
 than a rendered screenshot; a real on-device or real-browser visual confirmation that the wider
 board actually reads as "less tiny" is still open — see `DEFERRED_COMPLEXITY.md`.
+
+## Track A (RN), part two: hit-stop and "juiced" audio for the game-feel comparison (2026-08-09)
+
+**The trigger.** Picking the RN-vs-Unity game-feel comparison (SPEC.md) back up after the branch-sync
+session that landed the shared scenario fixture, the dev harness, and the opt-in particle burst.
+SPEC.md section 2's Track A bullet still had two unbuilt items: "a deliberate combo-escalation or
+hit-stop treatment" and "improved audio for the match/cascade/special-trigger beats."
+
+**The fork: does hit-stop/juiced audio get the particle burst's opt-in-only treatment, or ship as a
+real production change?** SPEC.md's own decision block (section 3) only explicitly scopes the
+particle burst as overriding the calm-not-frantic constraint "for the comparison only, opt-in" — it
+doesn't say the same about hit-stop or audio, and the surrounding prose ("built as a real, reusable
+slice... graduates directly into the game if RN wins") reads like the rest of Track A is meant to
+land as real production code. Decided anyway to extend the SAME opt-in-only treatment to both,
+rather than ship either as a live default: a hit-stop freeze-frame is the same "louder end of the
+spectrum" territory the particle burst was scoped around, and the match/cascade sounds have their own
+three-pass history of being deliberately detuned AWAY from a bright/exciting character after a real
+on-device listen called the original version a "slot machine" (see this file's sound-redesign
+entries) — a "juiced" audio pass is, almost by definition, undoing that specific, real, user-driven
+work. Shipping either as a default-on change to real players would silently re-open a question this
+project already closed once. Not confirmed with the architect before building (auto-mode judgment
+call, not a blocking fork) — flagged here and in the session summary rather than guessed at silently.
+
+**Hit-stop.** A brief freeze (`cascadeTiming.ts`'s `EXPERIMENTAL_HIT_STOP_MS`, 90ms) folded
+additively into the settle wait of whichever cascade pass actually fires a special effect — gated on
+a new pass-scoped `specialEffectFired` boolean (`Board.tsx`), not on `effectDescriptor` (which only
+ever covers a SWAP-triggered effect on pass 0 — the fixed scenario's own striped trigger is an
+IN-CASCADE one, firing on pass 1, so `effectDescriptor` alone would never see it).
+`specialEffectFired` is derived from `buildPassAnimation`'s own `sweepDelays`/`radialDelays` maps,
+which already resolve both trigger shapes. The freeze itself lives in a new
+`ExitingEntry.experimentalHitStopMs` field (captured per-entry at the same point `rewardIntensity`
+already is, for the same reason: entries from different passes end up mixed in Board's flat
+`exiting` array with no single "current pass" left to ask by render time) and is added straight onto
+`Tile.tsx`'s existing `settle` computation (`springSettleMs(travel) + experimentalHitStopMs`) —
+additive on top of, not a replacement for, the existing swap-settle mechanism, so every downstream
+delay (sweep pop, radial pop, the `onExited` timeout) picks it up automatically. Board's own
+`passSettleMs` (which the pass-scheduling model uses to know when the NEXT pass may start) gets the
+identical bump, so the schedule and each tile's own settle timeline never drift apart.
+
+**Juiced audio.** Three new synthesized cues (`scripts/generate-game-feel-comparison-audio.js`, a
+separate script from the production `generate-sound-assets.js` so the two can never regenerate each
+other's output by accident): `match_juice`/`cascade_juice` (bright single-note tones with a real
+overtone, short linear attack — deliberately the same register/character the production match/cascade
+sounds were redesigned AWAY from) and `special_trigger` (a three-note ascending arpeggio — the exact
+shape the production `win.wav` redesign moved away from for reading as a slot machine, brought back
+once, on purpose, since testing that end of the spectrum honestly is the whole point of this
+comparison). `services/soundService.ts`'s `SoundEffectId` union grew three entries;
+`soundEffects.ts`'s `triggerPassEffects` gained two new optional params
+(`experimentalJuice`/`specialEffectFired`, both default `false`) that swap the calm cue for its juiced
+counterpart and, when a special fires, layer `special_trigger` ON TOP of (not instead of)
+`match_juice`/`cascade_juice` — verified this layers correctly rather than one silently pre-empting
+the other (see Verification below). Every real-gameplay call site (which never passes either param)
+is byte-for-byte unaffected.
+
+**Verification.** `npx jest`: 871/871 (862 pre-existing + 9 new — `cascadeTiming.test.ts`'s
+`EXPERIMENTAL_HIT_STOP_MS` bounds check, `exitingTile.test.ts`'s default/passthrough pair,
+`soundEffects.test.ts`'s five new experimentalJuice/specialEffectFired cases). Live-verified over CDP
+against the real running web app: confirmed the real production `match.wav` never fires a network
+request even on a genuine hand-built-level match with Sound on — a pre-existing platform gap in this
+headless/CDP Chrome environment (no audio device), not something this change caused, and not
+possible to work around from here — so actual audible playback of the new cues is unverified BY EAR
+(the same standing disclosed gap every prior sound-redesign entry in this file already carries).
+Verified the *decision logic* directly instead, with a temporary instrumentation log (added,
+captured, then reverted — never landed in the commit): running the real scripted scenario swap
+against the real app showed pass 0 (`i:0, specialEffectFired:false`) playing `match_juice`, and pass 1
+(`i:1, isFinalPass:true, specialEffectFired:true` — the cascade pass where the in-match striped sweep
+fires) playing `cascade_juice` immediately followed by `special_trigger`, exactly matching the
+intended layering and confirming `specialEffectFired` correctly detects an in-cascade trigger on a
+non-zero pass. The scenario's own score landed at exactly 263 both before and after this change
+(matching the prior session's already-verified value), confirming the new hit-stop/audio branches
+don't perturb the deterministic scenario outcome. Real-gameplay path (Tomato Toss, `experimentalJuice`
+unset) was also driven live — an ordinary 3-match cleared and refilled normally, moves decremented
+correctly, no hit-stop pause, no juiced sound branch taken. Not yet done: a real on-device/real-audio-
+device listen (the disclosed gap above), and the hit-stop freeze's own felt weight (90ms) is a
+hand-picked judgment call, not tuned against a real reaction — see `DEFERRED_COMPLEXITY.md`.

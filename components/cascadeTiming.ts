@@ -278,6 +278,22 @@ export const SUPERCOMBO_FLASH_PULSE_MS = SUPERCOMBO_CONVERT_MS / 4;
 // SLOWS the chain's read into deliberate beats; it adds no flash or shake.
 export const CHAIN_LINK_STAGGER_MS = 260;
 
+// Dev-only, opt-in via the RN-vs-Unity game-feel comparison harness (see
+// Board.tsx's BoardProps.experimentalJuice, Tile.tsx's ExitingTile.
+// experimentalHitStopMs, and SPEC.md's Track A scope) — a brief freeze on
+// whichever pass actually fires a special effect (a striped sweep, a bomb
+// detonation — see Board.tsx's `specialEffectFired`), before that pass's
+// pops/sweeps begin. This is the "hit-stop" technique action games use to
+// sell impact (a beat of stillness right on the hit reads as heavier than
+// the hit itself), and it deliberately overrides CLAUDE.md's calm-not-
+// frantic constraint the same way the particle burst does (SPEC.md's own
+// decision block covers the burst specifically; this extends the identical
+// reasoning to hit-stop, since a freeze-frame is the same "louder end of
+// the spectrum" territory) — additive on top of the existing settle/pass
+// timing, never on for a real player. Kept short: long enough to read as a
+// deliberate beat, short enough not to feel like a stutter.
+export const EXPERIMENTAL_HIT_STOP_MS = 90;
+
 // Everything one cascade pass is doing that takes time, reduced to the
 // numbers the schedule needs. Board.tsx's runStep derives these from the
 // pass's own diff + pass animation — nothing here is new data, only the

@@ -1032,6 +1032,13 @@ export interface ExitingTileProps {
   // which is every real gameplay path — the calm-not-frantic constraint
   // this file otherwise documents stays fully intact.
   experimentalBurst?: boolean;
+  // Dev-only, ONLY ever set from the game-feel-comparison harness (see
+  // cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS and exitingTile.ts's
+  // ExitingEntry.experimentalHitStopMs). Adds a brief freeze on TOP of
+  // this tile's ordinary settle wait before its clear/sweep/pop timeline
+  // begins — additive, never replacing any existing delay. 0/undefined on
+  // every real gameplay path.
+  experimentalHitStopMs?: number;
 }
 
 // Dev-only (see experimentalBurst above) — how many sparks radiate outward
@@ -1112,6 +1119,7 @@ export function ExitingTile({
   rewardIntensity = 0,
   onExited,
   experimentalBurst,
+  experimentalHitStopMs = 0,
 }: ExitingTileProps) {
   // Always created (rules-of-hooks), only ever animated when
   // experimentalBurst is true — same "declared unconditionally, driven
@@ -1132,7 +1140,10 @@ export function ExitingTile({
   // except a swapped cell, and every branch below is written so that 0 leaves
   // its timing byte-identical to before travel existed.
   const travel = travelMs ?? 0;
-  const settle = springSettleMs(travel);
+  // experimentalHitStopMs (dev-only, see its own prop doc comment) adds a
+  // brief freeze on top of the ordinary settle wait — additive, so a
+  // real-gameplay call (always 0) computes exactly the settle it always did.
+  const settle = springSettleMs(travel) + experimentalHitStopMs;
   // Animated position, so a swapped-and-cleared tile can slide to the cell the
   // player moved it to instead of being remounted there. A non-travelling tile
   // starts and ends at the same cell, so these stay constant and this is the

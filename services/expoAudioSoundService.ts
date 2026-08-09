@@ -10,8 +10,10 @@ import { soundRegistry } from '../skins/lalas-kitchen/soundRegistry';
 //
 // One player per registered effect, created lazily on first play() and then
 // kept alive for the app's lifetime (never released) — this is a fixed pool
-// of at most three players, not the create-and-discard case expo-audio's
-// docs warn needs manual release(), so there's nothing to leak.
+// bounded by soundRegistry's own entry count (six today: three real-gameplay
+// effects plus three dev-only game-feel-comparison ones — see
+// services/soundService.ts's SoundEffectId), not the create-and-discard case
+// expo-audio's docs warn needs manual release(), so there's nothing to leak.
 const players: Partial<Record<SoundEffectId, AudioPlayer>> = {};
 
 function playerFor(effect: SoundEffectId): AudioPlayer | undefined {

@@ -20,6 +20,7 @@ import {
   SQUASH_DOWN_MS,
   SQUASH_RECOVER_MS,
   SQUASH_TOTAL_MS,
+  EXPERIMENTAL_HIT_STOP_MS,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -312,5 +313,12 @@ describe('tile motion has no position overshoot; squash carries the "juice" inst
     // Guards against the two constants and their sum drifting apart if only
     // one is edited later — springSettleMs relies on the total being exact.
     expect(SQUASH_TOTAL_MS).toBe(SQUASH_DOWN_MS + SQUASH_RECOVER_MS);
+  });
+});
+
+describe('EXPERIMENTAL_HIT_STOP_MS (dev-only game-feel-comparison hit-stop)', () => {
+  test('is a short, positive beat — a deliberate freeze, not a stutter or a stall', () => {
+    expect(EXPERIMENTAL_HIT_STOP_MS).toBeGreaterThan(0);
+    expect(EXPERIMENTAL_HIT_STOP_MS).toBeLessThan(200);
   });
 });

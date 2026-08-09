@@ -83,6 +83,13 @@ export interface ExitingEntry {
   // intensity) are mixed together with no single "current pass" left to
   // ask.
   rewardIntensity: number;
+  // Dev-only, opt-in via the game-feel-comparison harness (see
+  // cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS) — an extra pause folded
+  // into this entry's settle time, captured per-entry for the same reason
+  // rewardIntensity is: entries from different passes end up mixed in
+  // Board's flat `exiting` array with no single "current pass" left to ask
+  // by render time. 0 for every real gameplay entry.
+  experimentalHitStopMs: number;
 }
 
 // Builds one exiting-tile entry from a cleared piece. The crux for the sprite
@@ -112,7 +119,10 @@ export function buildExitingEntry(
   // Required (not optional, unlike the fields above): every exiting entry
   // needs a reward intensity, even a plain match with no special effect at
   // all — see cascadeTiming.ts's passRewardIntensity.
-  rewardIntensity: number = 0
+  rewardIntensity: number = 0,
+  // Dev-only — see ExitingEntry.experimentalHitStopMs. 0 for every real
+  // gameplay call site.
+  experimentalHitStopMs: number = 0
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -131,6 +141,7 @@ export function buildExitingEntry(
     convertedFlash,
     radialKind,
     rewardIntensity,
+    experimentalHitStopMs,
   };
 }
 
