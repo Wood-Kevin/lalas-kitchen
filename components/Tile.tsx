@@ -31,6 +31,11 @@ import {
   MATCH_POP_MS,
   MATCH_POP_SCALE,
   MATCH_POP_OPACITY,
+  MATCH_POP_ROTATE_DEG,
+  BLOCKER_SHATTER_TRAVEL_FRACTION,
+  BLOCKER_SHATTER_ROTATE_DEG,
+  RADIAL_RING_MAX_SCALE,
+  RADIAL_RING_PEAK_OPACITY,
   scaledByReward,
 } from './cascadeTiming';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
@@ -1129,6 +1134,88 @@ function ExperimentalBurstParticle({
   return <Animated.View style={particleStyle} pointerEvents="none" />;
 }
 
+// The four quarter-tile crop windows a blocker shatters into — top-left,
+// top-right, bottom-left, bottom-right, in that fixed order (the key each
+// BlockerShatterFragment render uses). A plain module-level constant, not
+// derived per-render, since the quadrant layout never varies.
+const BLOCKER_SHATTER_QUADRANTS: { qx: 0 | 1; qy: 0 | 1 }[] = [
+  { qx: 0, qy: 0 },
+  { qx: 1, qy: 0 },
+  { qx: 0, qy: 1 },
+  { qx: 1, qy: 1 },
+];
+
+// One quarter-tile shard of a shattering blocker. The crop trick: a small
+// (half-tile) `overflow: hidden` window sits over its own quadrant, and an
+// inner view the FULL tile size, offset by the negative of that same
+// quadrant position, renders the tile's real SpriteContent inside it — so
+// whatever the sprite showed in that quadrant is what this window clips to,
+// at the exact same screen position it started in. The OUTER window is what
+// flies outward and rotates (progress-driven), so the crop and the content
+// inside it travel together as one rigid shard rather than the crop
+// re-sampling a moving image — the same physical read as a real fragment
+// breaking off and tumbling away.
+function BlockerShatterFragment({
+  progress,
+  qx,
+  qy,
+  tileSize,
+  sprite,
+  accentColor,
+}: {
+  progress: SharedValue<number>;
+  qx: 0 | 1;
+  qy: 0 | 1;
+  tileSize: number;
+  sprite: ResolvedSprite;
+  accentColor: string;
+}) {
+  const half = tileSize / 2;
+  // Outward direction for this quadrant — away from the tile's own centre,
+  // e.g. the top-left shard (qx=0, qy=0) flies up-and-left.
+  const dirX = qx === 0 ? -1 : 1;
+  const dirY = qy === 0 ? -1 : 1;
+  // Opposite quadrants (top-left/bottom-right, top-right/bottom-left) spin
+  // opposite ways, so the four shards read as scattering rather than all
+  // spinning in lockstep.
+  const rotateSign = qx === qy ? 1 : -1;
+  const fragmentStyle = useAnimatedStyle(() => {
+    const t = progress.value;
+    const travel = BLOCKER_SHATTER_TRAVEL_FRACTION * tileSize * t;
+    return {
+      position: 'absolute',
+      top: qy * half,
+      left: qx * half,
+      width: half,
+      height: half,
+      overflow: 'hidden',
+      opacity: 1 - t,
+      transform: [
+        { translateX: dirX * travel },
+        { translateY: dirY * travel },
+        { rotate: `${rotateSign * BLOCKER_SHATTER_ROTATE_DEG * t}deg` },
+      ],
+    };
+  });
+  return (
+    <Animated.View style={fragmentStyle} pointerEvents="none">
+      <View
+        style={{
+          position: 'absolute',
+          top: -qy * half,
+          left: -qx * half,
+          width: tileSize,
+          height: tileSize,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <SpriteContent sprite={sprite} accentColor={accentColor} />
+      </View>
+    </Animated.View>
+  );
+}
+
 // A piece that just matched. Plays a calm pop-and-shrink (per the
 // lalas-kitchen config's matchStyle) and unmounts itself once the
 // animation finishes — deliberately no particle burst or flash by
@@ -1222,6 +1309,33 @@ export function ExitingTile({
   // every non-area-bomb exit.
   const burstScale = useSharedValue(0.4);
   const burstOpacity = useSharedValue(0);
+  // The ordinary match's own organic twist (see MATCH_POP_ROTATE_DEG's doc
+  // comment) — only ever driven by the final effect branch below, at rest
+  // (0) for every other clear kind so their pop stays a clean, direct
+  // scale-only motion.
+  const rotation = useSharedValue(0);
+  // The blocker shatter's single driver (0..1, see BlockerShatterFragments) —
+  // only ever animated in the isBlockerClear branch below.
+  const shatterProgress = useSharedValue(0);
+  // The radial family's expanding shockwave ring (see RADIAL_RING_MAX_SCALE's
+  // doc comment) — only ever animated in the radialDelayMs branch below.
+  const ringScale = useSharedValue(0.3);
+  const ringOpacity = useSharedValue(0);
+  // A deterministic per-tile sign/magnitude for the ordinary-match twist
+  // (MATCH_POP_ROTATE_DEG) — hashed from the piece's own stable id rather
+  // than Math.random(), so this component's animation stays reproducible
+  // across renders (a rules-of-hooks-safe, worklet-free plain computation,
+  // not a shared value) while several tiles clearing in the same match
+  // still visibly twist in different directions/amounts instead of
+  // spinning in lockstep, which is exactly the "everything moves the same
+  // way" flatness this feature exists to break.
+  const matchRotationSeed = useMemo(() => {
+    let hash = 0;
+    for (let i = 0; i < pieceId.length; i++) {
+      hash = (hash * 31 + pieceId.charCodeAt(i)) | 0;
+    }
+    return ((hash % 200) - 100) / 100; // -1..1
+  }, [pieceId]);
 
   useEffect(() => {
     if (convertedFlash) {
@@ -1361,6 +1475,22 @@ export function ExitingTile({
         settle + radialDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
       );
+      // The shockwave ring (see RADIAL_RING_MAX_SCALE's doc comment) — its
+      // own shape of motion layered on top of the filled wash above, not a
+      // recolored copy of it: a thin ring expanding from near-nothing to
+      // RADIAL_RING_MAX_SCALE tile-diameters while it fades, across this
+      // effect's full window, purely additive.
+      ringOpacity.value = withDelay(
+        settle + radialDelayMs,
+        withSequence(
+          withTiming(RADIAL_RING_PEAK_OPACITY, { duration: Math.round(durationMs * 0.25) }),
+          withTiming(0, { duration: Math.round(durationMs * 0.75) })
+        )
+      );
+      ringScale.value = withDelay(
+        settle + radialDelayMs,
+        withTiming(RADIAL_RING_MAX_SCALE, { duration: durationMs, easing: Easing.out(Easing.quad) })
+      );
       const timeout = setTimeout(onExited, settle + radialDelayMs + durationMs);
       return () => clearTimeout(timeout);
     }
@@ -1386,6 +1516,14 @@ export function ExitingTile({
       opacity.value = withDelay(
         settle + BLOCKER_CLEAR_HIGHLIGHT_MS,
         withTiming(0, { duration: durationMs })
+      );
+      // The shatter (see BLOCKER_SHATTER_TRAVEL_FRACTION's doc comment) —
+      // starts on the exact same clock the base sprite's own fade above
+      // does, so the four fragments read as debris from THIS tile fading,
+      // not an unrelated flourish.
+      shatterProgress.value = withDelay(
+        settle + BLOCKER_CLEAR_HIGHLIGHT_MS,
+        withTiming(1, { duration: durationMs, easing: Easing.out(Easing.quad) })
       );
       const timeout = setTimeout(onExited, settle + BLOCKER_CLEAR_HIGHLIGHT_MS + durationMs);
       return () => clearTimeout(timeout);
@@ -1418,6 +1556,14 @@ export function ExitingTile({
       settle + MATCH_POP_MS,
       withTiming(0, { duration: anticipationShrinkMs })
     );
+    // The organic twist (see MATCH_POP_ROTATE_DEG's doc comment) — only
+    // during the shrink phase, same window as the fade above, so the pop
+    // itself still reads as a clean brighten-and-swell before the tile
+    // starts tumbling away.
+    rotation.value = withDelay(
+      settle + MATCH_POP_MS,
+      withTiming(matchRotationSeed * MATCH_POP_ROTATE_DEG, { duration: anticipationShrinkMs })
+    );
     const timeout = setTimeout(onExited, settle + durationMs);
     return () => clearTimeout(timeout);
     // Runs once on mount — an exiting tile never changes position, duration,
@@ -1432,7 +1578,11 @@ export function ExitingTile({
     width: tileSize,
     height: tileSize,
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    // rotation stays 0 for every clear kind except the ordinary match (see
+    // matchRotationSeed above), so this is a no-op transform for blocker/
+    // sweep/radial exits — a single shared array rather than a per-branch
+    // transform list.
+    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
     // Exiting tiles join the same live-row stacking scheme the live tiles
     // use (see Tile's animatedStyle: row × 1000, lower-on-screen paints
     // over higher), offset half a step UP so a clearing tile always paints
@@ -1498,6 +1648,37 @@ export function ExitingTile({
     zIndex: Math.round(exitRow.value * 1000) + 600,
   }));
 
+  // The radial family's shockwave ring — sized to exactly tileSize at rest
+  // (scale 1) so RADIAL_RING_MAX_SCALE reads directly as "this many tile
+  // diameters," expanding about its own centre via the scale transform.
+  // A separate positioned view for the same reason burstStyle is: it grows
+  // past the tile's own bounds, so it must sit outside the box the base
+  // sprite's own pop-and-shrink is confined to.
+  const ringStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: exitRow.value * tileSize,
+    left: exitCol.value * tileSize,
+    width: tileSize,
+    height: tileSize,
+    borderRadius: tileSize / 2,
+    opacity: ringOpacity.value,
+    transform: [{ scale: ringScale.value }],
+    zIndex: Math.round(exitRow.value * 1000) + 500,
+  }));
+
+  // The blocker shatter's four-fragment wrapper — same shape as
+  // experimentalBurstContainerStyle: tracks the tile's own animated
+  // position/stacking so the shards originate from wherever the bag
+  // actually is.
+  const shatterContainerStyle = useAnimatedStyle(() => ({
+    position: 'absolute',
+    top: exitRow.value * tileSize,
+    left: exitCol.value * tileSize,
+    width: tileSize,
+    height: tileSize,
+    zIndex: Math.round(exitRow.value * 1000) + 600,
+  }));
+
   return (
     <>
       <Animated.View style={animatedStyle} pointerEvents="none" testID={`exiting-${pieceId}`}>
@@ -1552,6 +1733,32 @@ export function ExitingTile({
               },
             ]}
           />
+        </Animated.View>
+      )}
+      {radialDelayMs !== undefined && (
+        <Animated.View
+          style={[styles.radialRing, { borderColor: washColor }, ringStyle]}
+          pointerEvents="none"
+          testID={`radial-ring-${pieceId}`}
+        />
+      )}
+      {isBlockerClear && (
+        <Animated.View
+          style={shatterContainerStyle}
+          pointerEvents="none"
+          testID={`blocker-shatter-${pieceId}`}
+        >
+          {BLOCKER_SHATTER_QUADRANTS.map(({ qx, qy }) => (
+            <BlockerShatterFragment
+              key={`${qx}-${qy}`}
+              progress={shatterProgress}
+              qx={qx}
+              qy={qy}
+              tileSize={tileSize}
+              sprite={sprite}
+              accentColor={accentColor}
+            />
+          ))}
         </Animated.View>
       )}
       {experimentalBurst && (
@@ -1638,6 +1845,16 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 999,
+  },
+  // The radial family's shockwave ring (see RADIAL_RING_MAX_SCALE's doc
+  // comment) — a THIN BORDERED circle, not a filled one, so it reads as a
+  // genuinely different shape of motion from radialGlow's filled wash
+  // rather than a recolored copy of it. backgroundColor stays transparent;
+  // borderColor is set inline per-entry (washColor), same convention as
+  // every other overlay here.
+  radialRing: {
+    borderWidth: 3,
+    backgroundColor: 'transparent',
   },
   // The supercombo's conversion flicker — same plain full-tile wash language
   // as every other overlay here; its own style purely so this effect's timing

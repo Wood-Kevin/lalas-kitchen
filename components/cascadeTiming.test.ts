@@ -21,6 +21,11 @@ import {
   SQUASH_RECOVER_MS,
   SQUASH_TOTAL_MS,
   EXPERIMENTAL_HIT_STOP_MS,
+  MATCH_POP_ROTATE_DEG,
+  BLOCKER_SHATTER_TRAVEL_FRACTION,
+  BLOCKER_SHATTER_ROTATE_DEG,
+  RADIAL_RING_MAX_SCALE,
+  RADIAL_RING_PEAK_OPACITY,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -273,6 +278,32 @@ describe('the ordinary-match anticipation beat fits inside the clear budget', ()
     expect(MATCH_POP_SCALE).toBeLessThan(1.15);
     expect(MATCH_POP_OPACITY).toBeGreaterThan(0);
     expect(MATCH_POP_OPACITY).toBeLessThan(0.5);
+  });
+});
+
+describe('per-mechanism clear motion stays distinct and in the calm register', () => {
+  test('the ordinary match twist is a texture, not a spin — still the mildest mechanism', () => {
+    expect(MATCH_POP_ROTATE_DEG).toBeGreaterThan(0);
+    expect(MATCH_POP_ROTATE_DEG).toBeLessThan(45);
+  });
+
+  test('a blocker shard travels outward but stays under one full tile of distance', () => {
+    expect(BLOCKER_SHATTER_TRAVEL_FRACTION).toBeGreaterThan(0);
+    expect(BLOCKER_SHATTER_TRAVEL_FRACTION).toBeLessThan(1);
+  });
+
+  test('a blocker shard visibly tumbles as it flies — more than the ordinary twist', () => {
+    expect(BLOCKER_SHATTER_ROTATE_DEG).toBeGreaterThan(MATCH_POP_ROTATE_DEG);
+  });
+
+  test('the radial shockwave ring outgrows its own tile but stays a legible near-field wave', () => {
+    expect(RADIAL_RING_MAX_SCALE).toBeGreaterThan(1);
+    expect(RADIAL_RING_MAX_SCALE).toBeLessThan(4);
+  });
+
+  test('the ring peak opacity stays a wash, never a solid fill', () => {
+    expect(RADIAL_RING_PEAK_OPACITY).toBeGreaterThan(0);
+    expect(RADIAL_RING_PEAK_OPACITY).toBeLessThan(0.8);
   });
 });
 

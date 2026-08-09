@@ -144,6 +144,50 @@ export const MATCH_POP_MS = 90;
 export const MATCH_POP_SCALE = 1.11;
 export const MATCH_POP_OPACITY = 0.38;
 
+// Every clear mechanism used to share the exact same MOTION shape (brighten,
+// scale-pop, shrink to 0) and differ only by wash color/shape/timing — a real
+// playtest gap once the per-mechanism color work above shipped ("still all
+// look like the same thing happening, just tinted differently"). This
+// constant is the ordinary match's own answer: instead of a flat symmetric
+// scale-to-zero, a cleared tile also twists a small, DETERMINISTIC amount
+// (see Tile.tsx's matchRotationSeed, derived from the piece's own id so
+// several tiles clearing in the same match don't all spin identically,
+// which would read as choreographed rather than organic) as it shrinks — a
+// little tumble-away instead of a uniform dissolve. Kept small: this is
+// still the calm, most-subdued mechanism in the reward hierarchy (see
+// MATCH_POP_SCALE/OPACITY's own comment), so the twist reads as texture, not
+// a spin.
+export const MATCH_POP_ROTATE_DEG = 16;
+
+// The blocker clear's shatter — its own genuinely different DESTRUCTION
+// motion rather than the shared pop-and-shrink every mechanism used to
+// reuse: a blocker is a physical container (jar/lid/wrapped bundle) in this
+// skin, so "breaking apart" reads as a truer match to what's actually
+// happening than "shrinking away" does. Layered ADDITIVELY alongside the
+// existing highlight-pulse-then-fade (Tile.tsx's ExitingTile isBlockerClear
+// branch is otherwise unchanged) — four quadrant fragments of the same
+// sprite fly outward from the tile's centre, rotating and fading, timed to
+// the same durationMs window the base sprite already fades out over so no
+// pass-scheduling arithmetic anywhere else needs to change.
+// TRAVEL_FRACTION is how far a fragment travels outward, as a fraction of
+// tileSize — under one full tile so debris stays legible as having come
+// from this cell, not flown across the board.
+export const BLOCKER_SHATTER_TRAVEL_FRACTION = 0.62;
+export const BLOCKER_SHATTER_ROTATE_DEG = 70;
+
+// The radial family's (color bomb / area bomb) own genuinely different
+// SHAPE of motion: on top of the existing filled circular wash
+// (ExitingTile's radialGlow), a thin ring expands outward from the tile like
+// a real shockwave and fades as it grows — a shape a filled wash and a
+// scale-pop can't produce, since a ring is defined by its ABSENCE of fill in
+// the centre. MAX_SCALE is relative to the tile's own diameter (2.6× reads
+// as a wave that visibly outgrows its origin cell without sprawling across
+// several neighbours at peak, since the underlying wash/pop already covers
+// the near field). Runs across the mechanism's own full durationMs window,
+// purely additive — it never gates onExited or any other timing.
+export const RADIAL_RING_MAX_SCALE = 2.6;
+export const RADIAL_RING_PEAK_OPACITY = 0.55;
+
 // How much of a mechanism's peak wash opacity a pass gets regardless of
 // cascade depth — the rest scales in with passRewardIntensity below. A
 // single flat match still needs to read as a real pop on its own (the
