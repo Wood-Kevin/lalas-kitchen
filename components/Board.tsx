@@ -88,9 +88,8 @@ import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
 import { LalaMomentBanner } from './LalaMomentBanner';
-import { ScorePopup, ScorePopupTone } from './ScorePopup';
 import { KitchenSceneDecor } from './KitchenSceneDecor';
-import { resolveLalaMomentCopy, resolveScorePopupTone } from './rewardMoment';
+import { resolveLalaMomentCopy } from './rewardMoment';
 import { triggerPassEffects } from './soundEffects';
 
 export interface BoardProps {
@@ -460,14 +459,9 @@ export function Board({
   // than a second event landing mid-fade doing nothing because the banner
   // was already mounted.
   const [comboKey, setComboKey] = useState<string | null>(null);
-  // Presentation-only reward beats. These are keyed per committed move so a
-  // new move always gets a fresh animation instead of retriggering an already
+  // Presentation-only reward beat. Keyed per committed move so a new move
+  // always gets a fresh animation instead of retriggering an already
   // mounted banner mid-fade.
-  const [scorePopup, setScorePopup] = useState<{
-    key: string;
-    amount: number;
-    tone: ScorePopupTone;
-  } | null>(null);
   const [lalaMoment, setLalaMoment] = useState<{ key: string; copy: string } | null>(null);
   // How many "watch a video for more moves" grants this attempt has taken.
   // Per-attempt state, on purpose: it starts at 0 on every fresh mount (a
@@ -905,10 +899,6 @@ export function Board({
     // doesn't exist.
     const commitFinalState = () => {
       if (hasCombo) setComboKey(`combo-${moveId}`);
-      if (moveScore > 0) {
-        const tone = resolveScorePopupTone(multiSpecialFired, effectDescriptor, steps.length);
-        setScorePopup({ key: `score-${moveId}`, amount: moveScore, tone });
-      }
       // Resolved unconditionally, not just when moveScore > 0 — a
       // stuckBoardRescued notice (or the first-move/one-move-remaining
       // flavor lines) must still be able to fire on a genuinely zero-score
@@ -1665,16 +1655,6 @@ export function Board({
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
                 onDone={() => setComboKey(null)}
-              />
-            )}
-            {scorePopup && (
-              <ScorePopup
-                key={scorePopup.key}
-                amount={scorePopup.amount}
-                tone={scorePopup.tone}
-                accentColor={skinConfig.palette.accent}
-                panelColor={skinConfig.palette.panel}
-                onDone={() => setScorePopup(null)}
               />
             )}
             {lalaMoment && (

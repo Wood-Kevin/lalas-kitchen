@@ -1,30 +1,7 @@
-import { resolveScorePopupTone, resolveLalaMomentCopy } from './rewardMoment';
+import { resolveLalaMomentCopy } from './rewardMoment';
 import { SpecialEffectDescriptor } from './specialEffectAnimation';
 
 const COLOR_BOMB_EFFECT: SpecialEffectDescriptor = { kind: 'color_bomb', origin: { row: 0, col: 0 } };
-
-describe('resolveScorePopupTone', () => {
-  test('a plain single-pass match with no special is ordinary', () => {
-    expect(resolveScorePopupTone(false, undefined, 1)).toBe('ordinary');
-  });
-
-  test('a settled multi-pass move with no special reads as cascade', () => {
-    expect(resolveScorePopupTone(false, undefined, 2)).toBe('cascade');
-    expect(resolveScorePopupTone(false, undefined, 4)).toBe('cascade');
-  });
-
-  test('a fired special effect always reads as special, even single-pass', () => {
-    expect(resolveScorePopupTone(false, COLOR_BOMB_EFFECT, 1)).toBe('special');
-  });
-
-  test('a chain of multiple specials reads as special regardless of effectDescriptor', () => {
-    expect(resolveScorePopupTone(true, undefined, 1)).toBe('special');
-  });
-
-  test('special outranks cascade when both signals are present', () => {
-    expect(resolveScorePopupTone(true, COLOR_BOMB_EFFECT, 3)).toBe('special');
-  });
-});
 
 describe('resolveLalaMomentCopy', () => {
   // Args: hasCombo, stuckBoardRescued, multiSpecialFired, effectDescriptor,

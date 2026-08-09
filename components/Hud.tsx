@@ -42,12 +42,13 @@ export interface HudProps {
 // The running-score plaque that used to sit here (SPEC.md's HUD
 // reward-texture-and-character spec) was removed to make room for a real
 // mascot portrait once one existed — a direct architect call ("remove the
-// score block to put the mascot in"). Per-move score feedback still exists
-// via ScorePopup's transient popup (unrelated local state, unaffected by
-// this); it's specifically the accumulated per-attempt TOTAL that had no
-// display left once this plaque was gone, so Board.tsx's runningScore
-// state was removed alongside it rather than kept as dead state with
-// nothing reading it.
+// score block to put the mascot in"). Board.tsx's runningScore state was
+// removed alongside it rather than kept as dead state with nothing
+// reading it. Per-move score feedback (Board.tsx's ScorePopup) was later
+// removed too — score isn't surfaced to the player anywhere except a
+// 'score'-type objective's own Target panel (this Hud's objectives prop),
+// so a transient "+263" popup on every level was a number with nothing
+// for the player to connect it to.
 export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }: HudProps) {
   const { palette } = config;
   // config.lives.icon is a sprite reference with the same shape as a

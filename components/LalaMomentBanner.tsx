@@ -24,8 +24,8 @@ export function LalaMomentBanner({ copy, accentColor, panelColor, spriteAssets, 
   // This banner IS Lala speaking (see the copy bank this reads from,
   // release-character-pack.md) — the one toast where a portrait is a
   // genuine content tie-in, not decoration repeated across every popup.
-  // ScorePopup/ComboStreakBanner stay text-only; they're generic reward
-  // feedback, not her voice.
+  // ComboStreakBanner stays text-only; it's generic reward feedback, not
+  // her voice.
   const mascotSprite = resolveSpriteAsset('mascot.webp', spriteAssets);
 
   useEffect(() => {

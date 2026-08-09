@@ -1,7 +1,7 @@
 import { ViewStyle } from 'react-native';
 
 // Shared material for any elevated surface across this app's screens — the
-// board's toast pills (ScorePopup/ComboStreakBanner/LalaMomentBanner) and,
+// board's toast pills (ComboStreakBanner/LalaMomentBanner) and,
 // from the Home-screen facelift, its cards/primary button/objective badge.
 // Originally toast-only (components/toastChrome.ts, since renamed here —
 // see engine/DECISIONS.md's home-screen-facelift entry) once it became

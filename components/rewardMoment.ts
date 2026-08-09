@@ -1,29 +1,11 @@
 import { SpecialEffectDescriptor } from './specialEffectAnimation';
-import { ScorePopupTone } from './ScorePopup';
 
 // Pulled out of Board.tsx's commitFinalState (the codex commercial-polish
-// consolidation pass) so the tone/copy decisions are named, tested pure
-// functions instead of an inline nested ternary — matching this codebase's
+// consolidation pass) so the copy decision is a named, tested pure
+// function instead of an inline nested ternary — matching this codebase's
 // established pattern for presentation-only decisions derived from a
 // settled move (cascadeTiming.ts's passRewardIntensity, wonActions.ts's
 // computeStarRating).
-
-// A move's own tier, reusing the same signals SCORE_TIER_POINTS' caller
-// already has at hand rather than re-deriving anything new: a fired special
-// (chained or the move's own swap-triggered effect) always reads as
-// 'special', a settled multi-pass move (a real cascade, even without a
-// special) reads as 'cascade', and a plain single-pass match is 'ordinary'.
-// Mirrors the same floor/ceiling shape scaledByReward already established
-// for board effects — more juice where it's earned, not uniformly louder.
-export function resolveScorePopupTone(
-  multiSpecialFired: boolean,
-  effectDescriptor: SpecialEffectDescriptor | undefined,
-  passCount: number
-): ScorePopupTone {
-  if (multiSpecialFired || effectDescriptor) return 'special';
-  if (passCount > 1) return 'cascade';
-  return 'ordinary';
-}
 
 // Lala speaks only on meaningful moments, in descending priority — so a
 // move that qualifies for more than one line only ever shows the most
