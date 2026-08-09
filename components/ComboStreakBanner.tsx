@@ -3,7 +3,7 @@ import { StyleSheet } from 'react-native';
 import { Text } from './AppText';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { Fonts } from './fonts';
-import { TOAST_BORDER_WIDTH, TOAST_SHADOW } from './toastChrome';
+import { SURFACE_BORDER_WIDTH, SURFACE_SHADOW } from './surfaceChrome';
 
 export interface ComboStreakBannerProps {
   accentColor: string;
@@ -72,8 +72,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 6,
     borderRadius: 16,
-    borderWidth: TOAST_BORDER_WIDTH,
-    ...TOAST_SHADOW,
+    borderWidth: SURFACE_BORDER_WIDTH,
+    ...SURFACE_SHADOW,
   },
   text: {
     fontFamily: Fonts.bodyBold,

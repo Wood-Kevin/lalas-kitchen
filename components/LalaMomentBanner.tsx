@@ -4,7 +4,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } 
 import { Text } from './AppText';
 import { Fonts } from './fonts';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
-import { TOAST_BORDER_WIDTH, TOAST_SHADOW } from './toastChrome';
+import { SURFACE_BORDER_WIDTH, SURFACE_SHADOW } from './surfaceChrome';
 
 export interface LalaMomentBannerProps {
   copy: string;
@@ -78,8 +78,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 16,
-    borderWidth: TOAST_BORDER_WIDTH,
-    ...TOAST_SHADOW,
+    borderWidth: SURFACE_BORDER_WIDTH,
+    ...SURFACE_SHADOW,
   },
   avatar: {
     width: 24,

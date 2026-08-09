@@ -15,6 +15,7 @@ import { GinghamTrim } from './GinghamTrim';
 import { LivesBadge } from './LivesBadge';
 import { Fonts } from './fonts';
 import { LevelSummary, buildRecipeBookSubtitle } from './levelProgress';
+import { SURFACE_BORDER_WIDTH, SURFACE_SHADOW } from './surfaceChrome';
 
 export interface HomeProps {
   config: SkinConfig;
@@ -108,6 +109,12 @@ export function Home({
   const nextRecipeIcon = nextRecipeSprite ? resolveSpriteAsset(nextRecipeSprite, spriteAssets) : undefined;
 
   const heroSprite = resolveSpriteAsset('home-hero-500h-crop.webp', spriteAssets);
+  // The welcome line below is literally Lala's own dialogue ("Welcome
+  // back, dear...") — same reasoning as LalaMomentBanner's own avatar: a
+  // real content tie-in, not decoration, to show her face next to her own
+  // words. No fallback if the sprite is ever missing (same choice
+  // LalaMomentBanner made) — the quote itself is always there regardless.
+  const mascotSprite = resolveSpriteAsset('mascot.webp', spriteAssets);
   const nextIconSprite =
     nextLevel.objectiveType === 'score'
       ? SCORE_OBJECTIVE_SPRITE
@@ -168,9 +175,21 @@ export function Home({
         />
         <View style={styles.heroTextBlock}>
           <Text style={[styles.title, { color: config.palette.accent }]}>Lala&apos;s Kitchen</Text>
-          <Text style={[styles.welcome, { color: config.palette.mutedText }]}>
-            &quot;Welcome back, dear. The pot&apos;s already warming.&quot;
-          </Text>
+          <View style={styles.welcomeRow}>
+            {mascotSprite.kind === 'image' && (
+              // Same shadow-vs-overflow:hidden split as the cards above —
+              // the shadow lives on an unclipped outer View, the border/
+              // corner-clip on an inner one.
+              <View style={styles.welcomeAvatarShadow}>
+                <View style={[styles.welcomeAvatarFrame, { borderColor: config.palette.panel }]}>
+                  <Image source={mascotSprite.source} style={styles.welcomeAvatarImage} resizeMode="cover" />
+                </View>
+              </View>
+            )}
+            <Text style={[styles.welcome, { color: config.palette.mutedText }]}>
+              &quot;Welcome back, dear. The pot&apos;s already warming.&quot;
+            </Text>
+          </View>
         </View>
         {/* Corner badge, not a new row — keeps the hero's own title/welcome
             text as the visual focus (see LivesBadge.tsx's own comment on
@@ -180,98 +199,116 @@ export function Home({
         </View>
       </View>
 
-      <Pressable
-        style={[
-          styles.card,
-          { backgroundColor: config.palette.panel, borderColor: config.palette.border, marginTop: 14 },
-        ]}
-        onPress={onOpenRecipeBook}
-        accessibilityRole="button"
-        accessibilityLabel="Your recipe book"
-      >
-        <View style={styles.cardPadding}>
-          <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
-          <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
-          {nextRecipeHint !== undefined && (
-            <>
-              <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>
-                {nextRecipeHint}
-              </Text>
-              {/* The windowed fill (SPEC.md's recipe-progress-visibility
-                  thread) — resets to a fresh, visibly-moving start at every
-                  unlock rather than crawling toward the full 52-card set,
-                  so it stays worth glancing at again next session instead
-                  of reading as permanently near-full. The target card's own
-                  icon anchors what the fill is heading toward without
-                  naming it (see nextRecipeSprite's own comment). */}
-              <View style={styles.recipeProgressRow}>
-                <View
-                  style={[styles.recipeProgressTrack, { backgroundColor: config.palette.background[0] }]}
-                >
+      {/* Every card below is now a shadow-carrying outer View wrapping a
+          clipped inner surface — React Native drops a shadow entirely on a
+          View that also sets overflow: 'hidden' (needed here so
+          GinghamTrim's square top corners and the Pressable's own ripple
+          stay inside the card's rounded corners), so the shadow has to live
+          on an unclipped parent instead. See surfaceChrome.ts's own header
+          comment for why this shadow now exists at all — a real DOM check
+          found zero shadowed elements anywhere on this screen before this
+          pass, the same flatness the board's toasts had before their own
+          facelift. */}
+      <View style={[styles.cardShadow, { marginTop: 14 }]}>
+        <Pressable
+          style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}
+          onPress={onOpenRecipeBook}
+          accessibilityRole="button"
+          accessibilityLabel="Your recipe book"
+        >
+          <View style={styles.cardPadding}>
+            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
+            <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
+            {nextRecipeHint !== undefined && (
+              <>
+                <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>
+                  {nextRecipeHint}
+                </Text>
+                {/* The windowed fill (SPEC.md's recipe-progress-visibility
+                    thread) — resets to a fresh, visibly-moving start at every
+                    unlock rather than crawling toward the full 52-card set,
+                    so it stays worth glancing at again next session instead
+                    of reading as permanently near-full. The target card's own
+                    icon anchors what the fill is heading toward without
+                    naming it (see nextRecipeSprite's own comment). */}
+                <View style={styles.recipeProgressRow}>
                   <View
-                    style={[
-                      styles.recipeProgressFill,
-                      {
-                        backgroundColor: config.palette.accent,
-                        width: `${Math.round((nextRecipeProgressFraction ?? 0) * 100)}%`,
-                      },
-                    ]}
-                  />
-                </View>
-                {nextRecipeIcon &&
-                  (nextRecipeIcon.kind === 'image' ? (
-                    <Image
-                      source={nextRecipeIcon.source}
-                      style={styles.recipeProgressIcon}
-                      resizeMode="contain"
+                    style={[styles.recipeProgressTrack, { backgroundColor: config.palette.background[0] }]}
+                  >
+                    <View
+                      style={[
+                        styles.recipeProgressFill,
+                        {
+                          backgroundColor: config.palette.accent,
+                          width: `${Math.round((nextRecipeProgressFraction ?? 0) * 100)}%`,
+                        },
+                      ]}
                     />
-                  ) : (
-                    <Text style={{ color: config.palette.text }}>{nextRecipeIcon.label}</Text>
-                  ))}
-              </View>
-            </>
-          )}
-        </View>
-      </Pressable>
-
-      <Pressable
-        style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}
-        onPress={onOpenSettings}
-        accessibilityRole="button"
-        accessibilityLabel="Settings"
-      >
-        <View style={styles.cardPadding}>
-          <Text style={[styles.cardTitle, { color: config.palette.text }]}>Settings</Text>
-          <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>Sound, haptics, and more</Text>
-        </View>
-      </Pressable>
-
-      <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
-        <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
-        <View style={styles.cardPadding}>
-          <View style={styles.nextRow}>
-            <View style={[styles.nextIconBadge, { backgroundColor: config.palette.background[0], borderColor: config.palette.border }]}>
-              {nextIconSprite.kind === 'image' ? (
-                <Image source={nextIconSprite.source} style={styles.nextIconImage} resizeMode="contain" />
-              ) : (
-                <Text style={{ color: config.palette.text }}>{nextIconSprite.label}</Text>
-              )}
-            </View>
-            <View style={styles.nextTextBlock}>
-              <Text style={[styles.nextLabel, { color: config.palette.secondaryAccentText }]}>
-                Up next · Level {nextLevel.levelIndex}
-              </Text>
-              <Text style={[styles.nextName, { color: config.palette.text }]}>{nextLevel.displayName}</Text>
-            </View>
+                  </View>
+                  {nextRecipeIcon &&
+                    (nextRecipeIcon.kind === 'image' ? (
+                      <Image
+                        source={nextRecipeIcon.source}
+                        style={styles.recipeProgressIcon}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <Text style={{ color: config.palette.text }}>{nextRecipeIcon.label}</Text>
+                    ))}
+                </View>
+              </>
+            )}
           </View>
-          <Pressable
-            style={[styles.startButton, { backgroundColor: config.palette.accent }]}
-            onPress={onStartNext}
-            accessibilityRole="button"
-            accessibilityLabel="Start cooking"
-          >
-            <Text style={[styles.startButtonLabel, { color: config.palette.panel }]}>Start cooking</Text>
-          </Pressable>
+        </Pressable>
+      </View>
+
+      <View style={styles.cardShadow}>
+        <Pressable
+          style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}
+          onPress={onOpenSettings}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <View style={styles.cardPadding}>
+            <Text style={[styles.cardTitle, { color: config.palette.text }]}>Settings</Text>
+            <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>Sound, haptics, and more</Text>
+          </View>
+        </Pressable>
+      </View>
+
+      <View style={styles.cardShadow}>
+        <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
+          <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
+          <View style={styles.cardPadding}>
+            <View style={styles.nextRow}>
+              <View
+                style={[
+                  styles.nextIconBadge,
+                  { backgroundColor: config.palette.background[0], borderColor: config.palette.border },
+                ]}
+              >
+                {nextIconSprite.kind === 'image' ? (
+                  <Image source={nextIconSprite.source} style={styles.nextIconImage} resizeMode="contain" />
+                ) : (
+                  <Text style={{ color: config.palette.text }}>{nextIconSprite.label}</Text>
+                )}
+              </View>
+              <View style={styles.nextTextBlock}>
+                <Text style={[styles.nextLabel, { color: config.palette.secondaryAccentText }]}>
+                  Up next · Level {nextLevel.levelIndex}
+                </Text>
+                <Text style={[styles.nextName, { color: config.palette.text }]}>{nextLevel.displayName}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.startButton, { backgroundColor: config.palette.accent }]}
+              onPress={onStartNext}
+              accessibilityRole="button"
+              accessibilityLabel="Start cooking"
+            >
+              <Text style={[styles.startButtonLabel, { color: config.palette.panel }]}>Start cooking</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -364,15 +401,42 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 38,
   },
-  welcome: {
-    fontFamily: Fonts.bodyRegular,
+  welcomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 4,
+  },
+  welcomeAvatarShadow: {
+    borderRadius: 16,
+    ...SURFACE_SHADOW,
+  },
+  welcomeAvatarFrame: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: SURFACE_BORDER_WIDTH,
+    overflow: 'hidden',
+  },
+  welcomeAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  welcome: {
+    flex: 1,
+    fontFamily: Fonts.bodyRegular,
     fontSize: 14,
   },
-  card: {
+  // The shadow-carrying outer wrapper — see the JSX comment at the first
+  // card for why the shadow can't live directly on `card` itself.
+  cardShadow: {
     marginHorizontal: 20,
     marginTop: 16,
-    borderWidth: 1.5,
+    borderRadius: 22,
+    ...SURFACE_SHADOW,
+  },
+  card: {
+    borderWidth: SURFACE_BORDER_WIDTH,
     borderRadius: 22,
     overflow: 'hidden',
   },
@@ -419,9 +483,10 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 18,
-    borderWidth: 1.5,
+    borderWidth: SURFACE_BORDER_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
+    ...SURFACE_SHADOW,
   },
   nextIconImage: {
     width: 34,
@@ -450,12 +515,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 14,
     alignItems: 'center',
+    // The one real CTA on this whole screen — gets the most lift of
+    // anything here, a solid fill rather than a bordered pill so the
+    // shadow alone carries the "press me" weight.
+    ...SURFACE_SHADOW,
   },
   startButtonLabel: {
     fontFamily: Fonts.headingBold,
     fontSize: 17,
     fontWeight: '700',
   },
+  // Deliberately still flat, no shadow — the one secondary/tertiary action
+  // on this screen, kept quieter than the cards and the primary CTA above
+  // so the new material lift reads as a real hierarchy, not just "everything
+  // got a shadow."
   browseButton: {
     marginHorizontal: 20,
     marginTop: 14,

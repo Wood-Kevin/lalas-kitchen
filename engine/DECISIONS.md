@@ -6442,3 +6442,72 @@ level win, which this session's fresh dev save has never done). Whether the new 
 actually reads as "has depth" rather than "slightly different," and whether the 24px avatar sits
 well against the banner's own text, are both unconfirmed by a human — the same standing gap every
 visual feature this session discloses.
+
+## Home screen facelift: real shadow material and Lala's portrait in the hero (2026-08-09)
+
+**The trigger.** "The next pass has to be the home screen now. it looks super weak compared to the
+game board" — a direct, scoped instruction following the board's own chrome-trim, mascot, and toast
+facelift passes. Investigated before touching anything, the same as every other facelift this
+session: a real DOM check (`getComputedStyle(el).boxShadow` across every element on the page) found
+**zero** shadowed elements anywhere on Home — every card, badge, and button was a flat fill with a
+thin border, the exact flatness the toasts had before their own facelift, just never addressed on
+this screen.
+
+**Reused, and renamed, the existing shared chrome rather than inventing a fourth material.**
+`components/toastChrome.ts` (from the toast facelift, two entries up) was renamed to
+`components/surfaceChrome.ts` with its exports renamed `TOAST_SHADOW`/`TOAST_BORDER_WIDTH` →
+`SURFACE_SHADOW`/`SURFACE_BORDER_WIDTH` — the toast-specific name stopped being accurate the moment
+a second, unrelated surface (Home's cards) needed the identical values. All three toast components'
+imports were updated in the same pass; no behavior changed, purely a naming correction so the file
+honestly describes what it now serves. Applied to: the three Home cards (recipe book, settings, up
+next), the primary "Start cooking" button, and the objective icon badge. The secondary "Browse all
+levels" button deliberately stayed flat — a real visual-hierarchy choice, not an oversight, so the
+new material lift reads as "cards and the primary action are elevated" rather than "everything on
+the screen got the same treatment for its own sake."
+
+**A real React Native gotcha, handled consistently.** A View can't have both a shadow (`shadowColor`
+etc. / `elevation`) and `overflow: 'hidden'` — the shadow gets clipped away entirely. Home's cards
+need `overflow: 'hidden'` (their Pressable/View content, including `GinghamTrim`'s square top
+corners on the "Up Next" card, must respect the card's own rounded corners). Split each card into
+an unclipped outer `cardShadow` wrapper (carries the shadow, the margin, the border radius) around
+the existing clipped `card` (carries the border, the fill, `overflow: 'hidden'`) — the same split
+later reused for the hero's own mascot avatar frame, which hit the identical conflict.
+
+**The mascot's second placement, with real content reasoning, not decoration for its own sake.** The
+hero's "Welcome back, dear. The pot's already warming." line is Lala's own dialogue — the exact same
+reasoning that put her portrait on `LalaMomentBanner` (which reads from the same character copy
+bank). A 32px circular avatar now sits beside that line specifically (not the title, not a new
+standalone hero element), inside a `welcomeRow` that also absorbed the `welcome` text's own
+`marginTop`. Gated on `mascotSprite.kind === 'image'` with no text-label fallback, the same choice
+`LalaMomentBanner` made — the quote itself is always present regardless, so a missing sprite
+degrades gracefully to exactly the pre-existing text-only design rather than showing a placeholder
+letter next to her words.
+
+**A real bug caught by typecheck, not shipped blind.** The first version applied `SURFACE_SHADOW`
+directly to the avatar `Image`'s own style array — `tsc` correctly rejected this:
+`ViewStyle`'s `overflow` type (`'visible' | 'hidden' | 'scroll'`) is wider than `ImageStyle`'s
+(`'visible' | 'hidden'`), so spreading a `ViewStyle` object into an `Image`'s style prop doesn't
+type-check even though nothing in `SURFACE_SHADOW` actually sets `overflow`. Fixed by wrapping the
+`Image` in a `View` (the same `mascotFrame`-wraps-`Image` shape `Hud.tsx` already established) —
+the shadow lives on the View, the Image just fills it edge to edge.
+
+**A real environment gotcha caught during live verification, not a layout bug.** The first
+measurement of the mascot avatar's position showed `x: 426` — outside a 375px viewport, looking like
+a real off-screen bug. Investigated rather than assumed: the browser tab's actual `window.innerWidth`
+was still 1280 (the `resize_window` call had raced the `navigate` call in the same message and
+silently not taken effect, the same class of ordering issue seen earlier this session). Re-running
+`resize_window` alone, then confirming `window.innerWidth === 375` before re-measuring, showed the
+avatar correctly positioned at `x: 26` — inside the hero's own `left: 24` inset. Not a code defect;
+disclosed as an environment-interaction lesson, not folded silently into "it just needed a retry."
+
+**Verification:** 860/860 tests (no test renders `Home.tsx` directly — this project has no mounted-
+component test harness, the same standing disclosed gap as every other component-level visual
+change here). `tsc` override shows the same 4 pre-existing, unrelated errors only, after fixing the
+one real new error this pass introduced. **Live-verified over CDP at the true 375×667 reference
+viewport** — unlike the board, Home actually renders in this project's browser-pane environment (see
+[[browser-automation-board-render-limitation]] for why the board specifically doesn't): confirmed 6
+elements now carry a real `box-shadow` (up from 0 before this pass), the mascot `<img>` renders at
+the correct position and size, all existing page text is intact, and zero console errors on load.
+This is the first facelift pass this session that got genuine live visual confirmation rather than
+only "doesn't crash" — still not confirmed by a human eye, the same standing gap every visual
+feature here discloses, but structurally the strongest verification any of these passes has had.
