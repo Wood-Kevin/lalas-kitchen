@@ -6784,3 +6784,77 @@ unset) was also driven live — an ordinary 3-match cleared and refilled normall
 correctly, no hit-stop pause, no juiced sound branch taken. Not yet done: a real on-device/real-audio-
 device listen (the disclosed gap above), and the hit-stop freeze's own felt weight (90ms) is a
 hand-picked judgment call, not tuned against a real reaction — see `DEFERRED_COMPLEXITY.md`.
+
+## Track B (Unity), session 1: project scaffold, C# scenario port, headless verification, first juice pass (2026-08-09)
+
+**The trigger.** Kevin: "unity is installed" — the one blocker SPEC.md's Track B scope named as
+GUI-interactive and left as Kevin's to complete (Unity Hub sign-in + editor download). Verified
+directly before acting on it, per the Engineering Baseline's "Verification Before Claiming": confirmed
+`Unity Hub.exe` present, Editor `6000.5.7f1` installed under `Unity\Hub\Editor\`, and `Unity.exe
+-version` resolves — not assumed from the message alone.
+
+**What was built.** A new Unity 6.5 project at the sibling path SPEC.md already pinned
+(`C:\Users\kevin\Desktop\claude-projects\lala-kitchen-unity-prototype`), its own local git repo with a
+real `.gitignore` (Library/Temp/obj/Logs, kept out of `lala-refactor`'s own history per SPEC.md's
+"Track B lives outside this repo" decision). A minimal C# port — `Piece`/`ScenarioEngine`/
+`ScenarioData`/`BoardDiff`, none of it a general engine, only what the one fixed scenario needs (run
+detection for horizontal/vertical matches, the swap-anchor spawn rule for a 4-run, an in-match striped
+sweep trigger, per-column no-void gravity refill from the scripted spawn queue) — reproducing the
+exact swap→4-run→striped-spawn→in-cascade-sweep sequence `experiments/game-feel-comparison/
+scenario.json` already pins for Track A. Deliberately NOT parsed from `scenario.json` via a
+cross-language JSON library (Unity's `JsonUtility` can't handle the fixture's nested-list shape
+without real friction, and pulling in Newtonsoft for a throwaway script felt like the wrong tradeoff);
+instead hand-transcribed literally into `ScenarioData`'s constants, which is exactly the "hand-verified
+against the fixture's expected output" SPEC.md's Track B decision already calls for, not a shortcut
+around it.
+
+**Headless verification, not a claim.** `Assets/Scripts/Editor/ScenarioVerifier.cs` runs the same
+assertions `buildScenario.test.ts` makes against the real RN engine (swapCommitted, multiSpecialFired,
+passCount, the pass-0 striped-anchor spawn, the exact final row-0 letters `G,H,I,J,K,L`, a fully
+settled board) via `Unity.exe -batchmode -quit -nographics -executeMethod ...Verify`, writing a plain
+`scenario-verify-result.txt` and exiting 0/1 — checked directly (`ALL CHECKS PASSED`, confirmed by
+reading the file, not by trusting the exit code alone), twice: once right after the port was written,
+once again after the full presentation layer was added and the project recompiled, to catch any
+regression the second pass might have introduced.
+
+**The scene, built the same way the C# logic was verified — by trusting Unity's own tooling over a
+hand-authored artifact.** `Assets/Scripts/Editor/SceneBuilder.cs` programmatically creates and saves
+`ScenarioComparison.unity` via `EditorSceneManager`/`EditorBuildSettings` (also run via `-batchmode
+-executeMethod`), rather than hand-writing Unity's YAML scene format directly — the same reasoning
+`ScenarioVerifier` already applies to the engine port. Confirmed the file exists at
+`Assets/Scenes/ScenarioComparison.unity` and that the full project (engine port + presentation layer +
+both editor tools) compiles with zero `error CS` lines in the batch-mode log, twice.
+
+**The first juice pass.** `BoardView` renders the 6x6 board as plain colored `SpriteRenderer` squares
+(a runtime-generated 1x1 white texture, tinted per matchType — no ported sprite art, since the
+comparison is about motion/effect language, not asset fidelity) with a `TextMesh` letter label and a
+directional badge on a live striped piece. `ScenarioRunner` orchestrates the scripted move: a
+presentation-only swap tween, then per pass a real `ParticleSystem` burst (`ParticleBurst.cs`, built
+entirely in code — main/emission/shape/color-over-lifetime/size-over-lifetime modules configured at
+runtime, no hand-authored `.prefab`, since there's no way to visually iterate on one from this
+environment) on every cleared tile, bigger for the striped-sweep pass than an ordinary clear; a
+traveling highlight flash across the row before it sweeps; a genuine `Time.timeScale = 0` hit-stop
+freeze on that same pass, held for **exactly 90ms** — chosen to match `cascadeTiming.ts`'s
+`EXPERIMENTAL_HIT_STOP_MS` number precisely, a deliberate apples-to-apples data point for the eventual
+written comparison rather than an independently-tuned Unity number; and accelerating (ease-in) fall
+tweens for refilled tiles with a landing squash-pulse, echoing Track A's own fall-physics language
+(`Tween.cs`, a small coroutine-based helper — Unity's built-in tweening, not DOTween, per SPEC.md's
+either/or and the same "avoid a purchase decision inside an undecided experiment" reasoning Track A's
+audio sourcing already used).
+
+**What is NOT verified, disclosed plainly rather than glossed over.** There is no GUI automation for
+the Unity Editor from this environment — the browser tools here only drive Chrome. Every check above
+is real (headless logic correctness, a clean compile, a scene file that exists) but none of it confirms
+the juice pass actually *feels* good, which is the entire point of this comparison. This is the same
+class of gap Track A's own `match_juice`/`cascade_juice`/`special_trigger` cues carry (verified by
+logic, not by ear) — here it's verified by logic and compilation, not by eye. Opening the project and
+pressing Play is Kevin's to do; `README.md` in the Unity project spells this out directly rather than
+letting a clean headless report read as more finished than it is.
+
+**Verification:** `npx jest` untouched by this session (Track B lives entirely outside `lala-refactor`,
+zero files in this repo changed). Unity-side: two headless `ScenarioVerifier.Verify` runs, both
+`ALL CHECKS PASSED`; two headless compiles (`SceneBuilder.Build`, then a final `ScenarioVerifier.Verify`
+after the full presentation layer existed), both zero `error CS` lines, confirmed by direct log grep,
+not assumed from a clean-sounding exit code. Not yet done: any human open-the-Editor-and-press-Play
+check (the disclosed gap above), Shader Graph work, and a second/third polish pass — this is session 1
+of SPEC.md's ~3-session-per-track timebox, not the finished track.
