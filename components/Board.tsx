@@ -1168,9 +1168,36 @@ export function Board({
   // design brief (CLAUDE.md) argues against inventing a use-limit nobody
   // asked for. Clears any hint currently showing — a hinted pair is a
   // position pair on the pre-shuffle board, meaningless after one.
+  //
+  // Real playtest-reported bug, fixed: a shuffle replaces the board's piece
+  // *identities* wholesale (shuffle() reassigns each existing piece's id to
+  // a new position), but canAcceptMove() only requires animatingRef.current
+  // to be false — the previous move's spawnPlan/exiting/swapDurationIds
+  // linger for a further transitionWindowMs on a delayed setTimeout (see
+  // commitFinalState's own reset near the end of animateCascade), and none
+  // of them were being cleared here the way handlePlayAgain already knows
+  // to for the same "board just changed out from under in-flight animation
+  // bookkeeping" reason. Tile.tsx's spawn-entry lookup is keyed by
+  // piece.id, not by grid position (`spawnPlan.entryRowById.get(piece.id)`)
+  // — so a shuffle pressed inside that window could relocate a piece to a
+  // brand-new cell while a stale "still streaming in from above" entry for
+  // that same id was still live, making it render clipped out of view at
+  // its new position. The tile was never actually gone: the underlying
+  // board always had a real piece there, which is why it "filled back in"
+  // on its own the next time an unrelated move touched that cell and gave
+  // it a fresh (or absent) spawn entry. Cleared here exactly like
+  // handlePlayAgain already clears them for a fresh attempt's board swap.
   function handleRequestShuffle() {
     if (!canAcceptMove()) return;
+    stepTimersRef.current.forEach((timer) => clearTimeout(timer));
+    stepTimersRef.current = [];
     setHintPair(null);
+    setDisplayBoard(null);
+    setExiting([]);
+    setSpawnPlan({ entryRowById: new Map(), fadeInPlaceIds: new Set() });
+    setSwapDurationIds(new Set());
+    setSwapDetourState(null);
+    setFallDelayMs(0);
     setGameState((current) => requestManualShuffle(current));
     // The one LalaMomentBanner trigger that isn't a move outcome (see
     // rewardMoment.ts's resolveLalaMomentCopy) — release-character-pack.md's
