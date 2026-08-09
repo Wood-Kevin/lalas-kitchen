@@ -6592,3 +6592,25 @@ background (the removed overlays' exact color) found none.
 is still the same flat `background[0]` fill the two facelift passes above replaced with a real
 gradient on `Board.tsx`/`Home.tsx` — this session's actual ask was specifically the white stripe, so
 that inconsistency was left alone rather than assumed included. See `DEFERRED_COMPLEXITY.md`.
+
+## Level Map background gradient, closing the last flat-fill screen (2026-08-09)
+
+**The trigger.** Direct follow-up after the white-stripe fix: "Yeah, do the same for Level Map's
+background too" — the flat-fill inconsistency that fix's own entry had flagged rather than assumed
+in scope.
+
+**The fix.** `LevelMap.tsx`'s outer container is now a `LinearGradient` over
+`skinConfig.palette.background`'s same two stops, top-to-bottom — byte-identical convention to
+`Board.tsx`/`Home.tsx`. No new palette data, no new constants; the same `[string, string]`-typed
+array those two screens already consume.
+
+**Verification:** 860/860 tests. `tsc` override shows the same 4 pre-existing, unrelated errors
+only. Live-verified over CDP in a genuinely fresh tab (the reused tab hit the same stale-sub-bundle
+false positive disclosed repeatedly this session — confirmed by reading the actual file at the
+quoted line before concluding anything, then resolved by a fresh tab as before): navigated Home ->
+Browse all levels -> Level Map with zero console errors, and confirmed via `getComputedStyle` a real
+`linear-gradient(rgb(246, 217, 168), rgb(239, 192, 135))` background-image — the exact same resolved
+colors as Board.tsx/Home.tsx's own gradients.
+
+Every screen in the app now shares the same base gradient material. `RecipeBook.tsx`/`Settings.tsx`
+remain flat — never raised this session, not assumed in scope; see `DEFERRED_COMPLEXITY.md`.

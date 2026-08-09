@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, LayoutChangeEvent, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from './AppText';
 import { SkinConfig } from './skinConfig';
 import { GinghamTrim } from './GinghamTrim';
@@ -176,7 +177,12 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
   }, [mapWidth, viewportHeight, currentIndex, points]);
 
   return (
-    <View style={[styles.container, { backgroundColor: background[0] }]}>
+    // Same top-to-bottom gradient as Board.tsx/Home.tsx over the identical
+    // two palette stops — a flat fill was the one screen-background
+    // inconsistency left after those two facelift passes (see
+    // engine/DECISIONS.md's white-stripe entry, which flagged this rather
+    // than assuming it was in scope at the time).
+    <LinearGradient colors={background} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
       <GinghamTrim accentColor={accent} panelColor={panel} height={12} />
 
       <View style={styles.header}>
@@ -272,7 +278,7 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
             ))}
         </ScrollView>
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
