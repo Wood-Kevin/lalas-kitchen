@@ -79,6 +79,18 @@ export function canUseShuffle(shuffleUsesUsed: number): boolean {
   return shuffleUsesUsed < SHUFFLE_USES_PER_ATTEMPT;
 }
 
+// The count shown on a capped action's badge (Board.tsx's bottom toolbar) —
+// how many taps are actually left, not just whether the button still shows.
+// A capped action stays visible past its own cap while the daily-bonus
+// token (see Board.tsx's hasDailyBonusToken) can still cover one more use,
+// so the display has to account for both sources rather than reading
+// `cap - used` directly, which would go negative or read 0 while a token use
+// is still genuinely available.
+export function remainingUses(cap: number, used: number, hasBonusToken: boolean): number {
+  const capRemaining = Math.max(cap - used, 0);
+  return capRemaining > 0 ? capRemaining : hasBonusToken ? 1 : 0;
+}
+
 // The two things that move a per-attempt use counter: taking a use ('use',
 // +1) and starting the attempt over ('restart', back to zero — Play Again, or
 // a re-entry that remounts Board). Generic over which resource it's counting

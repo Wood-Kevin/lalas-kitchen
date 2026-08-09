@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from './AppText';
 import {
   Board as BoardMatrix,
@@ -66,7 +67,6 @@ import {
   CHAIN_LINK_STAGGER_MS,
 } from './cascadeTiming';
 import { Hud } from './Hud';
-import { resolveLevelDisplayName } from './levelProgress';
 import { BlockerTutorialOverlay } from './BlockerTutorialOverlay';
 import { SpecialTutorialOverlay } from './SpecialTutorialOverlay';
 import { adService } from '../services/defaultAdService';
@@ -77,7 +77,10 @@ import { ContinueOffer } from './ContinueOffer';
 import {
   canUseHint,
   canUseShuffle,
+  HINT_USES_PER_ATTEMPT,
   nextAttemptUseCount,
+  remainingUses,
+  SHUFFLE_USES_PER_ATTEMPT,
   shouldOfferContinue,
 } from './pauseActions';
 import { WonOverlay } from './WonOverlay';
@@ -1415,81 +1418,30 @@ export function Board({
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: skinConfig.palette.background[0] }]}>
-      {gameState.status === 'in_progress' && (
-        // Persistent exit, not just a paused-state option — a small corner
-        // button rather than a fourth HUD panel, so it never competes with
-        // Target/Moves/Lives for width. Immediate, no confirmation dialog,
-        // matching this app's calm/low-friction tone everywhere else. The
-        // hint and shuffle buttons live in this same row for the same
-        // reason — flex-end keeps all three anchored together at the
-        // top-right regardless of whether the hint/shuffle buttons are
-        // currently rendered, so the exit button never shifts position once
-        // either cap is reached and that button drops away (see canUseHint/
-        // canUseShuffle below — both now drop the CTA entirely once spent,
-        // matching the bonus-moves grant's own established precedent,
-        // rather than leaving a disabled dead tap target on screen).
-        <View style={styles.topBar}>
-          {(canUseShuffle(shuffleUsesUsed) || hasDailyBonusToken) && (
-            <Pressable
-              onPress={handleRequestShuffle}
-              disabled={!canAcceptMove()}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Shuffle board"
-              style={[
-                styles.hintButton,
-                {
-                  borderColor: skinConfig.palette.accent,
-                  backgroundColor: skinConfig.palette.panel,
-                  opacity: canAcceptMove() ? 1 : 0.5,
-                },
-              ]}
-            >
-              <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>🔀 Shuffle</Text>
-            </Pressable>
-          )}
-          {(canUseHint(hintUsesUsed) || hasDailyBonusToken) && (
-            <Pressable
-              onPress={handleRequestHint}
-              disabled={!canAcceptMove()}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Show a hint"
-              style={[
-                styles.hintButton,
-                {
-                  borderColor: skinConfig.palette.accent,
-                  backgroundColor: skinConfig.palette.panel,
-                  opacity: canAcceptMove() ? 1 : 0.5,
-                },
-              ]}
-            >
-              <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>💡 Hint</Text>
-            </Pressable>
-          )}
-          <Pressable
-            onPress={onExit}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Exit level"
-            style={[styles.exitButton, { borderColor: skinConfig.palette.accent, backgroundColor: skinConfig.palette.panel }]}
-          >
-            {/* A symbolic icon glyph, not prose content — scaling it with system
-                text size would just distort the circular button, so it opts out. */}
-            <Text style={[styles.exitLabel, { color: skinConfig.palette.accent }]} allowFontScaling={false}>
-              ✕
-            </Text>
-          </Pressable>
-        </View>
-      )}
+    <LinearGradient
+      // The screen's own background used to be a flat fill of just
+      // background[0] — the palette already carries a real two-stop
+      // gradient (used elsewhere, e.g. Home.tsx's hero fade) that gameplay
+      // never picked up. A calm top-to-bottom wash, not a diagonal one, to
+      // stay in this app's restrained register rather than reading busy.
+      colors={skinConfig.palette.background}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={styles.container}
+    >
+      {/* No top bar anymore — Exit moved down into the bottom icon-badge
+          toolbar alongside Hint/Shuffle (see below), and the level-name
+          line that used to sit at the top of Hud.tsx was dropped too
+          (SPEC.md's bottom-toolbar/chrome-trim decision). Both were real
+          vertical space on the actual mobile viewport, where boardArea is
+          height-bound and every reclaimed pixel goes straight back into
+          tileSize. */}
       <Hud
         objectives={gameState.objectives}
         movesRemaining={gameState.movesRemaining}
         lives={gameState.lives}
         config={skinConfig}
         spriteAssets={spriteAssets}
-        levelLabel={resolveLevelDisplayName(levelConfig.displayName, levelIndex)}
         score={runningScore}
       />
       <View
@@ -1698,6 +1650,99 @@ export function Board({
           </View>
         )}
       </View>
+      {gameState.status === 'in_progress' && (
+        // The bottom icon-badge toolbar (SPEC.md's bottom-toolbar decision):
+        // Hint and Shuffle moved down from the old top-right text pills into
+        // circular badges with a remaining-uses pip, occupying the screen
+        // space below the board that used to render as plain empty
+        // background — the single biggest visible gap flagged by a real
+        // side-by-side comparison against a reference match-3's screen.
+        // Reuses the exact same handlers/caps/daily-bonus-token logic the
+        // old pills used; only the presentation moved. Exit joined this row
+        // too (it used to have its own top bar) — merging the two chrome
+        // rows into one reclaimed a real ~32px of board height on the
+        // mobile viewport, on top of what the toolbar itself costs.
+        <View style={styles.bottomToolbar}>
+          <Pressable
+            onPress={onExit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Exit level"
+            style={[
+              styles.toolbarBadge,
+              { borderColor: skinConfig.palette.accent, backgroundColor: skinConfig.palette.panel },
+            ]}
+          >
+            {/* A symbolic icon glyph, not prose content — scaling it with system
+                text size would just distort the circular button, so it opts out. */}
+            <Text style={[styles.toolbarExitGlyph, { color: skinConfig.palette.accent }]} allowFontScaling={false}>
+              ✕
+            </Text>
+          </Pressable>
+          {(canUseShuffle(shuffleUsesUsed) || hasDailyBonusToken) && (
+            <Pressable
+              onPress={handleRequestShuffle}
+              disabled={!canAcceptMove()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Shuffle board, ${remainingUses(SHUFFLE_USES_PER_ATTEMPT, shuffleUsesUsed, hasDailyBonusToken)} left`}
+              style={[
+                styles.toolbarBadge,
+                {
+                  borderColor: skinConfig.palette.accent,
+                  backgroundColor: skinConfig.palette.panel,
+                  opacity: canAcceptMove() ? 1 : 0.5,
+                },
+              ]}
+            >
+              <Text style={styles.toolbarBadgeGlyph} allowFontScaling={false}>
+                🔀
+              </Text>
+              <View
+                style={[
+                  styles.toolbarBadgeCount,
+                  { backgroundColor: skinConfig.palette.accent, borderColor: skinConfig.palette.panel },
+                ]}
+              >
+                <Text style={styles.toolbarBadgeCountLabel} allowFontScaling={false}>
+                  {remainingUses(SHUFFLE_USES_PER_ATTEMPT, shuffleUsesUsed, hasDailyBonusToken)}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+          {(canUseHint(hintUsesUsed) || hasDailyBonusToken) && (
+            <Pressable
+              onPress={handleRequestHint}
+              disabled={!canAcceptMove()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`Show a hint, ${remainingUses(HINT_USES_PER_ATTEMPT, hintUsesUsed, hasDailyBonusToken)} left`}
+              style={[
+                styles.toolbarBadge,
+                {
+                  borderColor: skinConfig.palette.accent,
+                  backgroundColor: skinConfig.palette.panel,
+                  opacity: canAcceptMove() ? 1 : 0.5,
+                },
+              ]}
+            >
+              <Text style={styles.toolbarBadgeGlyph} allowFontScaling={false}>
+                💡
+              </Text>
+              <View
+                style={[
+                  styles.toolbarBadgeCount,
+                  { backgroundColor: skinConfig.palette.accent, borderColor: skinConfig.palette.panel },
+                ]}
+              >
+                <Text style={styles.toolbarBadgeCountLabel} allowFontScaling={false}>
+                  {remainingUses(HINT_USES_PER_ATTEMPT, hintUsesUsed, hasDailyBonusToken)}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+        </View>
+      )}
       {/* Each of the five branches below renders only when it's the one
           active, throttle-cleared tutorial (see activeTutorialId above) —
           priority among simultaneously-eligible ones (onboarding > objective
@@ -1808,7 +1853,7 @@ export function Board({
           nextRecipeHint={nextRecipeHint}
         />
       )}
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -1818,37 +1863,53 @@ const styles = StyleSheet.create({
     paddingHorizontal: BOARD_HORIZONTAL_PADDING,
     paddingTop: 12,
   },
-  topBar: {
+  bottomToolbar: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 4,
+    justifyContent: 'center',
+    gap: 20,
+    paddingTop: 10,
+    paddingBottom: 8,
   },
-  exitButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1.5,
+  toolbarBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    // A real lift off the tray below it, matching Hud.tsx's own restrained
+    // shadow register (a shadow, not a glow) rather than the flatness this
+    // whole pass is correcting.
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
-  exitLabel: {
-    fontSize: 14,
+  toolbarBadgeGlyph: {
+    fontSize: 24,
+  },
+  toolbarExitGlyph: {
+    fontSize: 20,
     fontWeight: '700',
   },
-  hintButton: {
-    minHeight: 28,
-    paddingVertical: 4,
-    borderRadius: 14,
+  toolbarBadgeCount: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 1.5,
-    paddingHorizontal: 12,
-    marginRight: 8,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hintButtonLabel: {
+  toolbarBadgeCountLabel: {
     fontFamily: Fonts.bodyBold,
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   boardArea: {
     flex: 1,

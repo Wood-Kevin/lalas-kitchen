@@ -20,10 +20,6 @@ export interface HudProps {
   lives: number;
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
-  // Already-resolved display label (a hand-built level's displayName, or
-  // "Level N" for a generated one — see levelProgress.ts's
-  // resolveLevelDisplayName) — Hud only renders it, it doesn't derive it.
-  levelLabel: string;
   // The attempt's running score, surfaced on every level regardless of
   // objective type (SPEC.md's HUD reward-texture-and-character spec —
   // Board.tsx accumulates ApplyMoveResult.score across the attempt;
@@ -49,7 +45,7 @@ export interface HudProps {
 // here: a multi-objective level keeps one row per objective (this file's
 // original structure), not OptionB's joined "3/10 · 1/5" string, which
 // crowds multiple icons ahead of hard-to-parse combined text.
-export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, levelLabel, score }: HudProps) {
+export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, score }: HudProps) {
   const { palette } = config;
   // config.lives.icon is a sprite reference with the same shape as a
   // pieceTypes entry (see lalas-kitchen-build-spec.md), so it goes through
@@ -58,18 +54,19 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
   const livesSprite = resolveSpriteAsset(config.lives.icon, spriteAssets);
 
   return (
-    <View>
-      {/* A plain muted line, not a fourth panel — the same "never compete
-          with Target/Moves/Lives" reasoning Board.tsx's exit button already
-          uses, just applied to a label instead of a button. */}
-      <Text style={[styles.levelLabel, { color: palette.mutedText }]}>{levelLabel}</Text>
-      <View
-        style={[
-          styles.tray,
-          { backgroundColor: palette.tray.background, borderColor: palette.tray.border },
-        ]}
-      >
-        <View pointerEvents="none" style={styles.trayInset} />
+    // The level-name line that used to sit above this tray was dropped
+    // (SPEC.md's bottom-toolbar/chrome-trim decision) — the name is already
+    // shown on Home/LevelMap/WonOverlay before and after a level, so the
+    // in-play HUD doesn't need to repeat it, and the freed ~22px goes back
+    // to the board itself on the real mobile viewport where every pixel of
+    // tileSize is load-bearing for tap accuracy.
+    <View
+      style={[
+        styles.tray,
+        { backgroundColor: palette.tray.background, borderColor: palette.tray.border },
+      ]}
+    >
+      <View pointerEvents="none" style={styles.trayInset} />
         <View style={styles.chipRow}>
           <Chip config={config} label="Target">
             {/* One icon+count pair per objective, stacked — a single-
@@ -125,7 +122,6 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, l
           </View>
         )}
       </View>
-    </View>
   );
 }
 
@@ -159,14 +155,6 @@ function Chip({
 }
 
 const styles = StyleSheet.create({
-  levelLabel: {
-    fontFamily: Fonts.bodyRegular,
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: 2,
-  },
   tray: {
     position: 'relative',
     marginHorizontal: 8,

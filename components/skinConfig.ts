@@ -57,7 +57,12 @@ export interface SkinAnimationProfile {
 }
 
 export interface SkinPalette {
-  background: string[];
+  // Exactly two stops, always — a real top-to-bottom LinearGradient wash on
+  // every screen that reads its own background (Board.tsx's game screen,
+  // Home.tsx's hero fade), not an arbitrary-length ramp. Narrowed from a
+  // plain string[] so LinearGradient's own tuple-typed `colors` prop
+  // type-checks without a cast at every call site.
+  background: [string, string];
   panel: string;
   accent: string;
   // Added for the Home/level map screens (components/Home.tsx,

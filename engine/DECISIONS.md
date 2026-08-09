@@ -6125,3 +6125,97 @@ The recipe-progress indicator (`Home.tsx`) replaces the plain "a new recipe wait
 
 **Verification:** 850/850 tests (up from 825 before this spec — 4 new `appPersistence.test.ts` cases plus 3 rewritten invariant-based describe blocks for the shuffle-bag, 4 new `wonActions.test.ts` cases for the win-tier rewrite, 2 new `celebrationParticles.test.ts` cases for the intensity scaling, 5 new `appPersistence.test.ts` cases for the daily-bonus date helpers, 4 new `findPreviousUnlockedMilestoneLevel` cases, 7 new `buildRecipeProgressFraction` cases, and 9 existing `buildGeneratedLevelConfig` tests re-pointed at verified-correct new level numbers under the shuffle-bag). `tsc` override shows the same 4 pre-existing, unrelated errors only. Live-verified over CDP in a genuinely fresh tab: the app loads and renders real Home-screen content (including the "next recipe" hint text) with zero console errors. The daily-bonus grant/consumption path and the shuffle-bag's real generated-level behavior were not driven live end-to-end — both require either a real level win or reaching deep into the generated-level sequence, and per this project's standing testing discipline (see memory: "don't touch the real save when testing"), forcing either condition against the architect's real save data was not attempted. The recipe-progress fill bar's actual visual appearance (not just its non-crashing render) is unverified — this browser-pane environment cannot composite the page for a real screenshot, the same standing gap every visual feature this session discloses.
 
+
+
+## Real-photo playtest comparison: a genre-reference screenshot vs. Lala's Kitchen's own game screen (2026-08-09)
+
+**The trigger.** The architect pasted two screenshots side by side — a reference match-3's game
+screen (an ornate bordered HUD, a character portrait medallion, chunky shaded piece art, and a
+bottom toolbar of icon badges with charge counts sitting on a painted scene) against Lala's
+Kitchen's own game screen (a narrow column of flat, thin-line piece icons on a plain solid
+background, with a large blank strip below the board) — "Found a real source of pain on why I'm
+not feeling the polish factor." Investigated before proposing anything, per the standing Playtest
+Feedback Protocol, by reading `Board.tsx`'s actual layout code rather than guessing from the image
+alone.
+
+**The gap split into two genuinely different categories, only one of which this session could
+address.** Piece-art style (flat line icons vs. chunky shaded art) and the absence of a mascot are
+a real production-asset gap — fixable only by sourcing a genuinely new icon pack, the same kind of
+real external-asset decision the recipe-card art required, not something to attempt blind in one
+session. The chrome/layout half — where Hint/Shuffle/Exit live, and whether the screen's own
+background reads as flat — was addressable with existing assets, and the architect confirmed that
+scope explicitly ("Layout pass now, art scoped later") before any code changed. The piece-art/
+mascot gap is logged in `DEFERRED_COMPLEXITY.md`, not attempted.
+
+**The background was an easy, real win: the palette already had an unused second gradient stop.**
+`Board.tsx`'s game screen filled with a flat `skinConfig.palette.background[0]` — but
+`SkinPalette.background` was already a two-color array (`["#F6D9A8", "#EFC087"]`) used elsewhere
+(`Home.tsx`'s hero fade) via `expo-linear-gradient`, a dependency already installed. The gameplay
+screen simply never picked it up. `Board.tsx` now wraps its own `container` in a top-to-bottom
+`LinearGradient` over both existing stops — a calm vertical wash, not the diagonal default, to
+stay in this app's restrained register. `SkinPalette.background`'s type was narrowed from `string[]`
+to `[string, string]` (the config data was already always exactly two stops; nothing changed at
+`skins/lalas-kitchen/config.json`) so `LinearGradient`'s own tuple-typed `colors` prop type-checks
+without a cast anywhere.
+
+**Hint and Shuffle moved from top-right text pills into a bottom icon-badge toolbar — but the
+first version of this shipped a real, measured tileSize regression, caught before landing.**
+`components/pauseActions.ts` gained `remainingUses(cap, used, hasBonusToken)`, a pure helper for
+the badge's count pip (the plain `cap - used` reading would go negative, or read 0 while the
+daily-bonus token can still cover one more tap). The first implementation added the new
+`bottomToolbar` row as a sibling *below* the existing `boardArea` (`flex: 1`) in the column flow,
+which competes with it for vertical space — exactly the layout mechanism that made the original
+screenshot's blank strip look fixable in the first place. Real, direct measurement (not the
+broken board-render path — see below) caught the actual cost before it shipped: with the toolbar
+present, `boardArea` dropped from a measured 505px to 431px at the 375x667 reference viewport (the
+8x5 "Tomato Toss" level), taking tileSize from 63px to 53px — a 16% shrink, well past the ~3% this
+project has historically treated as the retuning trigger for HUD changes (see the Kitchen Tray
+entry above). **The deeper diagnosis this measurement surfaced: the original screenshot's blank
+strip was mostly a desktop-web-preview artifact, not a true mobile-viewport gap.** On the real
+375x667 reference viewport, `boardArea` is height-bound (`byHeight < byWidth`) with almost no
+slack — the board already fills essentially all available vertical space, exactly as
+`CLAUDE.md`'s own "board renders close to edge to edge... smaller tiles mean worse tap accuracy on
+a phone" constraint intends. The wide blank column in the pasted screenshot came from the web
+preview's own width-capped game area sitting inside a much taller desktop browser viewport
+(App.tsx's web max-width wrapper), which is width-bound instead — real slack that doesn't exist on
+the iPhone this game actually ships to. Flagged directly rather than shipped silently: the
+architect chose to keep the toolbar and pay a bounded cost, but asked for two specific offsets
+first (below), rather than either accepting the 16% loss or reverting the toolbar outright.
+
+**Two chrome-trim moves recovered most of the cost.** (1) The old top bar (Exit alone, after
+Hint/Shuffle moved out) was removed entirely and Exit joined the bottom toolbar as a third badge
+— reclaiming the ~32px that row cost regardless of the toolbar. (2) `Hud.tsx`'s level-name line
+(`levelLabel`, "Tomato Toss" printed above the tray) was dropped outright — the name is already
+shown on Home, LevelMap, and WonOverlay before and after a level, so the in-play HUD doesn't need
+to repeat it; `HudProps.levelLabel` and its one caller (`Board.tsx`'s
+`resolveLevelDisplayName(levelConfig.displayName, levelIndex)` — the function itself stays, used
+elsewhere by `levelProgress.ts`'s own `buildLevelSummary`) were deleted outright rather than left
+as a defensive no-op. Together these two trims raised the real measured `boardArea` back to 485px
+at the same reference viewport — tileSize 60px, a ~5% cost from the true 63px baseline, not 16%.
+
+**A real "stale bundle cache" false-positive hit twice more, resolved the same way each time.**
+Reading Metro's own error logs directly (`preview_logs`, not just the browser's console) surfaced
+a `SyntaxError: Expected corresponding JSX closing tag for <LinearGradient>` quoting line content
+(`</View>`) that no longer existed in the file on disk — confirmed by reading the file directly
+before concluding anything. A second, different false-positive (`ReferenceError:
+resolveLevelDisplayName is not defined`) hit again after the import was removed. Both resolved
+identically to the pattern already disclosed in the recipe-progress-indicator entry above: a
+genuinely fresh browser tab showed zero errors and correct content each time, while the existing
+tab kept serving a cached copy of an intermediate or since-superseded compile state. Not
+re-investigated as a novel bug both times — recognized from the established pattern and confirmed
+with the cheapest disprovable test (fresh tab) before concluding anything about the code.
+
+**Verification:** 854/854 tests (4 new `remainingUses` cases in `pauseActions.test.ts`). `tsc`
+override shows the same 4 pre-existing, unrelated errors only. Live-verified over CDP in a
+genuinely fresh tab, real board loaded (Tomato Toss, level 1): zero console errors; the toolbar
+renders all three badges (Exit, Shuffle "2", Hint "2") with correct `accessibilityLabel`s; the
+level-name line is gone from the HUD; `getComputedStyle` on the screen's root confirmed a real
+`linear-gradient(rgb(246, 217, 168), rgb(239, 192, 135))` background-image, not a flat fill —
+matching `skinConfig.palette.background` exactly. tileSize itself was measured indirectly (real
+`getBoundingClientRect` calls on the Hud tray and toolbar badges, which render independently of
+the board) rather than directly, since the actual tile grid still doesn't render in this
+automation environment — the same standing, pre-existing, unrelated limitation disclosed in
+[[browser-automation-board-render-limitation]] (confirmed via a clean-checkout A/B test in an
+earlier session), not something this change caused or could fix. The real chunky-piece-art/mascot
+half of the original comparison is untouched and unattempted this session — see
+`DEFERRED_COMPLEXITY.md`.

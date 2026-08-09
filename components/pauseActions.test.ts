@@ -6,6 +6,7 @@ import {
   HINT_USES_PER_ATTEMPT,
   MOVE_GRANTS_PER_ATTEMPT,
   nextAttemptUseCount,
+  remainingUses,
   SHUFFLE_USES_PER_ATTEMPT,
   shouldOfferContinue,
 } from './pauseActions';
@@ -149,6 +150,30 @@ describe('canUseShuffle', () => {
     used = nextAttemptUseCount(used, 'restart');
     expect(used).toBe(0);
     expect(canUseShuffle(used)).toBe(true);
+  });
+});
+
+describe('remainingUses', () => {
+  test('reports the plain cap-minus-used count while under the cap', () => {
+    expect(remainingUses(2, 0, false)).toBe(2);
+    expect(remainingUses(2, 1, false)).toBe(1);
+  });
+
+  test('never goes negative once used exceeds the cap', () => {
+    expect(remainingUses(2, 2, false)).toBe(0);
+    expect(remainingUses(2, 5, false)).toBe(0);
+  });
+
+  test('shows exactly 1 once the cap is spent but a bonus token remains', () => {
+    expect(remainingUses(2, 2, true)).toBe(1);
+    expect(remainingUses(2, 5, true)).toBe(1);
+  });
+
+  test('a bonus token never adds to a count that is already positive', () => {
+    // The token is a single extra use available once the cap runs out, not a
+    // bonus stacked on top of a still-available cap count.
+    expect(remainingUses(2, 1, true)).toBe(1);
+    expect(remainingUses(2, 0, true)).toBe(2);
   });
 });
 
