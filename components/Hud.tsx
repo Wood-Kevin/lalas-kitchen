@@ -20,38 +20,46 @@ export interface HudProps {
   lives: number;
   config: SkinConfig;
   spriteAssets: SpriteAssetMap;
-  // The attempt's running score, surfaced on every level regardless of
-  // objective type (SPEC.md's HUD reward-texture-and-character spec —
-  // Board.tsx accumulates ApplyMoveResult.score across the attempt;
-  // previously this number only ever existed for 'score'-type levels).
-  // Undefined renders no plaque at all, so a caller that hasn't wired it
-  // up yet gets the tray with no score section, never a bare "0".
-  score?: number;
 }
 
 // The "Kitchen Tray" redesign (SPEC.md, 2026-08-08) — replaces the old flat,
 // borderless panel row after real feedback that the HUD read as bland. A
 // warm wood-tray surface (skinConfig.palette.tray) houses rounded pill chips
-// for Target/Moves/Lives plus, when the caller has one, a running-score
-// plaque — the same three at-a-glance stats this HUD always had, restyled
-// with real material and shadow instead of flat rectangles. Deliberately
-// NOT a second competing palette: only the tray's own outer surface gets a
-// dedicated color (tray.background/border); the chips and score plaque
-// inside it keep reusing the game's existing panel/border/accent, so the
-// warmth reads as a new material holding familiar surfaces, not a clashing
-// redesign. This started as a comparison sketch (components/HudOptionB.tsx,
-// since removed — its purpose was served once the direction was chosen;
-// see engine/DECISIONS.md) whose own layout had a real regression fixed
-// here: a multi-objective level keeps one row per objective (this file's
-// original structure), not OptionB's joined "3/10 · 1/5" string, which
-// crowds multiple icons ahead of hard-to-parse combined text.
-export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, score }: HudProps) {
+// for Target/Moves/Lives plus a character-portrait medallion — the same
+// three at-a-glance stats this HUD always had, restyled with real material
+// and shadow instead of flat rectangles. Deliberately NOT a second competing
+// palette: only the tray's own outer surface gets a dedicated color
+// (tray.background/border); the chips inside it keep reusing the game's
+// existing panel/border/accent, so the warmth reads as a new material
+// holding familiar surfaces, not a clashing redesign. This started as a
+// comparison sketch (components/HudOptionB.tsx, since removed — its purpose
+// was served once the direction was chosen; see engine/DECISIONS.md) whose
+// own layout had a real regression fixed here: a multi-objective level
+// keeps one row per objective (this file's original structure), not
+// OptionB's joined "3/10 · 1/5" string, which crowds multiple icons ahead
+// of hard-to-parse combined text.
+//
+// The running-score plaque that used to sit here (SPEC.md's HUD
+// reward-texture-and-character spec) was removed to make room for a real
+// mascot portrait once one existed — a direct architect call ("remove the
+// score block to put the mascot in"). Per-move score feedback still exists
+// via ScorePopup's transient popup (unrelated local state, unaffected by
+// this); it's specifically the accumulated per-attempt TOTAL that had no
+// display left once this plaque was gone, so Board.tsx's runningScore
+// state was removed alongside it rather than kept as dead state with
+// nothing reading it.
+export function Hud({ objectives, movesRemaining, lives, config, spriteAssets }: HudProps) {
   const { palette } = config;
   // config.lives.icon is a sprite reference with the same shape as a
   // pieceTypes entry (see lalas-kitchen-build-spec.md), so it goes through
   // the exact same resolveSpriteAsset() pipeline as any board piece —
   // "flame.webp" today, swapped for a real icon the same file-drop way.
   const livesSprite = resolveSpriteAsset(config.lives.icon, spriteAssets);
+  // The mascot is fixed skin art, not per-level data — a plain filename
+  // reference (matching Home.tsx's own 'home-hero-500h-crop.webp'
+  // convention for the hero image), not a config field, since no skin-swap
+  // concern exists yet for a single-skin game.
+  const mascotSprite = resolveSpriteAsset('mascot.webp', spriteAssets);
 
   return (
     // The level-name line that used to sit above this tray was dropped
@@ -113,14 +121,20 @@ export function Hud({ objectives, movesRemaining, lives, config, spriteAssets, s
           </Chip>
         </View>
 
-        {score !== undefined && (
+        <View style={styles.mascotRow}>
           <View
-            style={[styles.scorePlaque, { backgroundColor: palette.panel, borderColor: palette.tray.chipBorder }]}
+            style={[styles.mascotFrame, { backgroundColor: palette.panel, borderColor: palette.tray.chipBorder }]}
           >
-            <Text style={[styles.scoreLabel, { color: palette.secondaryAccentText }]}>Score</Text>
-            <Text style={[styles.scoreValue, { color: palette.text }]}>{score.toLocaleString()}</Text>
+            {/* Same "always show something, never silently vanish" fallback
+                convention as Glyph above — a two-letter placeholder if the
+                mascot sprite is ever missing, rather than an empty frame. */}
+            {mascotSprite.kind === 'image' ? (
+              <Image source={mascotSprite.source} style={styles.mascotImage} resizeMode="cover" />
+            ) : (
+              <Text style={[styles.mascotFallbackLabel, { color: palette.accent }]}>{mascotSprite.label}</Text>
+            )}
           </View>
-        )}
+        </View>
       </View>
   );
 }
@@ -240,24 +254,30 @@ const styles = StyleSheet.create({
     height: 18,
     marginRight: 4,
   },
-  scorePlaque: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-    marginTop: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 1,
+  mascotRow: {
+    alignItems: 'center',
+    // Kept tight, same live-measurement discipline as the tray's own
+    // padding comment above — the first pass here (40px frame, 4px
+    // margin) measured out taller than the score plaque it replaced (105px
+    // tray vs. 96px), costing a real tileSize pixel at the reference
+    // viewport (60 -> 59). Retuned back down to match, not guessed.
+    marginTop: 2,
+  },
+  mascotFrame: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     borderWidth: 1.5,
-    borderRadius: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  scoreLabel: {
-    fontFamily: Fonts.bodyBold,
-    fontSize: 12,
-    fontWeight: '600',
+  mascotImage: {
+    width: '100%',
+    height: '100%',
   },
-  scoreValue: {
+  mascotFallbackLabel: {
     fontFamily: Fonts.headingBold,
-    fontSize: 17,
+    fontSize: 12,
   },
 });

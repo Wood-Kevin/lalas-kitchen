@@ -6340,3 +6340,55 @@ removed). `tsc` override shows the same 4 pre-existing, unrelated errors only. N
 this is generator/persistence logic with no visual surface of its own; the actual felt effect (does
 a deep-save player's board shape/blocker sequence read as less predictable) can only be confirmed
 by real extended play, the same standing gap disclosed for the original objective-type shuffle-bag.
+
+## Wiring the mascot: removing the HUD score plaque for a real character portrait (2026-08-09)
+
+**The trigger.** Codex produced a real art pack in this same working tree, in parallel with this
+session's own work (see the previous entry's closing note) — updated base/striped/special piece
+sprites at their existing filenames (drop-in replacements needing no code changes) plus a genuinely
+new asset, `mascot.webp`, with no existing code path rendering it. The architect's own read after
+reviewing: "Think just the mascot needs to be wired. We can remove the score block to put the
+mascot in" — a direct, scoped instruction, not a fork requiring further confirmation.
+
+**What "the score block" actually was, and why removing it was clean, not just cosmetic.**
+`Hud.tsx`'s tray had a persistent per-attempt running-score plaque (`ApplyMoveResult.score`,
+accumulated in `Board.tsx`'s local `runningScore` state, surfaced on every level regardless of
+objective type — the "HUD reward texture" work from a prior session). Investigated before deleting
+anything: `runningScore`'s only consumer anywhere in `Board.tsx` was this one Hud prop — not
+`ScorePopup` (which reads `result.score` directly, its own independent per-move popup, untouched by
+this), not any 'score'-type objective's own win condition (driven by `objectives[].currentCount`,
+computed engine-side). Removing the plaque made `runningScore` genuinely dead state with nothing
+left to read it, so it was deleted outright (declaration, both `setRunningScore` call sites) rather
+than kept as inert unused state — this project's standing no-dead-code discipline, not a design
+choice specific to this feature.
+
+**The mascot's own wiring.** `mascot.webp` is fixed skin art, not per-level data, so `Hud.tsx`
+resolves it directly (`resolveSpriteAsset('mascot.webp', spriteAssets)`, a hardcoded filename
+matching `Home.tsx`'s own precedent for its hero image) rather than threading a new prop through
+`Board.tsx`. Rendered as a circular medallion (`mascotFrame`, `overflow: 'hidden'`,
+`resizeMode="cover"` on the 1009×1179 portrait source) in the same tray slot the score plaque
+occupied — a plain circle-crop, not the reference screenshot's more elaborate floating-above-the-
+tray medallion, since re-deriving that fuller composition wasn't asked for and the plain swap
+already answers the actual instruction. Falls back to the same two-letter placeholder convention
+`Glyph` already uses elsewhere (`spriteLabel`'s generic label) if the sprite ever fails to resolve,
+rather than rendering an empty frame — consistent with this codebase's "always show something"
+rule, not a new pattern invented for this one spot.
+
+**A real, measured regression caught and fixed before landing, same discipline as the chrome-trim
+pass two entries up.** The first mascot frame (40px + 4px margin) measured taller than the score
+plaque it replaced — tray height grew from a measured 96px to 105px at the 375×667 reference
+viewport, dropping tileSize from 60px to 59px. Retuned to 34px + 2px margin, re-measured at 97px
+(1px over the original 96, negligible), tileSize back to 60 — not guessed, confirmed via the same
+live `getBoundingClientRect` method this project has used for every HUD-sizing change since the
+Kitchen Tray redesign.
+
+**Verification:** 860/860 tests (no test asserted on `Hud`'s removed `score` prop or `Board.tsx`'s
+removed `runningScore`, so none needed rewriting — a clean removal, not a breaking one). `tsc`
+override shows the same 4 pre-existing, unrelated errors only. Live-verified over CDP in a
+genuinely fresh tab: real board loaded (Tomato Toss), zero console errors, a real `<img>` element
+with `mascot` in its resolved source rendering inside the tray at the measured position, "Score"
+text fully absent from the page. tileSize itself confirmed via the same indirect chrome-measurement
+method the chrome-trim entry disclosed (the actual tile grid still doesn't render in this browser
+automation environment — see [[browser-automation-board-render-limitation]]). Whether the mascot
+actually reads well at 34px, and the rest of codex's art pass, are both unverified by a human — see
+`DEFERRED_COMPLEXITY.md`'s matching entry.

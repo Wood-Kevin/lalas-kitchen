@@ -68,6 +68,7 @@ export const spriteRegistry: SpriteAssetMap = {
   // docs/verification/dropdown-escort-mechanic/).
   'dropdown.webp': require('./sprites/dropdown.webp'),
   'flame.webp': require('./sprites/flame.webp'),
+  'mascot.webp': require('./sprites/mascot.webp'),
   'cling.webp': require('./sprites/cling.webp'),
   'dish_stack.webp': require('./sprites/dish_stack.webp'),
   'pot_lid.webp': require('./sprites/pot_lid.webp'),
