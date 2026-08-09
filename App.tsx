@@ -1006,9 +1006,43 @@ function AppRoot() {
   return (
     // GestureHandlerRootView must sit at the very top of the tree for the
     // drag-to-swap Pan gestures in Board's tiles to receive touches.
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    //
+    // backgroundColor here is new: this app has never had a max-width
+    // constraint anywhere (confirmed live — at a 1280px desktop viewport the
+    // entire container chain stretched to the full 1280px, board and all).
+    // On a real iPhone (this app's only actual target, see CLAUDE.md's
+    // iOS-device-family entry) that never mattered, since the OS viewport is
+    // already phone-width. But this project's own dev/verification loop runs
+    // through a desktop browser, and a real playtest report caught it: the
+    // HUD's Kitchen Tray redesign has much more visual weight (a bold
+    // brown-bordered surface) than the old near-invisible flat panels, so
+    // the pre-existing "everything stretches edge to edge" gap — always
+    // there, previously easy to miss — became glaringly obvious the moment
+    // that redesign shipped. Filling the true full-bleed area with the
+    // game's own background color, behind the now-centered, capped-width
+    // content below, is what makes the result read as an intentional
+    // "phone-shaped app on a desktop backdrop" instead of a broken stretch.
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: skinConfig.palette.background[0] }}>
       <SafeAreaProvider>
         <SafeAreaView style={{ flex: 1 }}>
+        {/* Caps the actual app content at a real phone width and centers it
+            — web only (Platform.OS === 'web'); undefined on native, where
+            the device viewport is already phone-width and this must never
+            change anything. This is the direct fix for the stretch: without
+            it, Board's own tileSize computation still correctly sizes the
+            board itself (bounded by rows/cols, not raw viewport width), but
+            every OTHER full-width element — the HUD tray, Home's cards —
+            stretched to fill whatever the browser window happened to be,
+            which is what produced the huge dead space and the mismatched
+            "thin bar" HUD in the reported screenshot. */}
+        <View
+          style={{
+            flex: 1,
+            width: '100%',
+            maxWidth: Platform.OS === 'web' ? 480 : undefined,
+            alignSelf: 'center',
+          }}
+        >
         {screen === 'home' ? (
           <Home
             config={skinConfig}
@@ -1128,6 +1162,7 @@ function AppRoot() {
             hapticsEnabled={hapticsEnabled}
           />
         )}
+        </View>
         </SafeAreaView>
       </SafeAreaProvider>
     </GestureHandlerRootView>
