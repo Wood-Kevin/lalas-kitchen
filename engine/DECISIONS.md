@@ -6926,3 +6926,61 @@ disclosed override active on one disposable branch, not a reversal of the constr
 errors. The scenario dev harness itself (`experiments/game-feel-comparison/`, App.tsx's hidden footer
 tap) is left in place, unused for feel-testing going forward but still real, working code — no reason to
 rip it out along with the gate.
+
+## Per-mechanism effect colors re-saturated (2026-08-09)
+
+**The trigger.** Kevin, directly: "The color just feels lame and doesn't match genre." Real feedback
+about `skinConfig.palette.effectColors` (blocker/sweep/areaBomb/colorBomb/supercombo — see the
+visual-reward-language spec's own entry above this one), which now drives every clear's wash color AND,
+as of the same-day per-mechanism-motion work, the blocker shatter and radial shockwave ring too — so a
+weak palette was undercutting more surface area than it did when it only tinted a flat wash.
+
+**Investigated before touching anything.** The existing five colors (`#E8B84B` gold / `#7FD1C9` teal /
+`#23395B` navy / `#8B5FC7` violet / `#6B1E3C` wine) were not arbitrary — the visual-reward-language spec
+documents a REAL prior failure: a first pass spread purely by hue was checked against a
+protanopia/deuteranopia simulation and failed (sweep and supercombo collapsed to a simulated distance of
+3.0 under deuteranopia — invisible to a red-green colorblind player). The shipped set fixed that by
+varying **lightness** (a dark-navy → dark-wine → mid-violet → light-teal → light-gold ladder), not hue
+alone, reaching a verified minimum pairwise distance of 32.7 (protanopia) / 45.0 (deuteranopia). So
+"just brighten everything" risked silently re-breaking a real, already-solved accessibility bug — the
+Playtest Feedback Protocol's "check whether this shares a root cause with something already built" step
+applied directly here, and did surface a real prior decision to respect, not route around.
+
+**The actual cause, once checked, wasn't the ladder — it was flat saturation within each rung.** No
+CVD-simulation tool was left committed in this repo from the original pass, so re-verifying (rather than
+trusting the number in a comment) meant reimplementing the same class of check: a Machado/Oliveira/
+Fairchild (2009)-style dichromat matrix applied in linearized sRGB, Euclidean distance compared in plain
+sRGB space (matching the spec's own stated "~441 possible" methodology, `sqrt(3*255^2)`). Run cold
+against the live palette, it reproduced the spec's own numbers essentially exactly (32.7 protanopia /
+45.0 deuteranopia) — confirming the reimplementation was trustworthy before using it to judge a new
+candidate, not just assumed to match.
+
+**The fix:** hold each color's LIGHTNESS RUNG exactly where it was (dark navy stays dark, mid violet
+stays mid, etc. — the axis that actually survives dichromatic simulation) and push SATURATION up hard
+within that rung — `#FFB300` vivid amber (was pale `#E8B84B`), `#00E5C9` saturated cyan-teal (was pastel
+`#7FD1C9`), `#122A5E` a richer, more saturated navy (was grayish `#23395B`), `#9B30FF` vivid violet (was
+muted `#8B5FC7`), `#8C1F44` a richer wine-red (was flat `#6B1E3C`). Re-simulated: minimum pairwise
+distance 43.4 (protanopia, up from 32.7) / 42.5 (deuteranopia, down slightly from 45.0 but nowhere near
+the rejected pass's 3.0 failure) — genuinely safer under protanopia, still comfortably safe under
+deuteranopia.
+
+**A real, deliberate constraint accepted rather than fought:** `areaBomb` stays in the cool navy/blue
+family rather than becoming genre-conventional fire-orange, even though "explosion = orange" is the more
+obvious genre read. Investigated and rejected: shifting it warm would put four of the five mechanism
+colors (ordinary's existing red accent, blocker gold, an orange area bomb, wine supercombo) on the same
+red/orange side of the color wheel that collapses together under red-green dichromacy — almost certainly
+reproducing the exact hue-collision failure the original pass hit. The lightness-ladder + hue-spread
+shape is genuinely load-bearing, not a stylistic leftover to override; only saturation was fair game.
+
+**Rejected alternative:** reusing an existing app hue (e.g. `secondaryAccent`) for one of the five to
+free up a hue slot — the original spec already rejected this for a different reason (blurring an
+established chrome meaning), and it doesn't solve the actual problem here anyway, which is flat
+saturation, not too few hues.
+
+**Verification:** A fresh CVD re-simulation script (not committed — a throwaway scratch check, the same
+"verified by computation, not by eye" standard the sound-redesign work upheld) confirms both distances
+above. `npx jest` 871/871 unchanged (this is a pure content/config change — no logic in `exitingTile.ts`
+or `Tile.tsx` reads a literal hex value, confirmed via `exitingTile.test.ts`'s own fake-palette fixture,
+which is untouched). **Not yet verified live**: no screenshot of the new colors against a real detonation
+was captured this session (the same blocker/bomb-reachability gap the motion-differentiation work
+disclosed) — this is a real, disclosed gap, not a claim of a confirmed visual win.

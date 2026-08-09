@@ -31,11 +31,11 @@
     "border": "#D9C79E",
     "text": "#2B211A",
     "effectColors": {
-      "blocker": "#E8B84B",
-      "sweep": "#7FD1C9",
-      "areaBomb": "#23395B",
-      "colorBomb": "#8B5FC7",
-      "supercombo": "#6B1E3C"
+      "blocker": "#FFB300",
+      "sweep": "#00E5C9",
+      "areaBomb": "#122A5E",
+      "colorBomb": "#9B30FF",
+      "supercombo": "#8C1F44"
     },
     "tray": {
       "background": "#A87543",

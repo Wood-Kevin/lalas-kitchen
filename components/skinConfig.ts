@@ -95,6 +95,17 @@ export interface SkinPalette {
   // Chosen and verified against a real protanopia/deuteranopia
   // simulation (SPEC.md section 3a) — a pure hue-wheel spread failed
   // that check, so these vary in lightness too, not hue alone.
+  // Re-saturated on unity-migration-exploration after real feedback that
+  // the original set "feels lame, doesn't match genre" — the ORIGINAL
+  // MISTAKE was assuming vividness itself was the problem the CVD check
+  // ruled out; re-simulating (a fresh Machado/Oliveira/Fairchild-class
+  // pass) confirmed hue-only spread was the actual failure, and pushing
+  // each color's SATURATION up while holding its lightness rung fixed
+  // (dark navy stays dark, just a richer blue; pale gold becomes a vivid
+  // amber; etc.) kept every pair well-separated (min pairwise distance
+  // 43.4 protanopia / 42.5 deuteranopia, vs. the original 32.7/45.0 —
+  // both nowhere near the rejected pass's 3.0 failure). See
+  // engine/DECISIONS.md's effect-color-resaturation entry.
   effectColors: {
     blocker: string;
     sweep: string;
