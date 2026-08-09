@@ -1041,49 +1041,85 @@ export interface ExitingTileProps {
   experimentalHitStopMs?: number;
 }
 
-// Dev-only (see experimentalBurst above) — how many sparks radiate outward
-// per clear, evenly spaced around the tile.
-const EXPERIMENTAL_BURST_PARTICLE_COUNT = 8;
-// How far a spark travels, as a fraction of tileSize, at full progress.
-const EXPERIMENTAL_BURST_DISTANCE_FRACTION = 1.1;
-// One angle per particle, evenly spaced around the circle.
-const EXPERIMENTAL_BURST_ANGLES_RAD = Array.from(
-  { length: EXPERIMENTAL_BURST_PARTICLE_COUNT },
-  (_, i) => (i / EXPERIMENTAL_BURST_PARTICLE_COUNT) * 2 * Math.PI
-);
+// Dev-only (see experimentalBurst above) — the base spark count for an
+// ordinary clear; EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES more are added at
+// full rewardIntensity (see burstParticleCount below), so a big moment
+// (the striped-sweep pass) throws visibly more sparks than a plain match.
+const EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT = 8;
+const EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES = 8;
+const EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT =
+  EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT + EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES;
+
+// A fixed pool of per-particle variance (angle jitter, speed, size),
+// precomputed once at module load — deterministic seed-free "randomness"
+// (Math.random is fine here since it's plain JS at module scope, never
+// inside a worklet) so every clear's burst looks organic rather than a
+// perfect uniform starburst, without needing per-frame randomness.
+const EXPERIMENTAL_BURST_POOL = Array.from({ length: EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT }, (_, i) => {
+  const baseAngle = (i / EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT) * 2 * Math.PI;
+  return {
+    angleRad: baseAngle + (Math.random() - 0.5) * 0.4,
+    speedMultiplier: 0.75 + Math.random() * 0.5,
+    size: 5 + Math.random() * 5,
+  };
+});
+// How fast a spark launches, as a fraction of tileSize per second, before
+// drag and gravity take over — real physics (an exponential-decay drag
+// model plus constant downward gravity), not the old flat linear travel:
+// distance(t) = (v0/k) * (1 - e^(-k*t)) decelerates naturally outward,
+// while a separate + 0.5*g*t^2 term pulls every spark into a falling arc,
+// so the burst reads as thrown debris settling under gravity rather than
+// dots sliding out and stopping dead.
+const EXPERIMENTAL_BURST_SPEED = 5.5;
+const EXPERIMENTAL_BURST_DRAG = 3.2;
+const EXPERIMENTAL_BURST_GRAVITY = 9;
+// A stable empty-array reference for a non-bursting exit — avoids handing
+// React a fresh [] every render for the overwhelmingly common (real
+// gameplay) case where experimentalBurst is false.
+const EMPTY_BURST_PARTICLES: (typeof EXPERIMENTAL_BURST_POOL)[number][] = [];
 
 // Dev-only (see experimentalBurst above) — one outward-flying spark. A
-// small child component (not inlined in ExitingTile) so each of the 8
-// instances gets its own useAnimatedStyle reading the SAME shared
-// `progress` value, without needing a variable number of hooks in the
-// parent.
+// small child component (not inlined in ExitingTile) so each instance gets
+// its own useAnimatedStyle reading the SAME shared `progress` value,
+// without needing a variable number of hooks in the parent.
 function ExperimentalBurstParticle({
   progress,
   angleRad,
+  speedMultiplier,
+  size,
   color,
   tileSize,
 }: {
   progress: SharedValue<number>;
   angleRad: number;
+  speedMultiplier: number;
+  size: number;
   color: string;
   tileSize: number;
 }) {
-  const maxDistance = tileSize * EXPERIMENTAL_BURST_DISTANCE_FRACTION;
+  const v0 = EXPERIMENTAL_BURST_SPEED * speedMultiplier * tileSize;
   const particleStyle = useAnimatedStyle(() => {
-    const dist = progress.value * maxDistance;
+    const t = progress.value; // true elapsed-time fraction, 0..1 — see the driver's linear easing
+    // Drag-decelerated outward travel: fast off the start, smoothly
+    // settling rather than the old constant-velocity-then-clamp feel.
+    const outward = (v0 / EXPERIMENTAL_BURST_DRAG) * (1 - Math.exp(-EXPERIMENTAL_BURST_DRAG * t));
+    const fall = 0.5 * EXPERIMENTAL_BURST_GRAVITY * tileSize * t * t;
+    const dx = Math.cos(angleRad) * outward;
+    const dy = Math.sin(angleRad) * outward + fall;
     return {
       position: 'absolute',
-      top: tileSize / 2 - 4,
-      left: tileSize / 2 - 4,
-      width: 8,
-      height: 8,
-      borderRadius: 4,
+      top: tileSize / 2 - size / 2,
+      left: tileSize / 2 - size / 2,
+      width: size,
+      height: size,
+      borderRadius: size / 2,
       backgroundColor: color,
-      opacity: 1 - progress.value,
+      opacity: 1 - t,
       transform: [
-        { translateX: Math.cos(angleRad) * dist },
-        { translateY: Math.sin(angleRad) * dist },
-        { scale: 1 - progress.value * 0.6 },
+        { translateX: dx },
+        { translateY: dy },
+        { rotate: `${t * 180 * speedMultiplier}deg` },
+        { scale: 1 - t * 0.5 },
       ],
     };
   });
@@ -1126,6 +1162,18 @@ export function ExitingTile({
   // conditionally" shape burstOpacity/burstScale below already use for
   // isPowderBurst.
   const experimentalBurstProgress = useSharedValue(0);
+  // Dev-only — how many sparks this specific clear throws, scaled by how
+  // rewarding it is (the same rewardIntensity every wash overlay already
+  // scales by): a plain 3-match gets the base count, the striped-sweep
+  // pass gets visibly more. A plain slice of the precomputed pool, not a
+  // fresh random draw per render — stable across re-renders of the same
+  // exiting tile, and never touches a worklet.
+  const experimentalBurstParticles = experimentalBurst
+    ? EXPERIMENTAL_BURST_POOL.slice(
+        0,
+        EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT + Math.round(rewardIntensity * EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES)
+      )
+    : EMPTY_BURST_PARTICLES;
   // Falls back to the shared accentColor when omitted — every existing
   // caller (tests, any future one that doesn't care about per-mechanism
   // color) renders identically to before this feature.
@@ -1194,13 +1242,14 @@ export function ExitingTile({
     // Dev-only (see experimentalBurst's doc comment) — fires independently
     // of whichever branch the main effect below takes, so it layers on top
     // of every clear kind (ordinary, sweep, blocker, radial) the same way.
-    // A snappier ease-out than this game's usual calm timings on purpose —
-    // the whole point of this flag is testing the louder end of the
-    // spectrum, not a gentler version of the existing pop.
+    // LINEAR, deliberately — each particle's own useAnimatedStyle now reads
+    // this as true elapsed-time t and derives its drag/gravity motion
+    // directly from t (see ExperimentalBurstParticle), so the easing curve
+    // belongs entirely to the physics model, not the driver.
     if (experimentalBurst) {
       experimentalBurstProgress.value = withTiming(1, {
         duration: Math.round(durationMs * 0.9),
-        easing: Easing.out(Easing.cubic),
+        easing: Easing.linear,
       });
     }
     // experimentalBurst/durationMs never change for the lifetime of one
@@ -1507,11 +1556,13 @@ export function ExitingTile({
           pointerEvents="none"
           testID={`experimental-burst-${pieceId}`}
         >
-          {EXPERIMENTAL_BURST_ANGLES_RAD.map((angleRad, i) => (
+          {experimentalBurstParticles.map((particle, i) => (
             <ExperimentalBurstParticle
               key={i}
               progress={experimentalBurstProgress}
-              angleRad={angleRad}
+              angleRad={particle.angleRad}
+              speedMultiplier={particle.speedMultiplier}
+              size={particle.size}
               color={washColor}
               tileSize={tileSize}
             />

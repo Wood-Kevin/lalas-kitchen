@@ -6858,3 +6858,39 @@ after the full presentation layer existed), both zero `error CS` lines, confirme
 not assumed from a clean-sounding exit code. Not yet done: any human open-the-Editor-and-press-Play
 check (the disclosed gap above), Shader Graph work, and a second/third polish pass — this is session 1
 of SPEC.md's ~3-session-per-track timebox, not the finished track.
+
+## Track A, part three: real drag/gravity particle physics, scaled by reward (2026-08-09)
+
+**The trigger.** After Kevin redirected focus to RN-only ("leaving unity alone"), asked which direction
+to push RN's own ceiling further: keep iterating on Reanimated alone, or bring in react-native-skia for
+a genuine particle engine/shader work. Kevin chose Reanimated — no new dependency, keep iterating fast.
+
+**What changed.** `Tile.tsx`'s `experimentalBurst` particles previously moved on a single flat
+`dist = progress * maxDistance` line — a fixed radial travel with the deceleration baked into the
+*driver's* easing curve (`Easing.out(Easing.cubic)`), shared identically by every particle. Replaced with
+a real two-term physics model computed per-particle, per-frame, from a driver now running **linear**
+(so `progress` is true elapsed-time `t`, not pre-eased distance): `outward = (v0/k)(1 - e^(-kt))` (drag-
+decelerated launch — fast off the tile, smoothly settling, never a hard stop) plus `fall = 0.5·g·t²`
+(constant gravity), summed onto the particle's own launch angle. This is what makes a burst read as
+thrown debris arcing under gravity instead of dots sliding out on rails. Each particle also gets a small
+per-particle angle jitter, speed multiplier, and size drawn from a fixed precomputed pool
+(`EXPERIMENTAL_BURST_POOL`, plain `Math.random()` at module load — never inside a worklet), plus a
+rotation tied to its own speed, so the burst reads organic rather than a perfectly uniform starburst.
+
+**Escalation by reward, not a flat count.** Particle count now scales with `rewardIntensity` (0..1, the
+same signal every wash overlay already scales opacity by) — 8 sparks for a plain clear, up to 16 for a
+big pass like the striped-sweep. This is presentation-only derived data (no new engine field), matching
+the reward-budget precedent every other mechanism's escalation already follows.
+
+**Scope, unchanged from the original burst.** Still entirely behind `experimentalBurst`
+(`Board.tsx`'s `experimentalJuice`), dev-harness-only, zero effect on real gameplay — every real-player
+`ExitingTile` call never sets the prop, so `experimentalBurstParticles` resolves to a stable empty array
+and nothing here executes.
+
+**Verification:** `npx jest` 871/871 unchanged (no dedicated Tile.tsx render test exists in this repo to
+begin with — verified by direct code review of the worklet math instead). Live-verified over CDP: the
+real scripted scenario swap still settles to the exact same score (263) and moves count with the new
+physics active, zero console errors during or after the animation. **Not verified**: the actual visual
+feel of the new arc/drag motion — a static screenshot can't reliably catch a ~700ms particle burst
+mid-flight in this automation environment, so whether it reads as an improvement is Kevin's own call to
+make live, the same standing gap every other "feel" change in this file discloses.
