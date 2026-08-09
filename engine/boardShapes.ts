@@ -8,8 +8,10 @@ import { Position } from './matrix';
 // no opinion on *when* a level should use one, that's appPersistence.ts's
 // generatedShapeId gate. rows/cols are threaded through rather than hardcoded
 // so a template stays correct even though it's only ever exercised today at
-// the generated-level board's fixed 8x5 size (see appPersistence.ts's
-// buildGeneratedLevelConfig doc on why board size itself never varies).
+// the generated-level board's fixed 8x7 size (see appPersistence.ts's
+// buildGeneratedLevelConfig doc on why board size itself never varies — widened
+// from 8x5 after a real "grid feels tiny compared to the genre" report, see
+// engine/DECISIONS.md's grid-width entry).
 
 export type BoardShapeId = 'cut_corners' | 'plus' | 'ring' | 'diamond' | 'hourglass' | 'pockets';
 

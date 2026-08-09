@@ -1299,8 +1299,9 @@ export function isEscortObjectiveLevel(levelNumber: number): boolean {
 
 // How many dropdown pieces a generated escort level places, and where.
 // Calibrated against the one hand-built precedent, "Delivery Day": two
-// dropdowns on an 8x5 board, both in the TOP row so there's real distance to
-// work them down across the level's move budget.
+// dropdowns on an 8x7 board (widened from 8x5 — see engine/DECISIONS.md's
+// grid-width entry), both in the TOP row so there's real distance to work
+// them down across the level's move budget.
 //
 // Placement rules, each load-bearing rather than cosmetic:
 //  - one dropdown per column at most, spread across the board, so two pieces
@@ -1322,7 +1323,7 @@ export function isEscortObjectiveLevel(levelNumber: number): boolean {
 // qualifies at all the level simply gets no dropdowns, and the caller's
 // objectives array falls back to the ordinary collect shape.
 // How many pieces to escort. Anchored deliberately on the hand-built
-// "Delivery Day" (2 dropdowns, 24 moves, this same 8x5 board) rather than on
+// "Delivery Day" (2 dropdowns, 24 moves, this same 8x7 board) rather than on
 // simulation: a greedy solver written to measure difficulty here turned out to
 // LOSE that shipped, live-verified level 3 times out of 3, so it is not a valid
 // instrument for this objective type — escorting needs sustained digging under
@@ -1393,8 +1394,9 @@ export function generatedDropdownPositions(
 
 // Which cells get a hidden layer, on a clearance-gated generated level.
 // Calibrated against the one hand-built precedent, "Dusty Counter" (App.tsx's
-// LEVEL_QUEUE, level 6): 6 layered cells on a 40-cell (8x5) board (15%), a
-// third of them (2 of 6) at 2 layers, the rest at 1 — CLEARANCE_CELL_RATIO/
+// LEVEL_QUEUE, level 6): 6 layered cells on a 56-cell (8x7 — widened from
+// 8x5, see engine/DECISIONS.md's grid-width entry) board (~10.7%), a third
+// of them (2 of 6) at 2 layers, the rest at 1 — CLEARANCE_CELL_RATIO/
 // CLEARANCE_DOUBLE_LAYER_FRACTION reproduce that same density on whatever
 // board size/shape is actually passed in, rather than a hardcoded count.
 //
@@ -1414,7 +1416,7 @@ export function generatedDropdownPositions(
 // don't always light up the identical cells — still fully deterministic
 // per level (same levelNumber/rows/cols/voidCells always yields the same
 // result), matching every other generated-level lever's own guarantee.
-const CLEARANCE_CELL_RATIO = 6 / 40;
+const CLEARANCE_CELL_RATIO = 6 / 56;
 const CLEARANCE_DOUBLE_LAYER_FRACTION = 2 / 6;
 // Matches BREATHER_TARGET_RATIO/BREATHER_SCORE_RATIO's own -30% magnitude —
 // a real asymmetry the tuning-constant review caught: this function had no

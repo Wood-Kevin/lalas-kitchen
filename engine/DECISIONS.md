@@ -6614,3 +6614,98 @@ colors as Board.tsx/Home.tsx's own gradients.
 
 Every screen in the app now shares the same base gradient material. `RecipeBook.tsx`/`Settings.tsx`
 remain flat — never raised this session, not assumed in scope; see `DEFERRED_COMPLEXITY.md`.
+
+## Grid width: 8x5 -> 8x7, after a real "the grid feels tiny" report (2026-08-09)
+
+**The trigger.** A direct, subjective playtest-style report: "I feel like our grid is tiny compared
+to others in the genre." Investigated before proposing anything, per the standing Playtest Feedback
+Protocol — this was not treated as a request to just make tiles bigger.
+
+**The investigation.** Live-measured the real `boardArea` at the 375x667 reference viewport (real
+board loaded, level 1): 351x484px. At the old 8 rows x 5 cols, `tileSize = min(floor(351/5),
+floor(484/8)) = min(70, 60) = 60` — height-bound, so the board only needed `5*60=300px` of the
+available 351px width, leaving 51px (~15%) as dead horizontal margin on both sides. The tiles
+themselves weren't undersized in absolute terms (60px is a normal genre size); the *board* read
+narrow because its required aspect ratio (8:5 = 1.6) was noticeably taller/skinnier than the screen
+space actually available for it (484:351 = 1.38) — CLAUDE.md's own "edge to edge" board constraint
+was never actually being met on the width axis. Confirmed this is close to universal, not one
+level's problem: `buildLevelConfig` always inherits `LEVEL_QUEUE[0].rows/cols` for every generated
+level forever, and 10 of 11 hand-built levels use the same 8x5 default (only "Cutting Board" is its
+own 7x7 showcase).
+
+**The fork, and the decision.** Presented two real directions — a smaller aspect-matched change (6
+cols, ~3% smaller tiles, near-perfect fill on both axes) vs. a wider column count closer to genre
+norms (7 cols, ~17% smaller tiles, trades a filled height for a filled width) — plus two escape
+hatches (confirm visually first, or leave the grid alone and trim chrome instead). The architect
+chose 7 columns explicitly, prioritizing genre-standard column count and total cell count (56 cells
+vs. Candy Crush/Royal Match's 70-80+) over a mathematically tighter aspect-ratio fit. Flagged, not
+silently absorbed: at 7 cols with rows still 8, the board becomes WIDTH-bound instead of
+height-bound (`tileSize = min(floor(351/7)=50, floor(484/8)=60) = 50`), so the wasted space moves
+from horizontal gutters to a ~42px top/bottom margin (84px total, more raw pixels than before) — a
+real tradeoff, not a strict improvement in "total dead space," but the more natural axis for it to
+live on (a modest top/bottom margin around a centered board next to a HUD is a common, unremarkable
+pattern; a narrow column of tiles flanked by two empty vertical bands is what actually reads as
+"tiny" on a portrait phone screen).
+
+**The change.** `App.tsx`'s `LEVEL_QUEUE`: every entry using the default rectangle (`rows: 8, cols:
+5`) moved to `cols: 7` — 10 of 11 levels; "Cutting Board" (7x7, its own showcase shape) was already
+at the new width and untouched. Nothing in `buildLevelConfig`'s generated-level call site needed to
+change — it already reads `LEVEL_QUEUE[0].rows/cols`, so every generated level picks up the wider
+board automatically. Position-dependent content that structurally depends on board size was
+recomputed, not just left to "still be valid": `CORNER_SHOWCASE_VOIDS` (Pantry Corners) is now
+`cutCornersVoids(8, 7)` instead of `cutCornersVoids(8, 5)` — leaving the old call would have voided
+corners sized for a 5-wide board while the board itself was 7-wide, a real shape bug, not a
+cosmetic one. `DUSTY_COUNTER_LAYERS` (6 hand-placed layer cells) and "Delivery Day"'s
+`dropdownPositions` (2 cells) were both still *valid* cells on the wider board without any change,
+but left alone they'd have sat bunched in the left half — an artifact of the geometry change, not a
+deliberate layout — so both were respaced across the full new width, keeping the same row values,
+layer-count split, and total layer count (8) the original hand-authoring intended.
+
+**Dependent constants, checked rather than assumed unaffected.** `appPersistence.ts`'s
+`CLEARANCE_CELL_RATIO` was a hardcoded `6/40`, explicitly calibrated (per its own doc comment) to
+match "Dusty Counter"'s real on-screen density. Since Dusty Counter kept 6 layered cells but its
+board grew to 56 cells, leaving the constant at `6/40` would have silently broken that calibration
+contract (a generated clearance level would target `56 * 6/40 = 8.4 -> 8` cells instead of the
+intended-equivalent 6) — updated to `6/56` so the stated contract ("reproduce that same density")
+stays true. `generatedShapeId`/`generatedMovesLimit`/`generatedTargetCount`/`generatedLayerCells`
+all already take `rows`/`cols`/`playableRatio` as real parameters rather than a hardcoded 40, so
+none of those needed code changes — only the doc comments describing the "real board size" as 8x5
+(now 8x7) were stale, and were corrected in `App.tsx`, `appPersistence.ts` (3 places), and
+`engine/boardShapes.ts` (1 place). Left deliberately untouched: `engine/boardShapes.test.ts`'s and
+`engine/generator.test.ts`'s own test description strings still say "(8x5)" — those exercise the
+board-shape template functions generically at an illustrative fixture size, not against whatever
+App.tsx currently ships, so their literal params don't need to change for correctness; the
+parenthetical "the real generated board size" phrasing in their descriptions is now technically
+stale and is disclosed rather than fixed in `DEFERRED_COMPLEXITY.md`.
+
+**What was explicitly NOT re-tuned.** Every hand-built level's `movesLimit`/`targetCount` (Level 1
+"Tomato Toss" was originally solved against a 5-wide board: "a greedy solver... needed 19 of those
+20 moves... dropping the target to 12 brought it to 13 moves") and the generator's own
+`MIN_MOVES`/`MIN_TARGET`/ramp floors were left numerically unchanged. A wider board has more total
+cells and more piece adjacency, which generally makes the same absolute target *easier*, not
+harder, to reach — the safe direction for this game's calm, never-punishing design brief — but this
+was verified, not assumed: a throwaway greedy solver (mirroring the original Level 1 tuning
+methodology exactly — evaluate every legal swap each turn, take whichever yields the most objective
+progress) was run against Level 1's real config at the new 8x7 size across 5 seeds. Result: won all
+5, using 5-11 of the 24 available moves (finishing with 13-19 moves to spare) — comfortably
+winnable, and if anything slightly more generous than the original 5-wide tuning (which finished
+with 11 moves to spare). The other 9 non-showcase hand-built levels and the generator's
+`MIN_MOVES`/`MIN_TARGET` floors were NOT individually re-solved this session — see
+`DEFERRED_COMPLEXITY.md`.
+
+**Verification:** 860/860 tests (six `generatedLayerCells` tests in `appPersistence.test.ts` updated
+from `(8,5)` to `(8,7)` fixture params — the expected counts were unchanged by design, since
+`CLEARANCE_CELL_RATIO`'s numerator/denominator were recalibrated together). `tsc` override shows the
+same 4 pre-existing, unrelated errors only. Throwaway solver check described above (run, recorded
+here, then deleted — not part of the permanent suite). Live-verified over CDP at the real 375x667
+reference viewport: `boardArea` still measures 351x484 (Hud/toolbar chrome genuinely unaffected by
+this change — confirms the geometry change is isolated to `tileSize`'s own `cols`/`rows` inputs),
+Level 1 loads with the correct new objective ("0/12") and moves ("24") from the widened config, zero
+console errors on load, on exit back to Home, and on navigating into Level Map (which reads the full
+`LEVEL_QUEUE`, including the recomputed `CORNER_SHOWCASE_VOIDS`). The actual tile grid still doesn't
+composite/paint in this automation environment (the same standing, pre-existing, disclosed
+limitation — see `[[browser-automation-board-render-limitation]]` — not something this change caused
+or could fix), so the new `tileSize=50`/board `350x400` numbers are confirmed by direct computation
+against the unchanged, already-verified `tileSize` formula (`components/Board.tsx:545-556`) rather
+than a rendered screenshot; a real on-device or real-browser visual confirmation that the wider
+board actually reads as "less tiny" is still open — see `DEFERRED_COMPLEXITY.md`.

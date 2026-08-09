@@ -88,27 +88,34 @@ const PLUS_SHOWCASE_VOIDS: Position[] = ([0, 1, 5, 6] as const).flatMap((row) =>
 // 1 layer with two 2-layer cells so a player genuinely encounters both the
 // "one clear and it's gone" and "needs a second pass" cases. Total 8 layers,
 // which becomes the 'clearance' objective's targetCount automatically (see
-// createGameState) — never hand-authored as a separate number.
+// createGameState) — never hand-authored as a separate number. Columns were
+// respaced (not just left as-is) when the board widened from 5 to 7 columns
+// (see engine/DECISIONS.md's grid-width entry) — the original positions were
+// all still valid cells on the wider board, but left unchanged they'd have
+// sat bunched in the board's left half, an artifact of the geometry change
+// rather than a deliberate layout choice.
 const DUSTY_COUNTER_LAYERS: Array<{ position: Position; layers: number }> = [
   { position: { row: 1, col: 1 }, layers: 2 },
-  { position: { row: 1, col: 3 }, layers: 1 },
+  { position: { row: 1, col: 5 }, layers: 1 },
   { position: { row: 3, col: 0 }, layers: 1 },
-  { position: { row: 3, col: 4 }, layers: 1 },
-  { position: { row: 5, col: 2 }, layers: 2 },
-  { position: { row: 6, col: 1 }, layers: 1 },
+  { position: { row: 3, col: 6 }, layers: 1 },
+  { position: { row: 5, col: 3 }, layers: 2 },
+  { position: { row: 6, col: 5 }, layers: 1 },
 ];
 
 // A second hand-built shaped level, on top of "Cutting Board" above — a
 // guaranteed, curated second shape exposure that doesn't depend on the
 // generator's own cadence, however aggressive (see appPersistence.ts's
 // SHAPE_MIN_LEVEL_NUMBER/SHAPE_CADENCE). Uses the generalized cutCornersVoids
-// template (engine/boardShapes.ts) directly at the standard 8x5 board size
+// template (engine/boardShapes.ts) directly at the standard 8x7 board size
 // every other hand-built level (besides Cutting Board's own 7x7 showcase)
-// already uses, rather than hand-authoring a duplicate void list — 70%
-// playable (28/40, see boardShapes.test.ts), comparable to Cutting Board's
-// own ratio, so it needs no special piece-type-count reduction the way
-// Cutting Board's narrower plus-arms did.
-const CORNER_SHOWCASE_VOIDS: Position[] = cutCornersVoids(8, 5);
+// already uses, rather than hand-authoring a duplicate void list — ~79%
+// playable (44/56 — the board widened from 8x5 to 8x7, see
+// engine/DECISIONS.md's grid-width entry, so this is no longer the 70%/28-40
+// this comment originally recorded), comparable to Cutting Board's own ratio,
+// so it needs no special piece-type-count reduction the way Cutting Board's
+// narrower plus-arms did.
+const CORNER_SHOWCASE_VOIDS: Position[] = cutCornersVoids(8, 7);
 
 const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
@@ -128,7 +135,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // finishes with 11 moves to spare) instead of a photo finish.
     seed: 1,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[0].id, targetCount: 12 }],
@@ -137,7 +144,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
     seed: 101,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 22,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[1].id, targetCount: 18 }],
@@ -146,7 +153,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
   {
     seed: 201,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 20 }],
@@ -177,7 +184,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // See engine/DECISIONS.md's queue-breather-levels entry.
     seed: 350,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[5].id, targetCount: 18 }],
@@ -193,7 +200,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // without being trivially won in the first few swaps.
     seed: 401,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ type: 'score', targetCount: 1000 }],
@@ -204,7 +211,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // score objective just taught and the clearance objective next.
     seed: 451,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[2].id, targetCount: 18 }],
@@ -219,7 +226,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // DEFERRED_COMPLEXITY.md).
     seed: 501,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ type: 'clearance' }],
@@ -233,7 +240,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // become a much more frequent generator-driven occurrence.
     seed: 601,
     rows: 8,
-    cols: 5,
+    cols: 7,
     voidCells: CORNER_SHOWCASE_VOIDS,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 26,
@@ -248,7 +255,7 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // new one, so it doesn't stack novelty the way two genuine firsts would.
     seed: 651,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 25,
     objectives: [{ targetMatchType: skinConfig.pieceTypes[1].id, targetCount: 19 }],
@@ -262,16 +269,20 @@ const LEVEL_QUEUE: Array<Omit<LevelConfig, 'lives'>> = [
     // Placed near the top row so there's real room to work them down across
     // a generous 24-move budget; the shared Board.tsx cascade/gravity path
     // handles the actual falling, no special animation needed. The last
-    // hand-built level, immediately before the generator takes over.
+    // hand-built level, immediately before the generator takes over. Columns
+    // respaced from {1,3} to {1,5} when the board widened from 5 to 7
+    // columns (engine/DECISIONS.md's grid-width entry) — still both valid,
+    // but left unchanged they'd have sat bunched in the left half instead of
+    // spread across the wider board.
     seed: 701,
     rows: 8,
-    cols: 5,
+    cols: 7,
     pieceTypeIds: skinConfig.pieceTypes.map((pieceType) => pieceType.id),
     movesLimit: 24,
     objectives: [{ type: 'escort' }],
     dropdownPositions: [
       { row: 0, col: 1 },
-      { row: 0, col: 3 },
+      { row: 0, col: 5 },
     ],
     displayName: 'Delivery Day',
   },

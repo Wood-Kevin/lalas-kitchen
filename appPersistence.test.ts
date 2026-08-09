@@ -649,13 +649,19 @@ describe('isClearanceObjectiveLevel', () => {
 });
 
 describe('generatedLayerCells', () => {
-  test('picks a density matching the hand-built "Dusty Counter" ratio (6 of 40 cells, on the same 8x5 board size)', () => {
-    const cells = generatedLayerCells(5, 8, 5);
+  // Board size is 8x7 (56 cells) — widened from the original 8x5 (40 cells)
+  // after a real "grid feels tiny compared to the genre" report, see
+  // engine/DECISIONS.md's grid-width entry. CLEARANCE_CELL_RATIO was
+  // recalibrated to 6/56 to keep matching Dusty Counter's own 6-cell count
+  // exactly, so every expected count below is unchanged from before the
+  // widening — only the board dimensions passed in changed.
+  test('picks a density matching the hand-built "Dusty Counter" ratio (6 of 56 cells, on the same 8x7 board size)', () => {
+    const cells = generatedLayerCells(5, 8, 7);
     expect(cells).toHaveLength(6);
   });
 
   test('a third of the chosen cells get 2 layers, the rest get 1 — matching Dusty Counter\'s own split', () => {
-    const cells = generatedLayerCells(5, 8, 5);
+    const cells = generatedLayerCells(5, 8, 7);
     expect(cells.filter((c) => c.layers === 2)).toHaveLength(2);
     expect(cells.filter((c) => c.layers === 1)).toHaveLength(4);
   });
@@ -667,7 +673,7 @@ describe('generatedLayerCells', () => {
       { row: 1, col: 0 },
       { row: 1, col: 1 },
     ];
-    const cells = generatedLayerCells(5, 8, 5, voidCells);
+    const cells = generatedLayerCells(5, 8, 7, voidCells);
     const voidKeys = new Set(voidCells.map((p) => `${p.row},${p.col}`));
     for (const cell of cells) {
       expect(voidKeys.has(`${cell.position.row},${cell.position.col}`)).toBe(false);
@@ -675,11 +681,11 @@ describe('generatedLayerCells', () => {
   });
 
   test('is deterministic — the same inputs always yield the same cells', () => {
-    expect(generatedLayerCells(7, 8, 5)).toEqual(generatedLayerCells(7, 8, 5));
+    expect(generatedLayerCells(7, 8, 7)).toEqual(generatedLayerCells(7, 8, 7));
   });
 
   test('different levelNumbers yield different cell selections (offset shifts, not identical every time)', () => {
-    expect(generatedLayerCells(5, 8, 5)).not.toEqual(generatedLayerCells(9, 8, 5));
+    expect(generatedLayerCells(5, 8, 7)).not.toEqual(generatedLayerCells(9, 8, 7));
   });
 
   // Regression guard for a real asymmetry the tuning-constant review caught:
@@ -688,8 +694,8 @@ describe('generatedLayerCells', () => {
   // granted on a clearance-gated level only ever loosened movesLimit, never
   // the actual clearance workload. 6 cells * 0.7 = 4.2 -> rounds to 4.
   test('a breather shrinks the layer-cell count, matching collect/score targets\' own -30% relief', () => {
-    const normal = generatedLayerCells(5, 8, 5);
-    const withBreather = generatedLayerCells(5, 8, 5, [], true);
+    const normal = generatedLayerCells(5, 8, 7);
+    const withBreather = generatedLayerCells(5, 8, 7, [], true);
     expect(normal).toHaveLength(6);
     expect(withBreather).toHaveLength(4);
   });
