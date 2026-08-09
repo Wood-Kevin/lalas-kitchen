@@ -3,6 +3,7 @@ import { StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { Text } from './AppText';
 import { Fonts } from './fonts';
+import { TOAST_BORDER_WIDTH, TOAST_SHADOW } from './toastChrome';
 
 export type ScorePopupTone = 'ordinary' | 'cascade' | 'special';
 
@@ -82,7 +83,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderRadius: 16,
-    borderWidth: 1.5,
+    borderWidth: TOAST_BORDER_WIDTH,
+    ...TOAST_SHADOW,
   },
   label: {
     fontFamily: Fonts.bodyBold,

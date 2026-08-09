@@ -1628,6 +1628,7 @@ export function Board({
                 copy={lalaMoment.copy}
                 accentColor={skinConfig.palette.accent}
                 panelColor={skinConfig.palette.panel}
+                spriteAssets={spriteAssets}
                 onDone={() => setLalaMoment(null)}
               />
             )}

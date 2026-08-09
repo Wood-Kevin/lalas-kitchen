@@ -1,13 +1,16 @@
 import React, { useEffect } from 'react';
-import { StyleSheet } from 'react-native';
+import { Image, StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { Text } from './AppText';
 import { Fonts } from './fonts';
+import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
+import { TOAST_BORDER_WIDTH, TOAST_SHADOW } from './toastChrome';
 
 export interface LalaMomentBannerProps {
   copy: string;
   accentColor: string;
   panelColor: string;
+  spriteAssets: SpriteAssetMap;
   onDone: () => void;
 }
 
@@ -16,8 +19,14 @@ const HOLD_MS = 900;
 const FADE_OUT_MS = 320;
 
 /** Sparse, non-blocking character copy. It never owns input or pauses play. */
-export function LalaMomentBanner({ copy, accentColor, panelColor, onDone }: LalaMomentBannerProps) {
+export function LalaMomentBanner({ copy, accentColor, panelColor, spriteAssets, onDone }: LalaMomentBannerProps) {
   const opacity = useSharedValue(0);
+  // This banner IS Lala speaking (see the copy bank this reads from,
+  // release-character-pack.md) — the one toast where a portrait is a
+  // genuine content tie-in, not decoration repeated across every popup.
+  // ScorePopup/ComboStreakBanner stay text-only; they're generic reward
+  // feedback, not her voice.
+  const mascotSprite = resolveSpriteAsset('mascot.webp', spriteAssets);
 
   useEffect(() => {
     opacity.value = withSequence(
@@ -36,6 +45,9 @@ export function LalaMomentBanner({ copy, accentColor, panelColor, onDone }: Lala
   return (
     <Animated.View pointerEvents="none" testID="lala-moment-banner" style={[styles.container, animatedStyle]}>
       <Animated.View style={[styles.pill, { backgroundColor: panelColor, borderColor: accentColor }]}>
+        {mascotSprite.kind === 'image' && (
+          <Image source={mascotSprite.source} style={styles.avatar} resizeMode="cover" />
+        )}
         <Text style={[styles.text, { color: accentColor }]}>{copy}</Text>
       </Animated.View>
     </Animated.View>
@@ -60,12 +72,22 @@ const styles = StyleSheet.create({
   },
   pill: {
     maxWidth: '92%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 16,
-    borderWidth: 1.5,
+    borderWidth: TOAST_BORDER_WIDTH,
+    ...TOAST_SHADOW,
+  },
+  avatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   text: {
+    flexShrink: 1,
     fontFamily: Fonts.bodyRegular,
     fontSize: 13,
     textAlign: 'center',

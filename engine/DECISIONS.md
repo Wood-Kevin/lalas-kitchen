@@ -6392,3 +6392,53 @@ method the chrome-trim entry disclosed (the actual tile grid still doesn't rende
 automation environment — see [[browser-automation-board-render-limitation]]). Whether the mascot
 actually reads well at 34px, and the rest of codex's art pass, are both unverified by a human — see
 `DEFERRED_COMPLEXITY.md`'s matching entry.
+
+## Toast facelift: real shadow/border material, plus Lala's own portrait on her banner (2026-08-09)
+
+**The trigger.** "Think our toasts need a facelift after this new art work" — a direct architect
+read, not a fork requiring further confirmation. Investigated the actual gap before touching
+anything: `ScorePopup`/`ComboStreakBanner`/`LalaMomentBanner` (the three transient pills that float
+over the board) all shared the same flat-fill, 1.5px-border, zero-shadow pill design from before the
+Kitchen Tray HUD redesign and the mascot art landed — the one remaining flat surface once the tray
+gained a real shadow/warm material and the mascot gained real depth.
+
+**A shared constants file, not three independent facelifts.** `components/toastChrome.ts` exports
+`TOAST_SHADOW` (matching `Board.tsx`'s own `toolbarBadge` shadow exactly — shadowOpacity 0.16,
+radius 4, offset `{0,2}`, elevation 3) and `TOAST_BORDER_WIDTH` (2, up from 1.5, matching the same
+badge's border). All three components spread this into their existing `pill` style rather than each
+getting its own hand-tuned shadow — deliberate, so the toast material and the toolbar badge/HUD
+tray material read as one consistent design language rather than three independently-arrived-at
+approximations of "has depth now." The calm-not-frantic motion these three already use (fade
+in/hold/fade out, no scale or bounce — `ComboStreakBanner`'s own doc comment is explicit that this
+was a deliberate choice against high-intensity effects for this specific player) is completely
+untouched; only the material gained depth, not the motion.
+
+**`LalaMomentBanner` also gained Lala's own portrait — a content tie-in, not decoration repeated
+three times.** Investigated which of the three toasts, if any, warranted the new mascot art
+specifically: `LalaMomentBanner` **is** Lala speaking (its own doc comment says "character copy,"
+and it reads from `release-character-pack.md`'s copy bank — "Welcome back, dear," "The board needed
+a little reset," etc.) — a real reason to show her face next to her own words. `ScorePopup`
+("Nice!"/"Chain!"/"Great!") and `ComboStreakBanner` ("Nice chain!") are generic reward
+acknowledgment with no established character voice, so they stayed text-only rather than gaining an
+avatar for its own sake. `LalaMomentBanner` gained a required `spriteAssets: SpriteAssetMap` prop
+(threaded from `Board.tsx`, already in scope there — no new plumbing needed beyond the one prop
+pass) and resolves `'mascot.webp'` the same way `Hud.tsx` does. The avatar is gated on
+`mascotSprite.kind === 'image'` with **no text-label fallback** — a deliberate difference from
+`Hud.tsx`'s own mascot medallion, which needs a fallback because the portrait is its slot's only
+content; here the banner's own copy is always present regardless, so a missing sprite gracefully
+degrades to exactly the text-only design this banner already had, rather than showing a jarring
+two-letter placeholder next to her own dialogue.
+
+**Verification:** 860/860 tests (no test directly renders any of the three components — this
+project has no mounted-component test harness, a standing, previously-disclosed gap — so none
+needed rewriting for the new required prop). `tsc` override shows the same 4 pre-existing,
+unrelated errors only. Live-verified over CDP in a genuinely fresh tab: zero console errors on load
+and on entering a real level, confirming the new required `spriteAssets` prop threads correctly
+end-to-end with nothing crashing. **Not felt-verified** — none of the three toasts could be
+organically triggered in this session (a real match/cascade/shuffle needs a working board, and the
+actual tile grid still doesn't render in this project's browser-pane environment — see
+[[browser-automation-board-render-limitation]]; the daily-bonus banner specifically needs a real
+level win, which this session's fresh dev save has never done). Whether the new shadow/border
+actually reads as "has depth" rather than "slightly different," and whether the 24px avatar sits
+well against the banner's own text, are both unconfirmed by a human — the same standing gap every
+visual feature this session discloses.
