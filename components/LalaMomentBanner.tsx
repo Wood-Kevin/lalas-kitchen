@@ -49,7 +49,14 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 12,
     alignItems: 'center',
-    zIndex: 6,
+    // Live tiles now derive their own zIndex from row position (up to
+    // rows*1000, or 100000 while dragged — see Tile.tsx) so a shuffled or
+    // falling tile always stacks correctly against its neighbours. This
+    // banner predates that change and was left on a flat single-digit
+    // value, which any tile past row 0 now paints over — a real playtest
+    // report ("shuffle message is hidden behind tiles"). Comfortably above
+    // the highest tile zIndex can ever reach, so this always wins.
+    zIndex: 1000000,
   },
   pill: {
     maxWidth: '92%',

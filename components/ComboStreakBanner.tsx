@@ -61,7 +61,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: 'center',
-    zIndex: 5,
+    // Same fix as LalaMomentBanner.tsx's own zIndex comment — this banner
+    // also predates Tile.tsx's row-derived zIndex (up to rows*1000, or
+    // 100000 while dragged) and was left on a flat single-digit value that
+    // any tile past row 0 now stacks over.
+    zIndex: 1000000,
   },
   pill: {
     paddingHorizontal: 16,

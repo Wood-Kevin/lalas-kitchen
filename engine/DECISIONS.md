@@ -6219,3 +6219,36 @@ automation environment — the same standing, pre-existing, unrelated limitation
 earlier session), not something this change caused or could fix. The real chunky-piece-art/mascot
 half of the original comparison is untouched and unattempted this session — see
 `DEFERRED_COMPLEXITY.md`.
+
+## Real playtest report: the shuffle message (and other board overlays) rendered behind tiles (2026-08-09)
+
+**The report.** "The shuffle message is hidden behind tiles." Investigated directly rather than
+guessed: `LalaMomentBanner`/`ComboStreakBanner`/`ScorePopup` all render as siblings of the live
+`Tile`/`ExitingTile` elements inside `Board.tsx`'s `styles.board` container (`position: 'relative'`,
+absolutely-positioned children) — a stacking context where an earlier, unrelated commit
+(`0db9ed4`, "Track tile stacking by live row position, not DOM/render order") had already moved
+live/exiting tiles from a flat shared zIndex to a dynamic one derived from row position
+(`Math.round(rowShared.value * 1000)`, or `100000` while actively dragged — see `Tile.tsx`). That
+commit's own message disclosed "No live visual re-check" against the actual served bundle. The
+three overlay components predate it and were left on their old flat single-digit values
+(`LalaMomentBanner: 6`, `ComboStreakBanner: 5`, `ScorePopup: 7`) — comfortably above a flat tile
+zIndex, but any tile past row 0 now exceeds all three under the new scheme, painting over them.
+This is exactly the "an altered invariant's dependents were never checked" failure shape the
+Playtest Feedback Protocol names directly — the invariant "tiles never out-stack these banners"
+moved silently when tile zIndex became row-derived, and nothing re-checked the three components
+that depended on the old flat ceiling.
+
+**The fix.** All three now use `zIndex: 1000000` — comfortably above the highest value a tile can
+ever reach (`100000` while dragged, the tile scheme's own ceiling), with a comment on each pointing
+back at `Tile.tsx`'s row-derived scheme so a future reader doesn't have to re-derive why the number
+is what it is. No logic changed, no engine data involved — a pure stacking-order correction.
+
+**Verification:** 854/854 tests (this is a pure CSS stacking-order fix with no behavior to unit
+test — matching the same disclosure `0db9ed4` itself made). `tsc` override shows the same 4
+pre-existing, unrelated errors only. Not live-verified against the real board — the standing
+board-render limitation in this project's browser-pane environment (see
+[[browser-automation-board-render-limitation]]) applies here exactly as it did to the original
+`0db9ed4` fix, and a shuffle/combo/score moment can't be driven without a real move against the
+board. The fix itself is a direct, mechanical application of the same "exceed the known maximum"
+technique `Tile.tsx` already uses for its own drag-vs-fall zIndex escalation (100000 vs. row*1000),
+not a novel technique needing its own live confirmation.
