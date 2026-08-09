@@ -6511,3 +6511,54 @@ the correct position and size, all existing page text is intact, and zero consol
 This is the first facelift pass this session that got genuine live visual confirmation rather than
 only "doesn't crash" — still not confirmed by a human eye, the same standing gap every visual
 feature here discloses, but structurally the strongest verification any of these passes has had.
+
+## Home screen, round two: a genuinely bold pass, not incremental polish (2026-08-09)
+
+**The trigger.** Direct, sharp feedback on the first Home facelift: "You hardly even changed
+anything. We need a more bold home page or its disconnected completely from gameboard direction."
+Correct — that pass added shadows and a small 32px avatar but left the exact same layout, sizing,
+and hierarchy untouched. The architect also asked to "use the design skill," which turned out to be
+the `/design` CLI slash command — not invocable through the Skill tool (confirmed directly: the tool
+itself returns an error naming it a built-in CLI command, not a skill). Disclosed plainly rather
+than silently substituting something else and calling it the same thing; the architect chose to have
+this session redesign directly rather than run `/design` first.
+
+**Three real structural changes, not three more coats of shadow:**
+
+1. **A real gradient background, not a flat fill** — `Home.tsx`'s outer container is now a
+   `LinearGradient` over `skinConfig.palette.background`'s same two stops `Board.tsx`'s own game
+   screen uses, top-to-bottom. The single most direct "stop reading as a different app" fix
+   available: every screen now shares the identical base material.
+2. **Lala herself is the hero's actual lockup, not a 32px avatar squeezed beside the quote.** A 64px
+   portrait now sits directly beside the "Lala's Kitchen" title — sized to read as the screen's
+   actual visual anchor, echoing how her portrait already anchors the game screen's own HUD tray,
+   with the welcome quote moved to its own full-width line below rather than sharing a cramped row.
+3. **The "Up Next" card wears the game's own tray material** (`skinConfig.palette.tray`), not the
+   plain cream panel the other two cards keep — the most literal tie between "the screen you start
+   from" and "the screen you play on" a card can make. `GinghamTrim`'s own `panelColor` prop moved
+   to match (it fills the trim's background, so it has to track whatever surface it sits on).
+
+**A real, computed contrast regression caught before shipping, not eyeballed.** Putting the "Up
+next · Level N" / level-name text directly on the tray's own `#A87543` brown — the natural first
+instinct once the card's background changed — was checked by direct WCAG luminance/contrast
+computation (the same discipline `secondaryAccentText` was originally introduced under, per that
+color's own doc comment): `secondaryAccentText`/`text` against `#A87543` compute to ~3.96:1, short
+of the 4.5:1 normal text needs. Investigated why `Hud.tsx`'s own tray never hit this: every piece of
+text in that tray already sits on a `palette.panel`-colored chip floating on top of the wood, never
+directly on the brown itself — a real, previously-invisible design invariant this pass almost broke.
+Fixed the same way: the "Up Next" text block is now its own light `panel`-colored plaque inside the
+tray card, matching `Hud.tsx`'s chip convention exactly rather than inventing a new pattern.
+
+**Verification:** 860/860 tests. `tsc` override shows the same 4 pre-existing, unrelated errors
+only. **Live-verified over CDP at the true 375×667 viewport in a genuinely fresh tab** (an initial
+check in a reused tab hit the same stale-sub-bundle false positive disclosed earlier this session —
+confirmed by reading the actual file at the quoted line before concluding anything, then resolved by
+a fresh tab exactly as before): confirmed a real `linear-gradient(rgb(246, 217, 168), rgb(239, 192,
+135))` background-image matching the palette exactly, the mascot rendering at 60×60px at the correct
+hero position, 6 shadowed elements, and — via direct `getComputedStyle` on the real DOM chain — the
+"Up Next" card's own background resolving to `rgb(168, 117, 67)` (`tray.background`) with its text
+plaque correctly resolving to `rgb(251, 243, 225)` (`panel`), confirming the contrast fix actually
+took effect as designed, not just as written. Not confirmed by a human eye — the same standing gap
+every visual feature here discloses — but this is now the second Home-screen pass with real
+DOM-level verification behind it, including a verified fix for a defect that would otherwise have
+shipped invisibly.

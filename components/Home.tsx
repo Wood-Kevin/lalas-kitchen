@@ -125,7 +125,14 @@ export function Home({
           : resolveSpriteAsset(getSpriteForMatchType(nextLevel.targetMatchType, config), spriteAssets);
 
   return (
-    <View style={[styles.container, { backgroundColor: config.palette.background[0] }]}>
+    // A real gradient, not a flat fill — the same top-to-bottom wash
+    // Board.tsx's own game screen uses over these exact two palette stops
+    // (see that file's own comment). A direct architect call ("more bold...
+    // or it's disconnected completely from gameboard direction") after a
+    // first facelift pass that only added shadows without touching the
+    // screen's actual material — this is the one change that ties every
+    // screen in the app to the same base surface.
+    <LinearGradient colors={config.palette.background} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
       <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={16} />
 
       {/* Everything below the trim is scrollable — a fixed screen at a real
@@ -174,22 +181,24 @@ export function Home({
           end={{ x: 0, y: 1 }}
         />
         <View style={styles.heroTextBlock}>
-          <Text style={[styles.title, { color: config.palette.accent }]}>Lala&apos;s Kitchen</Text>
-          <View style={styles.welcomeRow}>
+          {/* Lala herself is now the actual lockup, not a small avatar
+              tucked beside the welcome quote — a direct architect call for
+              more boldness. Same shadow-vs-overflow:hidden split as the
+              cards below: the shadow lives on an unclipped outer View, the
+              border/corner-clip on an inner one. */}
+          <View style={styles.heroLockupRow}>
             {mascotSprite.kind === 'image' && (
-              // Same shadow-vs-overflow:hidden split as the cards above —
-              // the shadow lives on an unclipped outer View, the border/
-              // corner-clip on an inner one.
-              <View style={styles.welcomeAvatarShadow}>
-                <View style={[styles.welcomeAvatarFrame, { borderColor: config.palette.panel }]}>
-                  <Image source={mascotSprite.source} style={styles.welcomeAvatarImage} resizeMode="cover" />
+              <View style={styles.heroMascotShadow}>
+                <View style={[styles.heroMascotFrame, { borderColor: config.palette.panel }]}>
+                  <Image source={mascotSprite.source} style={styles.heroMascotImage} resizeMode="cover" />
                 </View>
               </View>
             )}
-            <Text style={[styles.welcome, { color: config.palette.mutedText }]}>
-              &quot;Welcome back, dear. The pot&apos;s already warming.&quot;
-            </Text>
+            <Text style={[styles.title, { color: config.palette.accent }]}>Lala&apos;s Kitchen</Text>
           </View>
+          <Text style={[styles.welcome, { color: config.palette.mutedText }]}>
+            &quot;Welcome back, dear. The pot&apos;s already warming.&quot;
+          </Text>
         </View>
         {/* Corner badge, not a new row — keeps the hero's own title/welcome
             text as the visual focus (see LivesBadge.tsx's own comment on
@@ -276,15 +285,20 @@ export function Home({
         </Pressable>
       </View>
 
+      {/* The one card that's an actual gateway into the game now wears the
+          game's own HUD material (skinConfig.palette.tray) instead of the
+          plain cream panel the other two cards keep — the most direct tie
+          to the board's own established look a Home-screen card can make,
+          not just a shared shadow. */}
       <View style={styles.cardShadow}>
-        <View style={[styles.card, { backgroundColor: config.palette.panel, borderColor: config.palette.border }]}>
-          <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.panel} height={10} />
+        <View style={[styles.card, { backgroundColor: config.palette.tray.background, borderColor: config.palette.tray.border }]}>
+          <GinghamTrim accentColor={config.palette.accent} panelColor={config.palette.tray.background} height={10} />
           <View style={styles.cardPadding}>
             <View style={styles.nextRow}>
               <View
                 style={[
                   styles.nextIconBadge,
-                  { backgroundColor: config.palette.background[0], borderColor: config.palette.border },
+                  { backgroundColor: config.palette.panel, borderColor: config.palette.tray.chipBorder },
                 ]}
               >
                 {nextIconSprite.kind === 'image' ? (
@@ -293,7 +307,19 @@ export function Home({
                   <Text style={{ color: config.palette.text }}>{nextIconSprite.label}</Text>
                 )}
               </View>
-              <View style={styles.nextTextBlock}>
+              {/* A light panel plaque, not raw text on the tray's own warm
+                  brown — the same reason Hud.tsx's chips never put text
+                  directly on tray.background either: #A87543 only computes
+                  to ~4.0:1 against secondaryAccentText/text, short of the
+                  4.5:1 WCAG AA needs for normal-sized text (confirmed by
+                  direct computation, the same discipline secondaryAccentText
+                  itself was originally introduced under). */}
+              <View
+                style={[
+                  styles.nextTextBlock,
+                  { backgroundColor: config.palette.panel, borderColor: config.palette.tray.chipBorder },
+                ]}
+              >
                 <Text style={[styles.nextLabel, { color: config.palette.secondaryAccentText }]}>
                   Up next · Level {nextLevel.levelIndex}
                 </Text>
@@ -340,7 +366,7 @@ export function Home({
         <Text style={[styles.footer, { color: config.palette.mutedText }]}>No timers. No rush. The kitchen keeps.</Text>
       </Pressable>
       </ScrollView>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -401,30 +427,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 38,
   },
-  welcomeRow: {
+  // Lala + the title as one lockup — the actual bold move this pass makes:
+  // she used to be a 32px avatar tucked beside the welcome quote, now she's
+  // sized to anchor the whole hero the way her portrait already anchors
+  // the game screen's own HUD tray.
+  heroLockupRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
+    gap: 12,
   },
-  welcomeAvatarShadow: {
-    borderRadius: 16,
+  heroMascotShadow: {
+    borderRadius: 34,
     ...SURFACE_SHADOW,
   },
-  welcomeAvatarFrame: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  heroMascotFrame: {
+    width: 64,
+    height: 64,
+    borderRadius: 34,
     borderWidth: SURFACE_BORDER_WIDTH,
     overflow: 'hidden',
   },
-  welcomeAvatarImage: {
+  heroMascotImage: {
     width: '100%',
     height: '100%',
   },
   welcome: {
-    flex: 1,
     fontFamily: Fonts.bodyRegular,
+    marginTop: 8,
     fontSize: 14,
   },
   // The shadow-carrying outer wrapper — see the JSX comment at the first
@@ -480,21 +509,25 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   nextIconBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     borderWidth: SURFACE_BORDER_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
     ...SURFACE_SHADOW,
   },
   nextIconImage: {
-    width: 34,
-    height: 34,
+    width: 38,
+    height: 38,
   },
   nextTextBlock: {
     flex: 1,
     gap: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1.5,
   },
   nextLabel: {
     // The mockup's "UP NEXT · LEVEL N" eyebrow is plain body text (no
