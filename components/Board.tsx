@@ -50,16 +50,18 @@ import {
   resolveSpecialEffectDescriptor,
 } from './specialEffectAnimation';
 import { getSpriteForPiece } from './spriteMap';
-import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
+import { ExitingEntry, buildExitingEntry, exitingTileSprite, resolveEffectColor } from './exitingTile';
 import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
 import {
   fallSpeedProfile,
   passDurationMs,
   passFallDelayMs,
+  passRewardIntensity,
   PASS_BEAT_MS,
   springSettleMs,
   SWEEP_TILE_STAGGER_MS,
   COLOR_BOMB_WAVE_MS,
+  AREA_BOMB_WAVE_MS,
   SUPERCOMBO_CONVERT_MS,
   CHAIN_LINK_STAGGER_MS,
 } from './cascadeTiming';
@@ -907,6 +909,7 @@ export function Board({
         {
           perTileStaggerMs: SWEEP_TILE_STAGGER_MS,
           radialWaveMs: COLOR_BOMB_WAVE_MS,
+          areaBombWaveMs: AREA_BOMB_WAVE_MS,
           supercomboConvertMs: SUPERCOMBO_CONVERT_MS,
           chainLinkStaggerMs: CHAIN_LINK_STAGGER_MS,
         },
@@ -970,6 +973,21 @@ export function Board({
           ? { key: `detour-${moveId}`, viaById: detourPlan.viaById }
           : null
       );
+      // Which radial-family effect (if any) produced THIS pass's radialDelays
+      // — a per-PASS fact (effectDescriptor only ever applies to i === 0),
+      // not a per-cell one, since color_bomb and area_bomb share the same
+      // radialDelayMs channel/geometry and are only distinguished by which
+      // effect actually fired this pass. See exitingTile.ts's
+      // ExitingEntry.radialKind and SPEC.md's visual-reward-language spec.
+      const radialKind: 'color_bomb' | 'area_bomb' | undefined =
+        i === 0 && (effectDescriptor?.kind === 'color_bomb' || effectDescriptor?.kind === 'area_bomb')
+          ? effectDescriptor.kind
+          : undefined;
+      // How rewarding this pass's clear should feel (SPEC.md's "reward-
+      // scaling is visual-only" decision) — derived purely from this pass's
+      // own diff, never from the engine's real score/tierByKey. See
+      // cascadeTiming.ts's passRewardIntensity for why.
+      const passReward = passRewardIntensity(i, diff.cleared.length);
       // Append (don't replace): a pass's exit tiles keep animating out while
       // the next pass's clears begin, giving the layered, sequential read.
       // Each ExitingTile removes itself on completion (see removeExiting).
@@ -995,7 +1013,9 @@ export function Board({
             // actually under the finger — see attemptSwap's comment.
             i === 0 && dragRelease && piece.id === dragRelease.pieceId
               ? { dx: dragRelease.dx, dy: dragRelease.dy }
-              : undefined
+              : undefined,
+            radialKind,
+            passReward
           )
         ),
       ]);
@@ -1453,6 +1473,13 @@ export function Board({
                 isPowderBurst={entry.pieceType === 'area_bomb'}
                 radialDelayMs={entry.radialDelayMs}
                 convertedFlash={entry.convertedFlash}
+                // Per-mechanism wash color (SPEC.md's visual-reward-language
+                // spec) — resolved from the same flags that already decide
+                // WHICH overlay renders, plus the skin's new effectColors
+                // palette. The tile's own border stays on the plain accent
+                // above, unchanged.
+                effectColor={resolveEffectColor(entry, skinConfig.palette)}
+                rewardIntensity={entry.rewardIntensity}
                 onExited={() => removeExiting(entry.key)}
               />
             ))}

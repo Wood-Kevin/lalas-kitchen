@@ -78,6 +78,25 @@ export interface SkinPalette {
   mutedText: string;
   border: string;
   text: string;
+  // Per-mechanism colors for the momentary clear-time wash overlays
+  // (blocker highlight, striped sweep, radial detonation, supercombo
+  // convert flash) — see SPEC.md's "visual reward language" spec and
+  // engine/DECISIONS.md's matching entry. Every one of these used to
+  // share the single `accent` color above, differentiated only by shape
+  // and duration; real playtest feedback ("mechanics don't really
+  // vary") traced directly to that. An ordinary match deliberately has
+  // no entry here — it keeps using `accent` unchanged, the reward-budget
+  // decision that ordinary matches stay the most subdued mechanism.
+  // Chosen and verified against a real protanopia/deuteranopia
+  // simulation (SPEC.md section 3a) — a pure hue-wheel spread failed
+  // that check, so these vary in lightness too, not hue alone.
+  effectColors: {
+    blocker: string;
+    sweep: string;
+    areaBomb: string;
+    colorBomb: string;
+    supercombo: string;
+  };
 }
 
 export interface SkinConfig {

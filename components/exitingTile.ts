@@ -1,6 +1,6 @@
 import { Piece } from '../engine/matrix';
 import { Position } from '../engine/gameState';
-import { SkinConfig } from './skinConfig';
+import { SkinConfig, SkinPalette } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
 
 // One exiting/clearing tile — a piece from diffBoards' `cleared` list that
@@ -69,6 +69,20 @@ export interface ExitingEntry {
   // instant (see specialEffectAnimation.ts's supercomboConvertedIds and
   // engine/DECISIONS.md's now-resolved convert-to-striped-flash entry).
   convertedFlash?: boolean;
+  // Which radial-family effect produced this pass's radialDelayMs — a
+  // color bomb's board-spanning wave and a solo area bomb's local blast
+  // both ride the same radialDelayMs channel/geometry (see
+  // specialEffectAnimation.ts's buildPassAnimation), but need different
+  // colors (see resolveEffectColor below). Undefined whenever
+  // radialDelayMs itself is undefined.
+  radialKind?: 'color_bomb' | 'area_bomb';
+  // How rewarding this pass's clear should feel (0..1, see
+  // cascadeTiming.ts's passRewardIntensity) — captured once, when the
+  // entry is built, because by the time Board.tsx renders the flat
+  // `exiting` array, entries from different passes (each with their own
+  // intensity) are mixed together with no single "current pass" left to
+  // ask.
+  rewardIntensity: number;
 }
 
 // Builds one exiting-tile entry from a cleared piece. The crux for the sprite
@@ -91,7 +105,14 @@ export function buildExitingEntry(
   travel?: { from: Position; durationMs: number },
   // Present only for the one piece that was actually under the finger during
   // a drag that ended with it clearing — see ExitingEntry.startOffsetPx.
-  dragReleasePx?: { dx: number; dy: number }
+  dragReleasePx?: { dx: number; dy: number },
+  // Which radial-family effect this pass's radialDelayMs came from — see
+  // ExitingEntry.radialKind. Undefined whenever radialDelayMs itself is.
+  radialKind?: 'color_bomb' | 'area_bomb',
+  // Required (not optional, unlike the fields above): every exiting entry
+  // needs a reward intensity, even a plain match with no special effect at
+  // all — see cascadeTiming.ts's passRewardIntensity.
+  rewardIntensity: number = 0
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -108,7 +129,34 @@ export function buildExitingEntry(
     sweepDelayMs,
     radialDelayMs,
     convertedFlash,
+    radialKind,
+    rewardIntensity,
   };
+}
+
+// Resolves which color THIS exiting entry's wash overlay should use, from
+// the same per-cell flags Tile.tsx's ExitingTile already branches on to
+// decide WHICH overlay to render — this decides what color that overlay
+// gets, the presentation-only half of SPEC.md's visual-reward-language
+// work. Priority mirrors ExitingTile's own branch order (a blocker clear
+// and a convert-flash can theoretically coincide with sweepDelayMs being
+// set too — see ExitingEntry's own doc comments on why convertedFlash
+// layers ADDITIVELY alongside sweepDelayMs — so the more specific signal
+// wins). Falls back to the skin's plain `accent` for an ordinary match,
+// unchanged from before this feature — the reward-budget decision that
+// ordinary matches don't get their own new color, only more of the one
+// they already had.
+export function resolveEffectColor(
+  entry: Pick<ExitingEntry, 'isBlockerClear' | 'convertedFlash' | 'radialDelayMs' | 'radialKind' | 'sweepDelayMs'>,
+  palette: SkinPalette
+): string {
+  if (entry.isBlockerClear) return palette.effectColors.blocker;
+  if (entry.convertedFlash) return palette.effectColors.supercombo;
+  if (entry.radialDelayMs !== undefined) {
+    return entry.radialKind === 'area_bomb' ? palette.effectColors.areaBomb : palette.effectColors.colorBomb;
+  }
+  if (entry.sweepDelayMs !== undefined) return palette.effectColors.sweep;
+  return palette.accent;
 }
 
 // Resolves the sprite for an exiting tile through getSpriteForPiece — the exact

@@ -4,6 +4,8 @@ import {
   passDurationMs,
   passFallDelayMs,
   passClearsEndMs,
+  passRewardIntensity,
+  scaledByReward,
   planCascadeAnimation,
   springSettleMs,
   PASS_BEAT_MS,
@@ -211,6 +213,47 @@ describe('springSettleMs (a swap must finish its landing beat before its match c
     expect(springSettleMs(200)).toBe(200 + SQUASH_TOTAL_MS);
     expect(springSettleMs(400)).toBe(400 + SQUASH_TOTAL_MS);
     expect(springSettleMs(400) - springSettleMs(200)).toBe(200);
+  });
+});
+
+describe('passRewardIntensity (a bigger cascade should visibly feel bigger)', () => {
+  test('a flat first-pass match at minimal size is zero intensity', () => {
+    expect(passRewardIntensity(0, 3)).toBe(0);
+  });
+
+  test('a later pass in a chain scores higher than the same-size first pass', () => {
+    expect(passRewardIntensity(2, 3)).toBeGreaterThan(passRewardIntensity(0, 3));
+  });
+
+  test('clearing more cells than a minimal match scores higher, same pass', () => {
+    expect(passRewardIntensity(0, 8)).toBeGreaterThan(passRewardIntensity(0, 3));
+  });
+
+  test('intensity never exceeds 1, however deep or large the pass', () => {
+    expect(passRewardIntensity(10, 40)).toBe(1);
+  });
+
+  test('never negative for a below-minimum cleared count', () => {
+    expect(passRewardIntensity(0, 0)).toBe(0);
+  });
+});
+
+describe('scaledByReward (intensity moves within a mechanism\'s own ceiling, never past it)', () => {
+  test('zero intensity still returns a real floor fraction of peak, not near-zero', () => {
+    const floor = scaledByReward(0.5, 0);
+    expect(floor).toBeGreaterThan(0.5 * 0.5);
+    expect(floor).toBeLessThan(0.5);
+  });
+
+  test('full intensity reaches exactly the peak, never past it', () => {
+    expect(scaledByReward(0.5, 1)).toBe(0.5);
+  });
+
+  test('scales monotonically between floor and peak', () => {
+    const low = scaledByReward(0.5, 0.2);
+    const high = scaledByReward(0.5, 0.8);
+    expect(high).toBeGreaterThan(low);
+    expect(high).toBeLessThanOrEqual(0.5);
   });
 });
 

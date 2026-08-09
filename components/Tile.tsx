@@ -30,6 +30,7 @@ import {
   MATCH_POP_MS,
   MATCH_POP_SCALE,
   MATCH_POP_OPACITY,
+  scaledByReward,
 } from './cascadeTiming';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -1006,6 +1007,20 @@ export interface ExitingTileProps {
   // the supercombo also sets, to a uniform value, for its synchronized second
   // beat) rather than being mutually exclusive with it.
   convertedFlash?: boolean;
+  // Which color this clear's wash overlay uses — resolved by Board.tsx via
+  // exitingTile.ts's resolveEffectColor (SPEC.md's visual-reward-language
+  // spec). Distinct from `accentColor` above, which stays the tile's own
+  // static border/chrome color unchanged; this only affects the
+  // blocker-highlight/sweep-glow/radial-glow/convert-flash/match-pop
+  // overlays. Defaults to `accentColor` when omitted, so any caller that
+  // doesn't pass it renders exactly as before this feature.
+  effectColor?: string;
+  // How rewarding this pass's clear should feel (0..1, see
+  // cascadeTiming.ts's passRewardIntensity/scaledByReward) — scales each
+  // wash overlay's peak opacity within its own mechanism ceiling, never
+  // past it. Defaults to 0 (the floor fraction only), the same as an
+  // omitted prop always having meant before this feature existed.
+  rewardIntensity?: number;
   onExited: () => void;
 }
 
@@ -1031,8 +1046,14 @@ export function ExitingTile({
   isPowderBurst,
   radialDelayMs,
   convertedFlash,
+  effectColor,
+  rewardIntensity = 0,
   onExited,
 }: ExitingTileProps) {
+  // Falls back to the shared accentColor when omitted — every existing
+  // caller (tests, any future one that doesn't care about per-mechanism
+  // color) renders identically to before this feature.
+  const washColor = effectColor ?? accentColor;
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
   // travel = the swap spring's PERCEPTUAL duration (how long the slide is
@@ -1143,7 +1164,7 @@ export function ExitingTile({
       highlightOpacity.value = withDelay(
         settle + sweepDelayMs,
         withSequence(
-          withTiming(0.5, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(scaledByReward(0.5, rewardIntensity), { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
@@ -1175,7 +1196,7 @@ export function ExitingTile({
       highlightOpacity.value = withDelay(
         settle + radialDelayMs,
         withSequence(
-          withTiming(0.55, { duration: SWEEP_GLOW_POP_MS }),
+          withTiming(scaledByReward(0.55, rewardIntensity), { duration: SWEEP_GLOW_POP_MS }),
           withTiming(0, { duration: shrinkMs })
         )
       );
@@ -1201,7 +1222,7 @@ export function ExitingTile({
       // just got hit" instead of vanishing with no explanation.
       highlightOpacity.value = afterTravel(
         withSequence(
-          withTiming(0.35, { duration: halfPulse }),
+          withTiming(scaledByReward(0.35, rewardIntensity), { duration: halfPulse }),
           withTiming(0, { duration: halfPulse })
         )
       );
@@ -1231,7 +1252,7 @@ export function ExitingTile({
     const anticipationShrinkMs = Math.max(0, durationMs - MATCH_POP_MS);
     highlightOpacity.value = afterTravel(
       withSequence(
-        withTiming(MATCH_POP_OPACITY, { duration: MATCH_POP_MS }),
+        withTiming(scaledByReward(MATCH_POP_OPACITY, rewardIntensity), { duration: MATCH_POP_MS }),
         withTiming(0, { duration: anticipationShrinkMs })
       )
     );
@@ -1321,25 +1342,25 @@ export function ExitingTile({
           <SpriteContent sprite={sprite} accentColor={accentColor} />
           {isBlockerClear && (
             <Animated.View
-              style={[styles.blockerHighlight, { backgroundColor: accentColor }, highlightStyle]}
+              style={[styles.blockerHighlight, { backgroundColor: washColor }, highlightStyle]}
               testID={`blocker-highlight-${pieceId}`}
             />
           )}
           {sweepDelayMs !== undefined && (
             <Animated.View
-              style={[styles.sweepGlow, { backgroundColor: accentColor }, highlightStyle]}
+              style={[styles.sweepGlow, { backgroundColor: washColor }, highlightStyle]}
               testID={`sweep-glow-${pieceId}`}
             />
           )}
           {radialDelayMs !== undefined && (
             <Animated.View
-              style={[styles.radialGlow, { backgroundColor: accentColor }, highlightStyle]}
+              style={[styles.radialGlow, { backgroundColor: washColor }, highlightStyle]}
               testID={`radial-glow-${pieceId}`}
             />
           )}
           {convertedFlash && (
             <Animated.View
-              style={[styles.convertFlash, { backgroundColor: accentColor }, flashStyle]}
+              style={[styles.convertFlash, { backgroundColor: washColor }, flashStyle]}
               testID={`convert-flash-${pieceId}`}
             />
           )}
@@ -1349,7 +1370,7 @@ export function ExitingTile({
             // of its own until the game-feel overhaul. Same full-tile soft
             // wash language as every overlay here, held to a fainter peak.
             <Animated.View
-              style={[styles.matchPop, { backgroundColor: accentColor }, highlightStyle]}
+              style={[styles.matchPop, { backgroundColor: washColor }, highlightStyle]}
               testID={`match-pop-${pieceId}`}
             />
           )}

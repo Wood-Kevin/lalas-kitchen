@@ -90,11 +90,37 @@ describe('resolveSpecialEffectDescriptor', () => {
     expect(resolveSpecialEffectDescriptor(board, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
   });
 
-  test('any area-bomb swap resolves to no special effect here, mirroring applyMove checking area first', () => {
-    const board = boardOf({ '0,0': area('a1'), '0,1': bomb('b1') });
-    expect(resolveSpecialEffectDescriptor(board, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
-    const ordinary = boardOf({ '0,0': area('a1'), '0,1': normal('n1', 'tomato') });
-    expect(resolveSpecialEffectDescriptor(ordinary, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
+  test('an area-bomb + special swap (a combo) still resolves to no special effect here', () => {
+    // Combos (area+color, area+striped, area+area) are out of scope for the
+    // solo-blast identity added below — they still fall through to the
+    // generic sweep, unchanged.
+    const colorCombo = boardOf({ '0,0': area('a1'), '0,1': bomb('b1') });
+    expect(resolveSpecialEffectDescriptor(colorCombo, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
+    const stripedCombo = boardOf({ '0,0': area('a1'), '0,1': striped('s1', 'tomato', 'row') });
+    expect(resolveSpecialEffectDescriptor(stripedCombo, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
+    const areaCombo = boardOf({ '0,0': area('a1'), '0,1': area('a2') });
+    expect(resolveSpecialEffectDescriptor(areaCombo, { row: 0, col: 0 }, { row: 0, col: 1 })).toBeUndefined();
+  });
+
+  test('a solo area-bomb swap (into an ordinary piece) resolves to area_bomb, anchored on the BOMB\'S landing cell', () => {
+    // The bomb started at posA (0,0); applyMove stages a real swap for this
+    // effect (unlike color_bomb below), so it lands at posB (0,1) — the
+    // blast must follow it there, not stay at its pre-swap cell (a real
+    // playtest-reported bug elsewhere in this effect family when this was
+    // gotten backwards: "blast one cell off, ignoring the gesture").
+    const board = boardOf({ '0,0': area('a1'), '0,1': normal('n1', 'tomato') });
+    expect(resolveSpecialEffectDescriptor(board, { row: 0, col: 0 }, { row: 0, col: 1 })).toEqual({
+      kind: 'area_bomb',
+      origin: { row: 0, col: 1 },
+    });
+  });
+
+  test('order reversed: the bomb starting at posB lands at posA', () => {
+    const board = boardOf({ '0,0': normal('n1', 'tomato'), '0,1': area('a1') });
+    expect(resolveSpecialEffectDescriptor(board, { row: 0, col: 0 }, { row: 0, col: 1 })).toEqual({
+      kind: 'area_bomb',
+      origin: { row: 0, col: 0 },
+    });
   });
 });
 
@@ -163,7 +189,13 @@ describe('supercomboConvertedIds', () => {
 });
 
 describe('buildPassAnimation', () => {
-  const options = { perTileStaggerMs: 50, radialWaveMs: 300, supercomboConvertMs: 170, chainLinkStaggerMs: 260 };
+  const options = {
+    perTileStaggerMs: 50,
+    radialWaveMs: 300,
+    areaBombWaveMs: 90,
+    supercomboConvertMs: 170,
+    chainLinkStaggerMs: 260,
+  };
 
   test('later passes always fall back to the plain generic sweep, no effect applied', () => {
     const pass = [cleared(striped('s', 'A', 'row'), 1, 1), cleared(normal('c', 'A'), 1, 2)];
@@ -178,6 +210,20 @@ describe('buildPassAnimation', () => {
     const result = buildPassAnimation(pass, 0, { kind: 'color_bomb', origin: { row: 0, col: 0 } }, options);
     expect(result.radialDelays.get('n')).toBe(300);
     expect(result.sweepDelays.size).toBe(0);
+  });
+
+  test('area bomb pass uses its own short wave budget, not the color bomb one', () => {
+    // Reuses the same radialDelays channel/normalization as color_bomb (the
+    // farthest cell always gets the full budget — see radialDelaysForClears'
+    // own "normalized to a fixed total" doc comment) but a far shorter
+    // travel budget — a 3x3 blast, not a board-spanning detonation. A
+    // nearer cell gets proportionally less of that shorter budget, nothing
+    // close to color bomb's 300ms reach.
+    const pass = [cleared(normal('near', 'A'), 0, 1), cleared(normal('far', 'A'), 0, 2)];
+    const result = buildPassAnimation(pass, 0, { kind: 'area_bomb', origin: { row: 0, col: 0 } }, options);
+    expect(result.radialDelays.get('far')).toBe(90);
+    expect(result.radialDelays.get('near')).toBeGreaterThan(0);
+    expect(result.radialDelays.get('near')).toBeLessThan(90);
   });
 
   test('striped_cross pass merges cross geometry with any chained real sweep', () => {

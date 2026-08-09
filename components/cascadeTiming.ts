@@ -130,9 +130,58 @@ export const PASS_BEAT_MS = 140;
 // pass schedule, is unchanged. Milder than the sweep/radial pops on every
 // axis (smaller swell, fainter wash) because it plays on every single match,
 // not on a special moment. Calm brief: a soft acknowledgement, not a flash.
+// Revised as part of the visual-reward-language spec (SPEC.md, same day):
+// these were tuned under the old, over-narrow reading of "calm, not
+// frantic" — a real playtest report ("a whatever moment") plus the
+// architect's own clarification that "calm was more in relation to the
+// sounds and micro transaction pressures," not visual intensity, both
+// confirmed that reading was too cautious. Ordinary matches still stay the
+// most subdued mechanism in the reward hierarchy (see the reward-budget
+// decision) — SCALE/OPACITY moved up a real, felt amount, but stay well
+// under every named mechanism's own peak (sweep 1.15/0.5, radial 1.3/0.55,
+// blocker 1.18/0.35 — see their own constants below).
 export const MATCH_POP_MS = 90;
-export const MATCH_POP_SCALE = 1.08;
-export const MATCH_POP_OPACITY = 0.25;
+export const MATCH_POP_SCALE = 1.11;
+export const MATCH_POP_OPACITY = 0.38;
+
+// How much of a mechanism's peak wash opacity a pass gets regardless of
+// cascade depth — the rest scales in with passRewardIntensity below. A
+// single flat match still needs to read as a real pop on its own (the
+// "whatever moment" report was about ordinary matches specifically, most
+// of which are NOT part of a deep chain), so the floor is a real fraction
+// of peak, not near-zero; a genuinely deep/large cascade reaches the full
+// peak. Shared across every mechanism so intensity scaling behaves
+// consistently, even though each mechanism's own peak differs.
+const REWARD_FLOOR_FRACTION = 0.65;
+
+// Scales a mechanism's peak wash opacity by this pass's reward intensity
+// (0..1, see passRewardIntensity), linearly between REWARD_FLOOR_FRACTION
+// and 1 of that peak. `peak` stays each branch's own already-tuned value
+// (SWEEP/RADIAL/BLOCKER's existing opacity constants, MATCH_POP_OPACITY
+// above) — this never pushes a mechanism past its own ceiling, only
+// varies how much of it a given pass earns, which is what keeps the
+// mechanism hierarchy (ordinary < blocker/sweep < bomb < supercombo)
+// intact even as cascade-size scaling is layered on top of it.
+export function scaledByReward(peak: number, intensity: number): number {
+  return peak * (REWARD_FLOOR_FRACTION + (1 - REWARD_FLOOR_FRACTION) * intensity);
+}
+
+// How rewarding THIS pass's clear should feel, derived purely from what's
+// already in the pass's own diff — deliberately NOT a read of the engine's
+// real CascadeResolution.score (see SPEC.md's "reward-scaling is
+// visual-only" decision): growing ApplyMoveResult's public contract for a
+// cosmetic feature was rejected in favor of the same "derive from the
+// diff, not new engine data" pattern this pipeline already uses everywhere
+// else (sweepDelaysForClears, radialDelaysForClears). Loosely inspired by
+// — not coupled to — the engine's own passScoreMultiplier (+25%/pass) and
+// per-cell tiering, so a later pass in a chain and a pass that cleared
+// more cells than a minimal 3-match both read as bigger, without the two
+// ever needing to be kept numerically in sync.
+export function passRewardIntensity(passIndex: number, clearedCount: number): number {
+  const passBoost = Math.min(1, passIndex * 0.35);
+  const sizeBoost = Math.min(1, Math.max(0, clearedCount - 3) * 0.12);
+  return Math.min(1, passBoost + sizeBoost);
+}
 
 // A blocker can clear several cascade steps away from the match a player
 // actually tapped, with nothing else on screen drawing the eye there first
@@ -182,6 +231,19 @@ export const SWEEP_GLOW_POP_MS = 110;
 // the same calm "one beat" weight as a single line sweep, not slower just
 // because it covers more area.
 export const COLOR_BOMB_WAVE_MS = 280;
+
+// The solo area bomb's own, much shorter radial travel budget (see
+// specialEffectAnimation.ts's PassAnimationOptions.areaBombWaveMs and
+// SPEC.md's "solo area bomb blast gets its own effect identity" decision).
+// A 3x3 blast's real distances from its own center top out around 1.4
+// cells — nothing like a color bomb's board-spanning reach — so reusing
+// COLOR_BOMB_WAVE_MS would make a small local blast travel for the same
+// amount of time as a whole-board detonation, reading as sluggish rather
+// than a tight, contained "whomp." Short enough to feel like one quick
+// beat, long enough that the outward travel is still visible rather than
+// an instant flat pop — the same "not a speed-up, a travel cadence"
+// reasoning SWEEP_TILE_STAGGER_MS's own comment already establishes.
+export const AREA_BOMB_WAVE_MS = 90;
 
 // The supercombo's two beats share one timing knob: the "conversion" flash
 // plays for exactly this long, and the synchronized pop-and-shrink for every

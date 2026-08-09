@@ -1,4 +1,4 @@
-# SPEC.md — Lala's Kitchen: Game-Feel Overhaul (piece-transition mechanics)
+# SPEC.md — Lala's Kitchen: Visual Reward Language Redesign
 
 <!--
 This file is the contract between the architect (me + conversational Claude)
@@ -14,7 +14,7 @@ Status meanings:
 -->
 
 **Status:** AGREED
-**Date agreed:** 2026-08-08 (Kevin, in conversation: "I'm good with all your recommendations")
+**Date agreed:** 2026-08-08 (Kevin, explicit delegation: "I'll let you decide so I can be surprised")
 **Owner:** Kevin
 
 ---
@@ -26,87 +26,82 @@ Status meanings:
      permission — no validation gate here. But be honest about the lane:
      a career-evidence build with no audience in mind is neither. -->
 
-**Problem:** Piece transitions still don't feel like other match-3 games
-(Royal Match, Candy Crush), a complaint that has survived five swap-tuning
-passes. A 2026-08-08 design review traced the remaining cause to structure,
-not tuning: (a) every fall runs one fixed 480ms duration regardless of
-distance, so pieces in the same cascade visibly move at different speeds
-(a 6-cell fall travels 6× faster than a 1-cell fall); (b) refill pieces
-materialize mid-board at a fixed `r - 2` with an opacity fade instead of
-streaming in from above the board edge; (c) cascade passes play as global
-lockstep beats on a fixed 480ms metronome (`cascadeStepIntervalMs`)
-regardless of pass content — a slideshow, not continuous motion; (d) falls
-decelerate to zero velocity (critically damped spring) and *then* play an
-impact squash, which is physically contradictory. The prior swap work
-(critical damping for swaps, squash-and-stretch, travel fix for the cleared
-half of a swap) is correct and is kept. The calm brief is not being traded
-away: smoothness in the reference games comes from continuity, not speed —
-this changes the *shape* of motion, not its intensity.
+**Problem:** A same-day fun-factor review (2026-08-08, architect playing
+on desktop) surfaced two concrete, traceable causes behind a vague "not
+sure the fun factor is there" concern — reported directly as "a whatever
+moment" and "mechanics don't really vary." First: every clearing effect
+in the game — an ordinary match, a blocker clear, a striped sweep, a
+color bomb detonation, an area bomb blast, a supercombo — renders using
+the exact same single shared color (`skinConfig.palette.accent`),
+differentiated only by shape and duration, both weak signals on a small
+moving tile. Real mechanical depth exists (specials, combos, chains,
+four objective types) but almost none of it is *visually* distinct in
+the moment it fires. Second: the engine already computes a per-move
+score with cascade tiers (`SCORE_TIER_POINTS`: ordinary/special/bomb =
+10/25/50 per cell, plus a `+25%`-per-pass chain multiplier) — but that
+signal is only ever displayed on `'score'`-type objective levels, a
+minority. On every other level, a genuinely impressive multi-pass chain
+and a flat one-off match currently look identical.
 
-**Lane:** Both. Joy first (the game's one real player experiences these
-transitions on every move, and the game is live on both stores). Career
-evidence second: "diagnosing game feel structurally instead of tuning
-constants for a sixth time" is a genuinely tellable engineering story.
+Both were previously assumed out of bounds under the "calm, not
+frantic" constraint. That reading was corrected the same day (see
+`CLAUDE.md`'s calm-scope clarification, commit `384e3fe`): the
+architect's own words were **"calm was more in relation to the sounds
+and micro transaction pressures"** — not visual richness or reward
+intensity. Pacing/timing is a separate, still-valid calm axis (the
+subject of `docs/specs/SPEC-game-feel-overhaul-2026-08-08.md`, shipped
+and verified the same day) and this spec does not touch it.
+
+**Lane:** Joy first — this directly targets "does playing this feel
+good," the actual open question. Secondarily, a fair career-evidence
+story: root-causing a vague "not fun" feeling to two specific, fixable
+defects (one shared color, one discarded feedback signal) instead of
+reaching for generic genre-convention fixes.
 
 ## 2. Scope
 
 **In scope (this build):**
-- **Distance-proportional fall timing.** A tile's fall duration derives
-  from its actual travel distance (both ends are already known in
-  `Tile.tsx`'s position effect: `rowShared.value` before assignment vs the
-  incoming `row`), shaped as `base + perCell × distance` with a cap, so all
-  falling pieces move at visually consistent speed and arrival times vary
-  naturally. Swap motion keeps its own fixed `swapDurationMs` — a swap is a
-  one-cell gesture and is already correct.
-- **Top-edge spawn streaming with board clipping.** Spawned refills enter
-  from above the board's top edge (stacked negative rows per column: the
-  Nth refill in a column starts N rows above the edge), fall their real
-  distance at the same distance-proportional timing, and are clipped by an
-  `overflow: hidden` board container. The `enterFromRow = r - 2` rule and
-  the spawn opacity fade-in are removed — a clipped entry needs no fade.
-- **Content-driven cascade pass scheduling.** Pass *i+1* begins when pass
-  *i*'s longest computed motion (fall or clear, whichever ends later)
-  lands, plus one short fixed breathing beat — replacing the flat
-  `cascadeStepIntervalMs = cascadeDurationMs` (480ms) metronome. The
-  engine's pass model (`applyMove`'s `steps`) is untouched; this is
-  presentation scheduling only. The existing chain-staging holds
-  (`chainHoldMs`) and terminal-overlay hold compose on top unchanged in
-  spirit, re-derived from the new per-pass duration.
-- **Accelerating fall easing.** Falls (and top-edge spawn entries) use an
-  accelerating gravity-like profile so a piece lands *with* velocity,
-  which is what motivates the existing squash-and-stretch landing beat.
-  Swaps and drag-return stay critically damped (`TILE_MOVE_DAMPING_RATIO
-  = 1`) — a hand placing a piece decelerates; a falling piece doesn't.
-- **Remove the artificial 25ms/column left-to-right drop stagger**
-  (`COLUMN_DROP_STAGGER_MS`) — with distance-based timing, arrival
-  variation emerges from physics and the choreographed ripple is no
-  longer needed.
-- **Ordinary-match anticipation beat** (fork resolved IN, 2026-08-08) —
-  matched tiles brighten/swell briefly before shrinking, the genre's
-  "recognize → celebrate → remove" grammar. Folded into the *front* of
-  the existing `matchDurationMs` budget the same way the sweep's
-  `SWEEP_GLOW_POP_MS` already is, so the clear's total time — and the
-  pass schedule arithmetic — is unchanged.
+- Give each clearing mechanism its own distinct, calm color — ordinary
+  match, blocker clear, striped sweep, color bomb / radial detonation,
+  area bomb blast, supercombo conversion + synchronized sweep. Same
+  intensity ceiling as today (soft washes, no particles, no flashing) —
+  differentiated by **hue**, not by loudness. The color set lives in
+  `skinConfig.palette` (new fields), consistent with every other color
+  in this codebase already being skin-configurable data.
+- Surface a version of the existing score/tier signal on **every**
+  level, not just `'score'`-type ones, so a bigger cascade visibly
+  reads as bigger regardless of objective type — resolved as a
+  visual-only intensity scaling on the existing overlays (see section 3's
+  "reward-scaling is visual-only" decision), never a new number.
+- Reconsider `MATCH_POP_MS`/`MATCH_POP_SCALE`/`MATCH_POP_OPACITY`
+  (added earlier the same day, under the old over-narrow reading of
+  "calm") now that intensity is confirmed not to be the constraint —
+  candidate for more visual weight, per the TODO decision on reward
+  budget below.
+- Any wiring changes in `cascadeTiming.ts`, `specialEffectAnimation.ts`,
+  `Tile.tsx`, and `Board.tsx`'s pass-animation plumbing needed to carry
+  a per-mechanism color and (if chosen) a per-pass score signal through
+  to presentation.
 
 **Explicitly out of scope:**
 <!-- Anything cut mid-build goes to DEFERRED_COMPLEXITY.md per the baseline,
      but known cuts get listed here up front so the runner never "helpfully"
      builds them. -->
-- **Continuous per-column gravity resolution** (the full genre model:
-  columns resolve locally and independently the moment space opens, no
-  global pass boundaries at all). This requires abandoning the engine's
-  settled-board pass snapshots as the presentation contract and touches
-  the same structural boundary the board-topology investigation already
-  declined to cross. Log in DEFERRED_COMPLEXITY.md; the in-scope items
-  are expected to capture most of the felt difference.
-- Any engine (`engine/`) change. `applyMove`, `calculateCascades`, and the
-  `steps` contract are untouched — this is a presentation-layer build.
-- Any change to special-effect identity animations (sweep travel, radial
-  ripple, supercombo beats, chain-link stagger). Their *delays* re-anchor
-  to the new pass schedule; their internal shapes and constants stay.
-- Any intensity increase: no particles, no screen shake, no flash beyond
-  the (forked) anticipation brighten. Calm brief holds.
-- Sound/haptics changes.
+- Sound defaults and haptics defaults — untouched; the reconfirmed
+  constraint is that these stay calm-by-default, full stop.
+- Any change to purchase/monetization pressure — untouched; nothing
+  purchasable remains nothing purchasable.
+- Motion timing, easing, pacing, or the pass-scheduling model — that's
+  `SPEC-game-feel-overhaul-2026-08-08.md`'s domain, already shipped and
+  verified same-day. This spec changes color/intensity of existing
+  overlays, never their duration or schedule, unless a decision below
+  says otherwise explicitly.
+- A full numeric score HUD redesign or new screen. If the score-signal
+  TODO resolves toward showing a number, the shape is reusing `Hud.tsx`'s
+  existing chip pattern, not new UI chrome.
+- New sound effects tied to any new visual moment.
+- Any further pacing/physics work (continuous per-column gravity, etc.)
+  — already deferred in the prior spec; unrelated axis, still deferred.
 
 ## 3. Architecture decisions
 
@@ -115,86 +110,192 @@ constants for a sixth time" is a genuinely tellable engineering story.
      alternative not taken. These blocks double as ADRs and as content seeds
      for the Career evidence section. -->
 
-### Decision: Distance-proportional durations, computed in the presentation layer
-- **Choice:** Per-tile fall duration = `base + perCell × |Δrow|`, capped;
-  computed where the motion starts (`Tile.tsx`'s position effect /
-  `ExitingTile`'s travel), from data already present. Constants live in
-  `cascadeTiming.ts` beside the existing motion constants.
-- **Why:** Uniform *velocity* (not uniform duration) is what makes genre
-  cascades read as physical. The effect site already knows both endpoints,
-  so no new data needs threading from Board or the engine.
-- **Rejected alternative and why:** A true acceleration integrator
-  (per-frame gravity simulation) — more physically pure, but Reanimated's
-  declarative duration+easing API expresses the same perceived profile
-  without a custom frame loop, and a closed-form duration keeps the pass
-  schedule computable (the content-driven scheduling below depends on
-  knowing each pass's longest motion up front).
+### Decision: "Calm" is scoped to sound + monetization, not visual richness
+- **Choice:** Already made, same day, in conversation — recorded in
+  `CLAUDE.md` (commit `384e3fe`). This spec exists because of it, not to
+  re-litigate it.
+- **Why:** The architect's own scoping of the original user research:
+  sound-off-by-default and no purchase/urgency pressure were the actual
+  protected properties. Visual distinctiveness and reward intensity were
+  never tested against real user feedback either way — they were an
+  extrapolation that overgrew the stated constraint.
+- **Rejected alternative and why:** Leaving the broad reading in place
+  and finding some other explanation for "whatever moment" / "mechanics
+  don't vary" — rejected because the single-shared-color and
+  hidden-score-signal causes are concrete, checked-in-code facts, not
+  speculation, and directly explain both reported symptoms.
 
-### Decision: Spawns stream from above the board edge, clipped, no fade
-- **Choice:** The Nth spawn in a column enters at row `-(N)` relative to
-  its column's segment top; the board container gains `overflow: hidden`;
-  the spawn opacity fade is deleted.
-- **Why:** Materializing mid-board at `r - 2` with a fade reads as
-  teleportation, and the fade exists only because there was no clipping to
-  hide an off-board entry. Streaming from the edge is how every reference
-  game reads, and it makes refill motion obey the same distance-based
-  timing as everything else.
-- **Rejected alternative and why:** Keeping the fade with a larger fixed
-  offset (e.g. `r - 4`) — still distance-blind, still materializes pieces
-  in mid-air on tall boards, and fixes neither the velocity inconsistency
-  nor the dreamlike fade. Also rejected: clipping via per-tile masks —
-  one `overflow: hidden` on the existing board frame is strictly simpler.
-- **Void-segment exception (fork resolved, 2026-08-08):** a spawn
-  refilling an *enclosed* segment (one whose top row is not the board's
-  row 0 — e.g. the plus shape's pocket) has no edge to stream from, and
-  entering "above the segment" would visibly cross a void. That one case
-  **retains a brief fade-in at its landing cell** (no travel) — the
-  no-fade rule applies only to segments that touch the board's top edge,
-  where streaming is physically possible. Rare by construction and
-  disclosed in DEFERRED_COMPLEXITY.md.
+### Decision: Per-mechanism colors live in `skinConfig.palette`, not a components-level constant
+- **Choice:** Extend `SkinPalette` with new effect-color fields rather
+  than hardcoding a color table in `cascadeTiming.ts` or `Tile.tsx`.
+- **Why:** Every other color in this codebase — `accent`, `panel`,
+  `border`, `text`, `mutedText`, `secondaryAccent` — is already
+  skin-configurable data. A components-level constant would be the one
+  place color diverges from that convention, and would make these
+  values invisible to a hypothetical second skin.
+- **Rejected alternative and why:** A components-level constant, e.g.
+  `EFFECT_COLORS` in `cascadeTiming.ts` — simpler to write, but breaks
+  the established "components never hardcode skin aesthetic data"
+  pattern and fails the leak test's spirit even though it doesn't
+  literally name a piece type.
 
-### Decision: Content-driven pass scheduling, engine pass model retained
-- **Choice:** `planCascadeAnimation` (already the single source of truth
-  for pass timing) computes each pass's start from the previous pass's
-  actual longest motion plus one short fixed beat, instead of a flat
-  480ms interval. Board's chained `setTimeout`s realize the same schedule
-  shape they do today.
-- **Why:** Kills the dead metronome air between beats — the largest
-  slideshow contributor — while keeping the engine contract, the chain
-  staging, the terminal-overlay hold, and the entire test surface of the
-  existing schedule model intact. `planCascadeAnimation` stays pure and
-  testable.
-- **Rejected alternative and why:** Continuous per-column resolution (see
-  out of scope) — the genre-ideal, but a structural rewrite of the
-  presentation/engine boundary that every shipped feature currently sits
-  on, for a gain the in-scope items mostly capture. Deferred, not denied.
+### Decision: Reward-scaling is visual-only — no new numeric HUD element
+- **Choice:** A bigger cascade shows up as a bigger version of the
+  existing color-wash overlay (opacity/scale scaled by a new pure
+  `passRewardIntensity` derivation), never as a number. The engine's
+  real `CascadeResolution.score`/`tierByKey` stay exactly as they are —
+  not threaded to the presentation layer, not exposed on
+  `ApplyMoveResult` beyond what's already there. The presentation-layer
+  signal is a deliberate, disclosed approximation (pass index + cells
+  cleared this pass), not a literal mirror of the engine's scoring
+  formula, so the two can never silently drift out of sync — there is
+  nothing to keep in sync.
+- **Why:** Confirmed by reading `engine/gameState.ts` directly (not
+  assumed, per the spec's own flagged TODO): `CascadeResolution.score`
+  is computed on every move regardless of objective type, but only the
+  whole-move TOTAL reaches `ApplyMoveResult` — there is no per-pass
+  breakdown exposed today, and growing that public contract for a
+  purely cosmetic feature would be a real engine-boundary change for a
+  presentation nicety. Deriving an equivalent-shaped signal
+  presentation-side is exactly the established pattern this animation
+  pipeline already uses everywhere (`sweepDelaysForClears`,
+  `radialDelaysForClears`, `buildPassAnimation` are all explicitly
+  "presentation-layer derivation, not new engine data," per their own
+  doc comments) — this is the same move, not a new kind of shortcut. A
+  number also risks conceptual confusion on a `'collect'`-objective
+  level with no numeric win condition ("am I being scored on this?"),
+  and adds a HUD element to a game whose minimal chrome (Target/Moves/
+  Lives only) has been a deliberate property since Home.tsx's own
+  "board renders close to edge to edge" constraint.
+- **Rejected alternative and why:** Threading the real engine score
+  per-pass into `ApplyMoveResult` and showing it as a number — more
+  "honest" in the sense of using the real value, but a materially
+  bigger and more invasive change (widens a documented, tested public
+  contract) for a feature explicitly meant to be a subtle felt signal,
+  not a new stat to track. Revisit only if the visual-only version is
+  tried and found insufficient.
 
-### Decision: Accelerating easing for falls; critical damping stays for swaps
-- **Choice:** Falls run an accelerating (ease-in-shaped, gravity-like)
-  profile into the landing squash; swaps, drag-return, and snap-back stay
-  on the critically damped duration-spring.
-- **Why:** The squash-and-stretch beat is an *impact* animation; impact
-  requires arrival velocity. The current decelerate-then-flinch sequence
-  is internally contradictory. Swaps are a different physical story (a
-  deliberate placement) and their current feel was explicitly tuned and
-  accepted — don't reopen it.
-- **Rejected alternative and why:** One easing for all motion (the current
-  state) — simpler, but it is precisely the incoherence being fixed. Also
-  rejected: reintroducing spring overshoot for landings — already tried
-  and reversed for cause (Follow-up 5: a tile leaving its own cell reads
-  as the grid flexing); the zero-overshoot rule stands.
+### Decision: Ordinary matches stay the most subdued mechanism in the reward hierarchy
+- **Choice:** Every mechanism gets its own color and its own intensity
+  ceiling, ordered `ordinary match < blocker/sweep < color bomb/area
+  bomb < supercombo`. Ordinary matches get a real, noticeable boost
+  from today's very faint `MATCH_POP_*` values (added earlier the same
+  day under the old, over-narrow reading of "calm") — but proportionally
+  the smallest boost of the set.
+- **Why:** Giving every mechanism the same intensity would fix
+  "mechanics don't vary" through color alone but reintroduce it through
+  feel — if a plain 3-match pops exactly as hard as a supercombo, colors
+  differ but *weight* doesn't, and the game's rarest, most impressive
+  moments stop reading as special. Two independent axes (which color,
+  how big) read as more legible together than either alone, and a
+  legible hierarchy is what a player's eye actually uses to judge "how
+  good was that." The specific report that started this whole spec was
+  about ordinary matches ("a whatever moment"), so they still need a
+  real, felt improvement — just not equal footing with a bomb.
+- **Rejected alternative and why:** Uniform intensity across all
+  mechanisms — simpler to implement and reason about, but directly
+  undermines the hierarchy that makes rare mechanics feel rare, which
+  is a real cost this spec's own problem statement argues against.
 
-### Decision: Anticipation beat for ordinary matches — IN (resolved 2026-08-08)
-- **Choice:** Ordinary match clears play a mild brighten-and-swell folded
-  into the front of `matchDurationMs` (the sweep's existing
-  pop-then-shrink pattern at lower intensity), then the normal shrink.
-- **Why:** Completes the feedback grammar — every special effect already
-  gets a pop; the game's most common event was the only one that just
-  evaporated. Folding it inside the existing clear budget means zero
-  pacing-arithmetic change, which was the original hesitation.
-- **Rejected alternative and why:** Deferring it — rejected by the
-  architect on recommendation, since implemented-inside-the-budget it
-  carries none of the pacing risk that motivated the fork.
+### Decision: Per-mechanism colors, chosen and verified against real CVD simulation
+- **Choice:** Six colors, one per mechanism (ordinary match reuses the
+  existing `palette.accent` unchanged, per the reward-budget decision
+  above — it doesn't need a new color, it needs restraint):
+  - ordinary match: `#A83A2E` (existing accent — unchanged)
+  - blocker: `#E8B84B` (warm gold)
+  - striped sweep: `#7FD1C9` (light teal)
+  - area bomb: `#23395B` (dark navy)
+  - color bomb: `#8B5FC7` (violet)
+  - supercombo: `#6B1E3C` (dark wine)
+  Live in a new `skinConfig.palette.effectColors` object.
+- **Why:** A first pass spread purely by hue (`#C9932A` gold /
+  `#3E8878` teal / `#4C6FA3` blue / `#7A5A9E` violet / `#B84C7A` rose,
+  plus the existing red) was checked computationally against a
+  Vienot-1999-style protanopia/deuteranopia simulation (the same class
+  of transform the prior sprite-art CVD pass used) and FAILED: sweep and
+  supercombo collapsed to a simulated distance of 3.0 (out of ~441
+  possible) under deuteranopia — visually identical to a red-green
+  colorblind player. Hue alone doesn't survive dichromatic simulation,
+  because a dichromat's vision collapses most of the red-green axis, so
+  hues that look obviously different to normal vision can co-locate on
+  whatever axis remains. The revised set varies genuinely in
+  **lightness** (a dark-navy/dark-wine/mid-violet/light-teal/light-gold
+  ladder) in addition to hue, which dichromats can still resolve even
+  when hue alone fails — re-simulated, minimum pairwise distance rose to
+  32.7 (protanopia) / 45.0 (deuteranopia), every pair genuinely
+  distinguishable.
+- **Rejected alternative and why:** The pure hue-wheel-spread first
+  pass — rejected on real computed evidence, not aesthetic preference;
+  see above. Also rejected: reusing `secondaryAccent` (`#7C8F6E` sage)
+  for one of the six — already has an established meaning elsewhere in
+  the app's chrome (borders, secondary buttons), and reusing it for an
+  effect wash would blur that meaning the same way the shared-accent
+  problem this whole spec exists to fix did.
+
+### Decision: `effectColor` is a new per-entry field, not a repurposed `accentColor`
+- **Choice:** `ExitingTile` gains a new optional `effectColor` prop,
+  defaulting to `accentColor` when absent, used ONLY by the wash
+  overlays (blocker highlight, sweep glow, radial glow, convert flash,
+  match pop). The tile's own border/chrome stays on the existing shared
+  `accentColor` unchanged.
+- **Why:** `accentColor` today drives both the tile's static border
+  stroke AND every wash overlay's color. Repurposing it wholesale would
+  recolor tile borders per-mechanism too, which was never asked for and
+  would be a much larger, riskier visual change than "give each clear
+  effect its own color." Keeping them separate is the minimal, correct
+  cut.
+- **Rejected alternative and why:** Overloading `accentColor` itself —
+  smaller prop surface, but conflates two genuinely different concerns
+  (persistent chrome color vs. momentary effect color) that happen to
+  share a default today only by coincidence.
+
+### Decision: The solo area bomb blast gets its own effect identity (new `area_bomb` descriptor kind)
+- **Choice:** Extend `SpecialEffectDescriptor` with a fourth kind,
+  `{ kind: 'area_bomb'; origin: Position }`, populated only for a
+  solo area-bomb-into-ordinary-piece swap (not the three area+special
+  combos, which keep falling through to the generic sweep, unchanged —
+  out of scope here). Its blast-radius cells get a short radial travel
+  (`radialDelaysForClears` reused with a new, much shorter
+  `AREA_BOMB_WAVE_MS`, appropriate to a 3×3 blast's small real distances)
+  instead of the flat instant-pop every other non-named effect falls
+  into.
+- **Why:** The spec's own in-scope list names "area bomb blast" as one
+  of the six mechanisms needing a distinct color. Investigation
+  confirmed the solo blast currently has NO distinct animation identity
+  at all beyond the bomb piece's own powder-poof — its surrounding
+  blast cells fall through to the same generic branch an ordinary match
+  uses (today, that's the new `matchPop` branch added earlier the same
+  day). Giving it a color without giving it *any* distinguishing motion
+  would leave it visually closer to a plain match than to the other five
+  named mechanisms, undermining the point of this spec for exactly the
+  effect it names first.
+- **Rejected alternative and why:** Leaving the area bomb's blast
+  radius on the generic branch, distinguished by color alone with no
+  motion change — simpler, but the existing radial-travel geometry
+  already exists and fits (reusing, not inventing, per Scope
+  Discipline) and every other named mechanism gets some real motion
+  identity, not just a recolor.
+
+## 3a. CVD verification (ran ahead of section 6, since it gated the color decision above)
+
+A Vienot-1999-style linear-RGB simulation (protanopia and deuteranopia
+matrices) was run against both candidate color sets before either was
+adopted — script and full output are not checked in (a scratch
+verification, not project code), but the numbers are recorded here since
+they're what the color decision above rests on:
+
+- First pass (pure hue spread): minimum pairwise simulated distance
+  20.6 (protanopia, area_bomb vs. color_bomb), **3.0** (deuteranopia,
+  sweep vs. supercombo) — failed.
+- Revised pass (lightness-varied): minimum pairwise simulated distance
+  32.7 (protanopia, area_bomb vs. supercombo), 45.0 (deuteranopia,
+  area_bomb vs. supercombo) — passed, adopted.
+
+This is the same rigor `docs/verification/accessibility-pass/colorblind-simulation/`
+established for piece-sprite art; section 6 below still calls for a
+proper checked-in verification artifact for these six effect colors
+before this spec is considered fully closed, since a hand-run scratch
+script is a real check but not yet a durable one.
 
 ## 4. Data model
 
@@ -202,15 +303,15 @@ constants for a sixth time" is a genuinely tellable engineering story.
      For anything multi-tenant or user-owned, state the enforcement
      mechanism explicitly (RLS forced, not just enabled). -->
 
-No database. This is a presentation-layer build in a client-only game;
-the "data model" is the animation-constant surface, listed so drift is
-checkable:
+No database — client-only game, presentation + skin-config layer only.
 
 | Table | Owned by | Access rule | Enforcement |
 |-------|----------|-------------|-------------|
-| `components/cascadeTiming.ts` constants (new: fall `base`/`perCell`/`cap`, pass breathing beat; removed: `COLUMN_DROP_STAGGER_MS`) | Presentation layer | Single source of truth for all motion timing; Board/Tile import, never inline numbers | Existing `cascadeTiming.test.ts` pattern — every constant exercised by a schedule test |
-| `skins/lalas-kitchen/config.json` `animationProfile` | Skin | Qualitative knobs only. Resolved 2026-08-08: `cascadeFallSpeed` now maps to a *velocity profile* (base + per-cell ms) in `cascadeTiming.ts`, not a flat duration — the config file itself is unchanged (still `"medium"`), only the mapping's meaning changes, per the leak test | Schema in `components/skinConfig.ts` |
-| `SaveData` | Engine | **Unchanged — this build must not touch persistence** | Existing `gameState.ts` load/save tests |
+| `skinConfig.palette` (new per-mechanism effect-color fields — exact field names TODO, proposed set below) | Skin | Read-only aesthetic data; `components/skinConfig.ts` schema | Existing `SkinPalette` interface, extended |
+| `cascadeTiming.ts`'s `MATCH_POP_*` constants (values only, not shape) | Presentation layer | Retuned per the reward-budget decision — ordinary matches boosted, still the most subdued mechanism | `cascadeTiming.test.ts` |
+| `skinConfig.palette.effectColors` (new: blocker/sweep/areaBomb/colorBomb/supercombo) | Skin | Read-only aesthetic data | `components/skinConfig.ts` schema |
+| Reward-intensity signal (`passRewardIntensity`, new pure function) | Presentation layer only — deliberately NOT sourced from `CascadeResolution.score` | Confirmed against `engine/gameState.ts`: `score` is computed on every move but only the whole-move total reaches `ApplyMoveResult`, no per-pass breakdown exists. Rather than widen that contract, the signal is derived presentation-side from pass index + cells cleared, the same "derive from the diff, not new engine data" pattern `sweepDelaysForClears`/`radialDelaysForClears` already use | New test file/section |
+| `SaveData` | Engine | **Unchanged** — no new persistence; a reward-scaling signal is presentation-only and level-scoped, same as `Objective.currentCount` today | Existing `gameState.ts` load/save tests |
 
 ## 5. Security posture
 
@@ -220,18 +321,16 @@ checkable:
      DEFERRED_COMPLEXITY.md with a reason). -->
 
 **Above the floor:**
-- Nothing new. No network surface, no persistence change, no new
-  dependency (explicitly: no animation library beyond the existing
-  Reanimated).
+- Nothing new. No network surface, no new dependency, no persistence
+  change.
 
 **Floor deferrals (should be empty):**
 - None introduced by this build.
 
-**Adversarial pass scheduled:** No — no attack surface changes. The
-adversarial equivalent for this build is the regression matrix in
-section 6 (the animation pipeline has a history of interaction bugs:
-zero-pass dropdown commits, drag-release offsets, chain staging, shuffle
-moving pieces upward).
+**Adversarial pass scheduled:** No — no attack surface changes. This
+build's equivalent scrutiny is the colorblind-safety check in section 6
+(a real accessibility regression risk a color-scheme change genuinely
+carries, unlike the prior spec's motion-only work).
 
 ## 6. Verification plan
 
@@ -240,24 +339,20 @@ moving pieces upward).
      has no signal listed, it is not verifiable, which means it is not done.
      Per the baseline: the trace, not the claim. -->
 
-There is no deployed server; "live" here means the real running app over
-CDP (the project's established capture method) plus the device in the
-field. Evidence lands in `docs/verification/game-feel-overhaul/`.
+No deployed server; "live" means the real running app over CDP (this
+project's established method) plus, decisively, real human play — more
+so than any prior spec, since "does this feel more fun" is the actual
+question being answered and no automated check can answer it.
 
 | Behavior | Command / probe | Signal that proves it |
 |----------|----------------|-----------------------|
-| Fall speed is distance-consistent | Frame-by-frame CDP trace of one move producing both a 1-cell and a ≥4-cell fall | Measured average px/frame within 25% between the two tiles (the small fixed `base` skews short falls slightly slower by design); 1-cell fall completes in ~`base + perCell` ms, not 480ms |
-| Spawns stream from the top edge | CDP trace of a multi-spawn column refill | Each spawn's first visible pixel is at/above the board's top edge; no mid-board first frame; no opacity ramp on a spawn |
-| Board clips off-board tiles | Same trace | No tile pixel ever renders outside the board frame's bounds |
-| Pass schedule is content-driven | Timestamp log of `runStep(i)` calls for a ≥3-pass cascade with mixed fall depths | Inter-pass gaps ≈ (that pass's longest motion + beat), varying pass to pass; no constant 480ms spacing |
-| Falls accelerate; swaps don't | Per-frame position deltas from the trace | Fall deltas increase monotonically until landing; swap deltas keep the current critically damped profile (unchanged vs a pre-build reference trace) |
-| Squash beat still plays, at landing | Trace of a fall's final frames | Scale distortion begins within one frame of position arrival |
-| Swap feel regression: none | Re-run the `docs/verification/swap-smoothness/` capture method | Swap traces byte-comparable in profile to current build (duration, damping, squash) |
-| Zero-pass dropdown swap still commits (known crash class) | Scripted dropdown sideways swap with no match/arrival | Move commits, both tiles relocate, no throw — same probe as `docs/verification/dropdown-escort-mechanic/` |
-| Chain staging still staggers per link | Re-run `docs/verification/chain-staging/` probe | Wave *w* cells begin clearing `w × CHAIN_LINK_STAGGER_MS` after wave 0, on the new schedule |
-| Terminal overlay never cuts off the final pass | Winning-move trace | Overlay's first frame is after the final pass's longest motion + hold, per the updated `planCascadeAnimation` |
-| Test suite green | `npx jest` | All passing, including new schedule/duration unit tests (current baseline: 657) |
-| It actually *feels* right | Real on-device play by Kevin (and the game's real player) after the next build/OTA ships | **Closed 2026-08-08**: the overhaul reached Kevin's Android device via the first real OTA update (group `e1e7d937`) and his field report — "feels better than it did" — confirms improvement on real hardware. Honest scope of the claim: better, not declared perfect; further feel reports feed the normal playtest protocol, and every constant is retunable OTA. The game's real player (iOS) sees it at the next iOS-reaching update/build. |
+| Each mechanism renders in its own color, not the shared accent | Live CDP trace/screenshot comparing an ordinary match, a striped sweep, a bomb detonation, and a supercombo side by side | Visibly distinct hues per effect type, not shape/duration alone |
+| New effect colors are colorblind-safe | **Preliminary pass done** (section 3a): Vienot-1999-style protanopia/deuteranopia simulation of the six hex values, run before adoption — min pairwise distance 32.7/45.0. Still open: a proper checked-in verification artifact against the actual rendered board background, matching `docs/verification/accessibility-pass/colorblind-simulation/`'s rigor | Every effect distinguishable under both simulations; a durable artifact exists, not just a scratch script's console output |
+| Reward/tier signal is visible on a non-score-type level | Real `applyMove` trace across a multi-pass cascade on a `'collect'`-objective level | The chosen signal (visual scaling or a number) responds visibly to pass depth, where before nothing did |
+| The ordinary-match pop reads as more rewarding, not more chaotic | Live side-by-side of the pre- and post-revision `MATCH_POP_*` values | Architect's own judgment call — this row is explicitly not automatable |
+| No regression to swap feel, fall physics, or pass scheduling | Re-run the prior spec's own verification rows (fall-speed consistency, spawn streaming, pass-before-overlay ordering) | Unchanged from `SPEC-game-feel-overhaul-2026-08-08.md`'s closed state |
+| Test suite green | `npx jest` | **Done**: 788/788 passing (up from 771), including new coverage for `resolveEffectColor`'s priority order, `resolveSpecialEffectDescriptor`'s solo-vs-combo area-bomb split (with the swap-anchor-cross-checked origin fix), and `passRewardIntensity`/`scaledByReward`'s monotonicity/ceiling guarantees |
+| It actually *feels* more fun | Real play by Kevin, and ideally the game's real player, after the next OTA | The row that decides whether this spec succeeded — the stated problem was "not sure the fun factor is there," and that's a felt judgment, not a metric |
 
 ## 7. Career evidence
 
@@ -270,14 +365,16 @@ field. Evidence lands in `docs/verification/game-feel-overhaul/`.
      evidence in hand, and this checklist done. "Technically complete" with
      this section empty means the project is not complete. -->
 
-- [ ] One debugging story written up while fresh: "five tuning passes
-      didn't fix game feel because the problem was structural — fixed
-      duration vs fixed velocity" (bug, hunt, root cause)
-- [ ] Before/after capture pair (screen recording of the same cascade on
-      both builds) — the single most shareable artifact this build produces
-- [ ] One decision block from section 3 turned into a post draft
-      (candidate: "content-driven scheduling vs continuous gravity —
-      keeping the engine boundary")
+- [ ] One debugging story written up while fresh: "a vague 'not fun'
+      report traced to two concrete causes — one shared color across
+      every mechanic, one discarded feedback signal — instead of guessed
+      genre-convention fixes"
+- [ ] Before/after color comparison capture (the same cascade, old
+      single-accent-wash vs. new per-mechanism colors)
+- [ ] A decision-block-to-post candidate: "a design constraint that had
+      silently overgrown its actual scope, and how a five-minute
+      scoping conversation unblocked real work" (the calm-scope
+      clarification itself)
 
 ## 8. Change log
 
@@ -287,6 +384,6 @@ field. Evidence lands in `docs/verification/game-feel-overhaul/`.
 
 | Date | Change | Why |
 |------|--------|-----|
-| 2026-08-08 | DRAFT → AGREED; all five open TODOs resolved per runner recommendations (anticipation beat IN, enclosed-segment spawns fade in place, `cascadeFallSpeed` becomes a velocity profile, tuning constants are runner-proposed and trace-verified, on-device check assigned to Kevin) | Kevin approved all recommendations in conversation |
-| 2026-08-08 | Implementation landed plus three same-day playtest fixes the spec didn't foresee: clears and falls made SEQUENTIAL within a pass (`passFallDelayMs` — the spec's concurrent max model unmasked a latent overlap), exiting tiles joined the row-based stacking scheme, and surviving swapped pieces gained the two-leg detour (`planSwapDetours` — the settled-diff model can't see a gravity-dropped-straight-back partner). Desktop feel check by Kevin: "so much smoother now." The on-device row remains open. | Live desktop playtest, three real reports, each fixed and re-verified in-session |
-| 2026-08-08 | Shipped OTA (first real EAS Update this project has ever published — see `engine/DECISIONS.md`'s first-OTA-publish entry) and on-device row closed: Kevin's Android field report, "feels better than it did." Spec fully verified; feature done per its own definition. | The OTA round-trip and the device feel check closed each other in one step |
+| 2026-08-08 | Drafted, status DRAFT. Prior `SPEC.md` (game-feel overhaul) archived to `docs/specs/SPEC-game-feel-overhaul-2026-08-08.md`, fully AGREED and verified — a separate, completed initiative, not overwritten. | New, distinct initiative per the spec skill's "do not overwrite an existing spec" rule |
+| 2026-08-08 | DRAFT → AGREED. All four open forks resolved by the runner per explicit delegation ("I'll let you decide so I can be surprised"): reward-scaling is visual-only (no new HUD number), ordinary matches stay the most subdued mechanism in a real intensity hierarchy, six per-mechanism colors chosen and CVD-verified (a first hue-only pass failed simulation and was revised), the solo area bomb blast gets a new `area_bomb` descriptor kind for its own motion identity. | Kevin's delegation is the go-ahead; each decision recorded with its rejected alternative in section 3 |
+| 2026-08-08 | Implemented and tested: `skinConfig.palette.effectColors`, `passRewardIntensity`/`scaledByReward` (cascadeTiming.ts), the `area_bomb` descriptor kind (with a swap-anchor-cross-checked origin fix caught before shipping — a solo area bomb follows the bomb's post-swap cell, not its pre-swap one, mirroring the established rule for every other local swap-triggered effect), `resolveEffectColor`/`radialKind`/`rewardIntensity` threaded through `ExitingEntry`/`Tile.tsx`/`Board.tsx`. 788/788 tests. **Not yet closed**: the felt/visual verification row — the board cannot render in this session's browser pane, so the color and intensity changes are unconfirmed against a real cascade. | Implementation session; the open row is the same "needs a real human check" standard the game-feel spec closed with |

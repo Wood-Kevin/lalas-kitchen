@@ -15,19 +15,25 @@ import { sweepDelaysForClears } from './sweepAnimation';
 // only decides HOW the presentation layer animates cells that are already
 // known to be clearing.
 //
-// Deliberately narrow to the three effects this module gives real identity to.
-// An area-bomb swap never matches here — the solo case already has its own
-// distinct powder-burst animation (Tile.tsx/Board.tsx, unrelated to this
-// module), and the three area+special combos (which DO commit as real combos
-// now — an earlier version of this note still described them as deferred
-// snap-backs that never reached animateCascade) simply fall through to the
-// generic sweep rather than getting a fourth descriptor kind. Giving them
-// their own identity is a separate, unbuilt nicety — see
-// DEFERRED_COMPLEXITY.md.
+// Deliberately narrow to the four effects this module gives real identity
+// to. The three area+special COMBOS (area swapped directly into another
+// special — distinct from the solo case below) still simply fall through to
+// the generic sweep rather than getting their own descriptor kind — out of
+// scope for the visual-reward-language spec that added the solo case, since
+// only "area bomb blast" (the solo detonation) was named in that spec's
+// scope, not the combos. Giving the combos their own identity too remains a
+// separate, unbuilt nicety — see DEFERRED_COMPLEXITY.md.
 export type SpecialEffectDescriptor =
   | { kind: 'color_bomb'; origin: Position }
   | { kind: 'striped_cross'; origin: Position }
-  | { kind: 'supercombo'; bombPieceId: string; targetMatchType: string | undefined };
+  | { kind: 'supercombo'; bombPieceId: string; targetMatchType: string | undefined }
+  // The SOLO area-bomb-into-ordinary-piece swap (see SPEC.md's "solo area
+  // bomb blast gets its own effect identity" decision). Before this, the
+  // blast radius had no distinguishing animation at all beyond the bomb
+  // piece's own powder-poof — its surrounding cells fell through to the
+  // same generic branch an ordinary match uses, undermining the point of
+  // giving this mechanism its own color with no motion to go with it.
+  | { kind: 'area_bomb'; origin: Position };
 
 export function resolveSpecialEffectDescriptor(
   board: Board,
@@ -36,13 +42,28 @@ export function resolveSpecialEffectDescriptor(
 ): SpecialEffectDescriptor | undefined {
   const pieceA = board[posA.row][posA.col];
   const pieceB = board[posB.row][posB.col];
-  // Mirrors applyMove's branch order exactly: the area-bomb branch is checked
-  // FIRST there too, so an area+color_bomb swap is never mistaken for a solo
-  // detonation — it's either the area bomb's own local 3x3 blast (area +
-  // ordinary, which already has its own distinct powder-burst identity,
-  // unrelated to this module) or a deferred area+special combo that snaps
-  // back before animateCascade ever runs this function on it.
-  if (pieceA.type === 'area_bomb' || pieceB.type === 'area_bomb') return undefined;
+  const aArea = pieceA.type === 'area_bomb';
+  const bArea = pieceB.type === 'area_bomb';
+  if (aArea || bArea) {
+    // Mirrors applyMove's own branch order: an area bomb swapped into
+    // ANOTHER special is a combo (area+color/area+striped/area+area),
+    // which still falls through to undefined/generic — unchanged, out of
+    // scope here. Only a swap into an ordinary piece is the solo
+    // detonation this descriptor now identifies.
+    const other = aArea ? pieceB : pieceA;
+    if (other.type === 'striped' || other.type === 'color_bomb' || other.type === 'area_bomb') {
+      return undefined;
+    }
+    // Unlike color_bomb below (position-independent — it never actually
+    // swaps, so its pre-move cell IS its final cell), a solo area bomb is
+    // one of the swap-anchor rule's LOCAL effects: applyMove stages a real
+    // swap for it, and CLAUDE.md's swap-anchor entry is explicit that the
+    // blast "follows the bomb to wherever it lands," not its pre-swap
+    // cell — a real playtest-reported bug ("blast one cell off") when this
+    // was gotten backwards elsewhere in the same effect family. The bomb's
+    // post-swap cell is the OTHER position from where it started.
+    return { kind: 'area_bomb', origin: aArea ? posB : posA };
+  }
   const aStriped = pieceA.type === 'striped';
   const bStriped = pieceB.type === 'striped';
   const aBomb = pieceA.type === 'color_bomb';
@@ -186,6 +207,11 @@ export function supercomboConvertedIds(
 export interface PassAnimationOptions {
   perTileStaggerMs: number;
   radialWaveMs: number;
+  // The area bomb's own, much shorter radial travel budget — a 3x3 blast's
+  // real distances top out around 1.4 cells, nothing like a board-spanning
+  // color bomb wave, so it gets its own constant rather than reusing
+  // radialWaveMs (see cascadeTiming.ts's AREA_BOMB_WAVE_MS).
+  areaBombWaveMs: number;
   supercomboConvertMs: number;
   chainLinkStaggerMs: number;
 }
@@ -293,6 +319,22 @@ export function buildPassAnimation(
     return staged({
       sweepDelays: genericSweep,
       radialDelays: radialDelaysForClears(cleared, effect.origin, options.radialWaveMs),
+      convertedFlashIds: new Set(),
+    });
+  }
+
+  if (effect.kind === 'area_bomb') {
+    // Reuses the same radial-distance geometry a color bomb's wave uses —
+    // no new shape, just a far shorter travel budget appropriate to a
+    // local 3x3 blast (see PassAnimationOptions.areaBombWaveMs). This is
+    // what gives the solo area bomb blast the motion identity it never
+    // had before (see SPEC.md's "solo area bomb blast" decision) — its
+    // color comes from Board.tsx's per-entry effectColor resolution,
+    // which distinguishes it from a color_bomb wave despite sharing this
+    // same radialDelayMs channel.
+    return staged({
+      sweepDelays: genericSweep,
+      radialDelays: radialDelaysForClears(cleared, effect.origin, options.areaBombWaveMs),
       convertedFlashIds: new Set(),
     });
   }
