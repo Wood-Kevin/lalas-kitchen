@@ -6252,3 +6252,91 @@ board-render limitation in this project's browser-pane environment (see
 board. The fix itself is a direct, mechanical application of the same "exceed the known maximum"
 technique `Tile.tsx` already uses for its own drag-vs-fall zIndex escalation (100000 vs. row*1000),
 not a novel technique needing its own live confirmation.
+
+## Loop variety, round two: shuffle-bagging board-shape and blocker-type rotation (2026-08-09)
+
+**The trigger.** A follow-up to the "generated difficulty ramp flatlines" disclosure (the
+playability-pass entry above, and `DEFERRED_COMPLEXITY.md`'s matching item): every numeric
+difficulty lever (piece types, moves, target, blocker count) has capped out by roughly generated
+level 13, so a save this deep (the real player is past level 330) has had frozen difficulty for
+hundreds of levels, with only board shape / blocker type / objective type still nominally
+"varying." The architect confirmed the direction before any code changed — offered three options
+(more variety without touching difficulty, letting difficulty keep climbing slowly, a periodic
+milestone/callback system) and picked the first, explicitly protecting the calm/not-punishing
+design brief from a real risk the second option carried: an endlessly climbing ramp works directly
+against "built for someone who plays to relax," a real user-research constraint, not a guess.
+
+**What "more variety" concretely meant.** Investigated first, not guessed: the loop-variety pass
+two sessions ago already replaced objective-type selection's plain
+`(levelNumber - MIN) % CADENCE === 0` arithmetic with a seeded shuffle-bag, but explicitly left
+board-shape rotation and blocker-type rotation on their original round-robin schemes — logged in
+`DEFERRED_COMPLEXITY.md` as "revisit only if that specific predictability is ever independently
+reported," which is exactly this session. Offered three concrete candidates (shuffle-bag the two
+remaining rotations; add more board-shape templates; let clearance levels keep their blockers, a
+real generator-ordering rework) and the architect picked the smallest, lowest-risk one — reusing
+proven infrastructure rather than a new content pipeline.
+
+**A genuinely different shuffle-bag shape was needed, not a copy-paste of the objective-type one.**
+`shuffledBagHitPosition`/`isMechanicLevel` (the existing machinery) answer a boolean "is THIS the
+bag's one hit" question — right for objective type (a rare, occasional flavor), wrong for shape/
+blocker rotation, where every eligible level gets an item and the real question is "which of N."
+The correct technique for that is the literal Tetris-7-bag algorithm: shuffle a full permutation of
+`[0, itemCount)` per cycle, deal it out in that order, reshuffle for the next cycle — guarantees
+exactly one appearance of every item per complete cycle (preserving the exact long-run frequency
+the old round-robin had) while making the sequence itself unpredictable. New helpers
+`shuffledBagOrder`/`shuffledBagIndex` (`appPersistence.ts`) implement this, kept deliberately
+separate from `shuffledBagHitPosition` rather than overloading one function for two different
+contracts.
+
+**A real, specific regression risk was actively guarded against, not just accepted.** Board-shape
+rotation already had a real playtest report once ("the same board shape keeps appearing"), fixed
+at the time with a one-off `SHAPE_ROTATION_OFFSET` patch to the old round-robin math. A naive
+7-bag can still deal the same item twice across a cycle boundary — genuinely normal Tetris-bag
+behavior — which would silently reopen that exact complaint. `shuffledBagIndex` guards this
+directly: if a new cycle's shuffled first slot would match the previous cycle's last item, it swaps
+that slot with the next one — still a valid permutation of the new cycle, just never adjacent to
+itself across the seam. Applied unconditionally (not just for shapes), since it's a strict
+improvement with no real downside for blocker rotation either. `SHAPE_ROTATION_OFFSET` itself is
+gone — it patched arithmetic that no longer exists, and the new boundary guard covers the same
+symptom generally rather than for one specific historical coincidence.
+
+**A real bug in the first implementation, caught by the test suite itself, not eyeballing.** The
+boundary guard's first version only ran when `positionInCycle === 0` was being queried — but each
+call to `shuffledBagIndex` independently recomputes the cycle's order from scratch (no state shared
+between calls), so querying position 1 of a cycle never saw the swap position 0's own query had
+applied, and both ended up returning the same (pre-swap) value — an actual duplicate within one
+cycle. Caught immediately by the new "every item appears exactly once per cycle" test (`Set` size 5
+instead of 6), not discovered by later inspection. Fixed by running the boundary check
+unconditionally on every call for a given cycle, not gated on which position is being asked for —
+a real demonstration of why the invariant-based tests (not just spot-checking a few outputs) were
+worth writing before calling this done.
+
+**Blocker-id selection's own extraction.** The blocker-rotation call site (previously an inline
+expression inside `buildGeneratedLevelConfig`) was pulled into its own exported `generatedBlockerId`
+function — mirroring `generatedShapeId`'s own shape — specifically so it's directly testable
+without also exercising `buildGeneratedLevelConfig`'s unrelated gating (clearance/escort forcing
+blockers off entirely would otherwise inject `undefined` gaps into any rotation-sequence assertion
+built only through that wider entry point). `eligibleIds.length` itself grows over a save's early
+life (pot_lid unlocks at level 7, sealed_jar at 12) — `generatedBlockerId` is a pure function of
+`levelNumber` and the *current* pool, so nothing about a past level's already-dealt blocker is
+rewritten when the pool later grows, and the fairness/no-repeat guarantees hold exactly everywhere
+except the two one-time pool-size-change boundaries (levels 7 and 12) — a real, minor, disclosed
+edge case affecting only the very start of any save's generated-level life, not the 300+ levels
+past it.
+
+**Test migration, same shape as the earlier objective-type pass.** `generatedShapeId`'s
+exact-position test ("rotates through every template ... offset by one") was rewritten to
+invariants (off-cadence exclusion, determinism, below-threshold, exactly-once-per-cycle across
+several cycles, never-adjacent-repeat) rather than re-encoding today's salt as a magic expected
+value. Four `buildGeneratedLevelConfig` tests that hardcoded a specific `BOARD_SHAPE_ROTATION[k]`
+for a specific level number were re-pointed to call `generatedShapeId` directly and use its real
+return value — robust to the algorithm regardless of which specific template a given level number
+now lands on. A new `describe('generatedBlockerId', ...)` block mirrors `generatedShapeId`'s own
+invariant tests.
+
+**Verification:** 860/860 tests (up from 855 before this entry — 5 new `generatedBlockerId` tests,
+3 new/rewritten `generatedShapeId` invariant tests replacing 1 exact-position test, net +6 minus 1
+removed). `tsc` override shows the same 4 pre-existing, unrelated errors only. Not live-verified —
+this is generator/persistence logic with no visual surface of its own; the actual felt effect (does
+a deep-save player's board shape/blocker sequence read as less predictable) can only be confirmed
+by real extended play, the same standing gap disclosed for the original objective-type shuffle-bag.

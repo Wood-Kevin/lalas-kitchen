@@ -28,6 +28,7 @@ import {
   SCORE_OBJECTIVE_TUTORIAL_ID,
   CLEARANCE_OBJECTIVE_TUTORIAL_ID,
   ESCORT_OBJECTIVE_TUTORIAL_ID,
+  generatedBlockerId,
   generatedLevelSeed,
   generatedMovesLimit,
   generatedObjectiveCount,
@@ -700,37 +701,21 @@ describe('generatedLayerCells', () => {
 });
 
 describe('generatedShapeId', () => {
-  // SHAPE_ROTATION_OFFSET (1) shifts the rotation's starting point by one
-  // step, so the very first shaped level lands on BOARD_SHAPE_ROTATION[1]
-  // (plus), not [0] (cut_corners) — closing the coincidental back-to-back
-  // repeat with hand-built level 7 "Pantry Corners", which also uses
-  // cut_corners (see appPersistence.ts's SHAPE_ROTATION_OFFSET doc).
-  test('a shape appears at the very first generated level — threshold is now 1', () => {
-    expect(generatedShapeId(1)).toBe(BOARD_SHAPE_ROTATION[1]);
-  });
+  // Rewritten from exact-position assertions to invariants when the old
+  // deterministic round-robin (plus its one-off SHAPE_ROTATION_OFFSET patch)
+  // was replaced by a real shuffle-bag (shuffledBagIndex) — a real playtest
+  // report ("levels on the shape rotation feel predictable") — see
+  // engine/DECISIONS.md's loop-variety entry. Exact-position assertions
+  // would just be re-encoding today's salt as a magic expected value; these
+  // instead assert the actual contract the algorithm promises, the same
+  // pattern isScoreObjectiveLevel/isClearanceObjectiveLevel/
+  // isEscortObjectiveLevel were rewritten to in the same pass.
 
   test('off-cadence levels get no shape (1 in 2, half of all generated levels)', () => {
     // Threshold is 1, cadence is 2 -> odd levelNumbers are on-cadence, even are not.
     for (const levelNumber of [2, 4, 6, 8, 10]) {
       expect(generatedShapeId(levelNumber)).toBeUndefined();
     }
-  });
-
-  test('rotates through every template in BOARD_SHAPE_ROTATION order across successive on-cadence levels, offset by one', () => {
-    // Rotation is now length 6 (the 3 newer templates appended — see
-    // engine/DECISIONS.md's board-shape-variety-expansion entry), so these
-    // 6 on-cadence levels are exactly one full cycle, not two trips around
-    // a length-3 list the way this test read before.
-    const onCadenceLevels = [1, 3, 5, 7, 9, 11];
-    const seen = onCadenceLevels.map((levelNumber) => generatedShapeId(levelNumber));
-    expect(seen).toEqual([
-      BOARD_SHAPE_ROTATION[1],
-      BOARD_SHAPE_ROTATION[2],
-      BOARD_SHAPE_ROTATION[3],
-      BOARD_SHAPE_ROTATION[4],
-      BOARD_SHAPE_ROTATION[5],
-      BOARD_SHAPE_ROTATION[0],
-    ]);
   });
 
   test('is deterministic — the same levelNumber always returns the same shape', () => {
@@ -740,6 +725,39 @@ describe('generatedShapeId', () => {
   test('a levelNumber below 1 (defensive — never reached by real generated levels) still yields no shape', () => {
     expect(generatedShapeId(0)).toBeUndefined();
   });
+
+  test('every template appears exactly once per full cycle of on-cadence levels', () => {
+    // BOARD_SHAPE_ROTATION.length on-cadence levels = one complete bag cycle
+    // (threshold 1, cadence 2 -> on-cadence levels are 1, 3, 5, ...).
+    const cycleLength = BOARD_SHAPE_ROTATION.length;
+    const onCadenceLevels = Array.from({ length: cycleLength }, (_, i) => 1 + i * 2);
+    const seen = onCadenceLevels.map((levelNumber) => generatedShapeId(levelNumber));
+    expect(new Set(seen).size).toBe(cycleLength);
+    for (const shapeId of BOARD_SHAPE_ROTATION) {
+      expect(seen).toContain(shapeId);
+    }
+  });
+
+  test('this holds across several cycles, not just the first', () => {
+    const cycleLength = BOARD_SHAPE_ROTATION.length;
+    for (let cycle = 0; cycle < 5; cycle++) {
+      const onCadenceLevels = Array.from({ length: cycleLength }, (_, i) => 1 + (cycle * cycleLength + i) * 2);
+      const seen = onCadenceLevels.map((levelNumber) => generatedShapeId(levelNumber));
+      expect(new Set(seen).size).toBe(cycleLength);
+    }
+  });
+
+  test('never deals the same template twice in a row, including across a cycle boundary', () => {
+    // The exact symptom a real playtest report flagged for the old
+    // round-robin ("the same board shape keeps appearing") — guarded
+    // directly in shuffledBagIndex, asserted here end to end.
+    const cycleLength = BOARD_SHAPE_ROTATION.length;
+    const onCadenceLevels = Array.from({ length: cycleLength * 6 + 1 }, (_, i) => 1 + i * 2);
+    const seen = onCadenceLevels.map((levelNumber) => generatedShapeId(levelNumber));
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i]).not.toBe(seen[i - 1]);
+    }
+  });
 });
 
 describe('buildGeneratedLevelConfig', () => {
@@ -748,13 +766,16 @@ describe('buildGeneratedLevelConfig', () => {
     // generatedPieceTypeCount), which is below MIN_TYPES_FOR_SECOND_OBJECTIVE,
     // so this is still a single-objective level — an array of length one,
     // not a special case. SHAPE_MIN_LEVEL_NUMBER is now 1, so this very first
-    // generated level is also shaped (rotation[1], plus at 8x6 — offset by
-    // SHAPE_ROTATION_OFFSET to avoid repeating Pantry Corners' cut_corners) —
+    // generated level is also shaped — which specific template no longer
+    // matters (a real shuffle-bag now, see generatedShapeId's own describe
+    // block), so the void cells are derived from calling the real function.
     // movesLimit/targetCount are computed via the real playableRatio-scaled
     // helpers rather than hand-typed, so this test can't silently drift from
     // the actual scaling formula the way a hardcoded number would.
     const config = buildGeneratedLevelConfig(4, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6);
+    const shapeId1 = generatedShapeId(1);
+    expect(shapeId1).toBeDefined();
+    const voidCells = BOARD_SHAPE_TEMPLATES[shapeId1!](8, 6);
     const ratio = playableCellRatio(8, 6, voidCells);
     expect(config).toEqual({
       seed: 301,
@@ -774,9 +795,11 @@ describe('buildGeneratedLevelConfig', () => {
     // 3/5, clearance 5/6, escort 7/8) — each of those replaces the objectives
     // array outright, so a collect-shaped assertion needs a level none of them
     // claims. (This test used to use generated level 7, which is now an escort
-    // level.) It's also shaped (rotation[5] — level 9's steps-since-threshold,
-    // 8, halves to 4, offset by SHAPE_ROTATION_OFFSET (1) to (4+1)%6 = 5), so
-    // the shared total below is generatedTargetCount(9, ratio), not the
+    // level.) It's also shaped — which specific template no longer matters to
+    // this test (the shape rotation is a real shuffle-bag now, see
+    // generatedShapeId's own describe block), so the void cells are derived
+    // from calling the real function rather than re-deriving an index by
+    // hand. The shared total below is generatedTargetCount(9, ratio), not the
     // unscaled figure a plain rectangle would get. That total is the TOTAL
     // burden shared across the objectives, not a per-objective quota —
     // divided by 2, not doubled. An earlier version of this test asserted the
@@ -784,7 +807,9 @@ describe('buildGeneratedLevelConfig', () => {
     // level demanding double an equivalent single-objective one) as intended
     // behavior — see engine/DECISIONS.md's target-sharing entry.
     const config = buildGeneratedLevelConfig(12, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[5]](8, 6);
+    const shapeId = generatedShapeId(9);
+    expect(shapeId).toBeDefined();
+    const voidCells = BOARD_SHAPE_TEMPLATES[shapeId!](8, 6);
     const ratio = playableCellRatio(8, 6, voidCells);
     const perObjective = Math.ceil(generatedTargetCount(9, ratio) / 2);
     expect(config.pieceTypeIds).toEqual(['A', 'B', 'C', 'D', 'E']);
@@ -1079,12 +1104,14 @@ describe('buildGeneratedLevelConfig', () => {
 
   test('voidCells appear at the very first generated level and match the curated template exactly', () => {
     // levelIndex 4 -> generated level number 1 (HAND_BUILT_COUNT is 3) ->
-    // SHAPE_MIN_LEVEL_NUMBER is now 1, so this is on-cadence from the start —
-    // but SHAPE_ROTATION_OFFSET (1) shifts the starting index, landing on
-    // rotation[1] ('plus') rather than rotation[0] ('cut_corners'), closing
-    // the coincidental repeat with hand-built Pantry Corners.
+    // SHAPE_MIN_LEVEL_NUMBER is now 1, so this is on-cadence from the start.
+    // Which specific template no longer matters here (a real shuffle-bag
+    // now, see generatedShapeId's own describe block) — derived from the
+    // real function rather than a hand-computed rotation index.
     const config = buildGeneratedLevelConfig(4, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, []);
-    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[1]](8, 6));
+    const shapeId = generatedShapeId(1);
+    expect(shapeId).toBeDefined();
+    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[shapeId!](8, 6));
   });
 
   test('off-cadence levels get no voidCells (1 in 2, half of all generated levels)', () => {
@@ -1097,12 +1124,16 @@ describe('buildGeneratedLevelConfig', () => {
   });
 
   test('a shaped level composes freely with blockers — voidCells are set independent of blocker gating', () => {
-    // levelIndex 6 -> generated level number 3: still on-cadence (rotation
-    // index 2, 'ring' — offset by SHAPE_ROTATION_OFFSET) and past blockers'
-    // own INTRODUCE_AT_LEVEL (3), so both are genuinely active on the same
-    // level, not just one or the other.
+    // levelIndex 6 -> generated level number 3: still on-cadence and past
+    // blockers' own INTRODUCE_AT_LEVEL (3), so both are genuinely active on
+    // the same level, not just one or the other. Which specific template no
+    // longer matters here (a real shuffle-bag now, see generatedShapeId's
+    // own describe block) — derived from the real function instead of a
+    // hand-computed rotation index.
     const config = buildGeneratedLevelConfig(6, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
-    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[2]](8, 6));
+    const shapeId = generatedShapeId(3);
+    expect(shapeId).toBeDefined();
+    expect(config.voidCells).toEqual(BOARD_SHAPE_TEMPLATES[shapeId!](8, 6));
     expect(config.blockerCount).toBeGreaterThan(0);
   });
 
@@ -1115,8 +1146,8 @@ describe('buildGeneratedLevelConfig', () => {
   // — not just present but numerically smaller, which is the actual fix.
   test('a shaped level asks for proportionally less than an equivalent plain rectangle', () => {
     // levelIndex 4 -> generated level number 1 -> the first on-cadence shape
-    // (BOARD_SHAPE_ROTATION[1], offset by SHAPE_ROTATION_OFFSET) at 8x6.
-    // Compare against the same levelIndex
+    // at 8x6 (which specific template no longer matters here — a real
+    // shuffle-bag now). Compare against the same levelIndex
     // with no blockers/skin content that would carve voidCells (there's no
     // "force no shape" knob, so instead compare the shaped config directly
     // against generatedMovesLimit/generatedTargetCount's own unscaled values,
@@ -1153,10 +1184,13 @@ describe('buildGeneratedLevelConfig', () => {
     // reach generateLevel and produce a legally playable shaped board, the
     // same guarantee a hand-built shaped level gets. levelIndex 6 -> generated
     // level number 3, same shaped-and-blockered level as the composability
-    // test above (rotation index 2, 'ring').
+    // test above — which specific template no longer matters (derived from
+    // the real function, a shuffle-bag now).
     const config = buildGeneratedLevelConfig(6, HAND_BUILT_COUNT, PIECE_TYPES, 8, 6, ALL_BLOCKERS);
     const state = createGameState({ ...config, lives: 5 });
-    const voidCells = BOARD_SHAPE_TEMPLATES[BOARD_SHAPE_ROTATION[2]](8, 6);
+    const shapeId = generatedShapeId(3);
+    expect(shapeId).toBeDefined();
+    const voidCells = BOARD_SHAPE_TEMPLATES[shapeId!](8, 6);
     // Every requested void position genuinely holds a void, not a blocker or
     // an ordinary piece — this alone also proves no blocker landed on one,
     // since a cell can't be both 'void' and 'blocker' at once.
@@ -1215,6 +1249,48 @@ describe('eligibleBlockerIds', () => {
   test('an id with no configured gate is eligible at level 1', () => {
     expect(eligibleBlockerIds(1, ['cling'])).toEqual(['cling']);
   });
+});
+
+describe('generatedBlockerId', () => {
+  // Same shuffle-bag technique as generatedShapeId (see that describe
+  // block's own header comment) — real playtest feedback ("levels on the
+  // shape rotation feel predictable") applied to blocker-type selection
+  // too, replacing the old plain (levelNumber - 1) % eligibleIds.length
+  // round-robin. See engine/DECISIONS.md's loop-variety entry.
+  const ids = ['cling', 'dish_stack', 'pot_lid', 'sealed_jar'];
+
+  test('an empty pool yields no blocker', () => {
+    expect(generatedBlockerId(5, [])).toBeUndefined();
+  });
+
+  test('a single-item pool always yields that one item', () => {
+    expect(generatedBlockerId(1, ['cling'])).toBe('cling');
+    expect(generatedBlockerId(2, ['cling'])).toBe('cling');
+  });
+
+  test('is deterministic — the same inputs always return the same id', () => {
+    expect(generatedBlockerId(9, ids)).toBe(generatedBlockerId(9, ids));
+  });
+
+  test('every eligible id appears exactly once per full cycle of levels', () => {
+    for (let cycleStart = 1; cycleStart <= 1 + ids.length * 4; cycleStart += ids.length) {
+      const levelNumbers = Array.from({ length: ids.length }, (_, i) => cycleStart + i);
+      const seen = levelNumbers.map((levelNumber) => generatedBlockerId(levelNumber, ids));
+      expect(new Set(seen).size).toBe(ids.length);
+      for (const id of ids) {
+        expect(seen).toContain(id);
+      }
+    }
+  });
+
+  test('never deals the same id twice in a row, including across a cycle boundary', () => {
+    const levelNumbers = Array.from({ length: ids.length * 8 }, (_, i) => 1 + i);
+    const seen = levelNumbers.map((levelNumber) => generatedBlockerId(levelNumber, ids));
+    for (let i = 1; i < seen.length; i++) {
+      expect(seen[i]).not.toBe(seen[i - 1]);
+    }
+  });
+
 });
 
 describe('canStartLevel', () => {

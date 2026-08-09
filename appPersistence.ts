@@ -965,6 +965,59 @@ function isMechanicLevel(levelNumber: number, minLevelNumber: number, cadence: n
   return positionInBag === shuffledBagHitPosition(bagIndex, cadence, salt);
 }
 
+// A different flavor of shuffle-bag from shuffledBagHitPosition above: that
+// one answers a boolean "is THIS the bag's one hit" question (objective
+// type — rare, occasional). This one answers "which of N items comes next,"
+// for a rotation where every eligible position gets an item every time
+// (board shape, blocker id) — the literal Tetris-7-bag technique: shuffle a
+// full permutation of [0, itemCount) per cycle, deal it out in that order,
+// reshuffle for the next cycle. Guarantees exactly one appearance of every
+// item per complete cycle (the same long-run frequency the old plain
+// round-robin had) while making the SEQUENCE unpredictable.
+function shuffledBagOrder(cycleIndex: number, itemCount: number, salt: number): number[] {
+  const rng = mulberry32(cycleIndex * 2654435761 + itemCount * 97 + salt);
+  const order = Array.from({ length: itemCount }, (_, i) => i);
+  for (let i = itemCount - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+// Board shape rotation specifically had a real playtest report ("the same
+// board shape keeps appearing") the old round-robin fixed with a one-off
+// SHAPE_ROTATION_OFFSET hack (see generatedShapeId's own history) — a real
+// 7-bag implementation can still occasionally deal the same item twice
+// across a cycle boundary (genuinely normal Tetris-bag behavior), which
+// would silently reopen that exact complaint. Guarded here rather than left
+// to chance: if a new cycle's first slot would match the previous cycle's
+// last item, swap it with the next slot — still a valid permutation of the
+// new cycle (every item still appears exactly once), just never adjacent to
+// itself across the seam. Applied unconditionally (not just for shapes)
+// since it's a strict improvement with no real downside for blocker
+// rotation either.
+function shuffledBagIndex(position: number, itemCount: number, salt: number): number {
+  if (itemCount <= 1) return 0;
+  const cycleIndex = Math.floor(position / itemCount);
+  const positionInCycle = position % itemCount;
+  const order = shuffledBagOrder(cycleIndex, itemCount, salt);
+  // The boundary check must run (and land on the same outcome) regardless of
+  // WHICH position within the cycle is being looked up — each call
+  // recomputes `order` independently from scratch (no shared state between
+  // calls), so gating this on `positionInCycle === 0` only fixed the swap
+  // when position 0 itself was queried and left every other position in the
+  // same cycle still returning its pre-swap value, producing an actual
+  // duplicate (position 0 and position 1 both resolving to the original
+  // order[1]) — caught by the "exactly once per cycle" test, not assumed.
+  if (cycleIndex > 0) {
+    const previousLast = shuffledBagOrder(cycleIndex - 1, itemCount, salt)[itemCount - 1];
+    if (order[0] === previousLast) {
+      [order[0], order[1]] = [order[1], order[0]];
+    }
+  }
+  return order[positionInCycle];
+}
+
 // Arbitrary, distinct per mechanic — see shuffledBagHitPosition's own
 // comment for why each needs its own salt.
 const SCORE_OBJECTIVE_SALT = 0x5c0e2;
@@ -1121,6 +1174,31 @@ export function eligibleBlockerIds(levelNumber: number, blockerIds: string[]): s
   return blockerIds.filter((id) => levelNumber >= (BLOCKER_MIN_LEVEL_NUMBER[id] ?? 1));
 }
 
+// Distinct from SHAPE_ROTATION_SALT so the two rotations shuffle
+// independently — without separate salts they'd land on the same relative
+// position within every cycle, which would read as "shape and blocker
+// always change together," a different kind of predictability.
+const BLOCKER_ROTATION_SALT = 0x4f7c8;
+
+// Which of the currently-eligible blocker ids a generated level at this
+// levelNumber should use, via the same shuffledBagIndex technique
+// generatedShapeId uses above — replacing the old plain
+// (levelNumber - 1) % eligibleIds.length round-robin (see
+// engine/DECISIONS.md's loop-variety entry). Extracted as its own function,
+// mirroring generatedShapeId's own shape, so it's directly testable rather
+// than only reachable through buildGeneratedLevelConfig's broader assembly
+// (which folds in unrelated gating — e.g. clearance/escort forcing
+// blockers off entirely). eligibleIds.length grows over a save's early
+// life (pot_lid unlocks at level 7, sealed_jar at 12); a pure function of
+// levelNumber and the CURRENT pool, so nothing about a past level's already
+// -dealt blocker is rewritten when the pool later grows, and the vast
+// majority of any real save (every level past 12) sees a stable pool with
+// no such shifts at all.
+export function generatedBlockerId(levelNumber: number, eligibleIds: string[]): string | undefined {
+  if (eligibleIds.length === 0) return undefined;
+  return eligibleIds[shuffledBagIndex(levelNumber - 1, eligibleIds.length, BLOCKER_ROTATION_SALT)];
+}
+
 // Generator-driven board shapes: same gate shape as BLOCKER_MIN_LEVEL_NUMBER/
 // DENIAL_SPREAD_MIN_LEVEL_NUMBER above, a levelNumber threshold plus a
 // cadence, rather than a new gating mechanism.
@@ -1146,40 +1224,34 @@ const SHAPE_CADENCE = 2;
 // A real playtest report ("the same board shape keeps appearing") traced back
 // to a disclosed, deliberately-accepted coincidence (see engine/DECISIONS.md's
 // "A disclosed, accepted cosmetic overlap" entry): SHAPE_MIN_LEVEL_NUMBER = 1
-// always starts the rotation at BOARD_SHAPE_ROTATION[0] (cut_corners) on the
-// generator's very first shaped level (generatedLevelNumber 1 — raw level 8
-// at the time this was written, when LEVEL_QUEUE had 7 hand-built entries;
-// now raw level 9, since "Delivery Day" was added as an 8th — the fix itself
-// is unaffected, since generatedLevelNumber is what actually drives the
-// rotation, not the raw level number) — and hand-built level 7 "Pantry
-// Corners" (App.tsx's LEVEL_QUEUE) was
-// independently, deliberately given cut_corners too, as the gentlest template
-// for a guaranteed early level. Those two independent choices collided,
-// producing the same shape silhouette on two consecutive levels. Pantry
-// Corners' own choice is left untouched — it's a reasonable pick on its own
-// merits — so instead the generator's rotation is offset by 1 step, landing
-// its first shaped level on BOARD_SHAPE_ROTATION[1] (plus) instead. plus, not
-// ring, specifically: ring is the most severe template (55% playable, vs.
-// plus's 80% and cut_corners' 70% — see boardShapes.ts's playableCellRatio
-// doc), and easing a brand-new generated-level player into shapes via the
-// gentler of the two remaining templates matches the same "gentlest first"
-// reasoning Pantry Corners itself used. The offset only rotates the starting
-// point — every template still appears exactly once per 3 shaped levels, in
-// the same round-robin order, just starting one step in.
-const SHAPE_ROTATION_OFFSET = 1;
+// always started the OLD round-robin rotation at BOARD_SHAPE_ROTATION[0]
+// (cut_corners) on the generator's very first shaped level, colliding with
+// hand-built level 7 "Pantry Corners" (App.tsx's LEVEL_QUEUE), which
+// independently also uses cut_corners. Fixed at the time with a one-step
+// SHAPE_ROTATION_OFFSET on the round-robin index.
+//
+// A second, later playtest report ("levels on the shape rotation feel
+// predictable") replaced the round-robin itself with a real shuffle-bag
+// (shuffledBagIndex, same technique proven for objective-type selection —
+// see engine/DECISIONS.md's loop-variety entry) — which makes
+// SHAPE_ROTATION_OFFSET meaningless (there's no round-robin index left for
+// it to shift) and unnecessary (shuffledBagIndex's own boundary guard
+// already refuses to deal the same template twice across a cycle seam,
+// covering the exact symptom the offset was patching, generally rather than
+// for one specific coincidence). Removed rather than left as dead code.
+const SHAPE_ROTATION_SALT = 0x9e2b1;
 
 // Which curated template (see engine/boardShapes.ts), if any, a generated
 // level at this levelNumber should use. undefined means "plain rectangle".
-// Cycles through BOARD_SHAPE_ROTATION by how many cadence steps have elapsed
-// since the threshold, the same deterministic-by-levelNumber rotation
-// eligibleBlockerIds/objective-target selection already use, so which shape
-// appears is reproducible and doesn't repeat the same one twice in a row.
+// The position fed to shuffledBagIndex is how many cadence-steps have
+// elapsed since the threshold — i.e. "the Nth shaped level ever" — not the
+// raw levelNumber, so every eligible slot gets a real turn through the bag.
 export function generatedShapeId(levelNumber: number): BoardShapeId | undefined {
   if (levelNumber < SHAPE_MIN_LEVEL_NUMBER) return undefined;
   const stepsSinceThreshold = levelNumber - SHAPE_MIN_LEVEL_NUMBER;
   if (stepsSinceThreshold % SHAPE_CADENCE !== 0) return undefined;
-  const shapeIndex =
-    (Math.floor(stepsSinceThreshold / SHAPE_CADENCE) + SHAPE_ROTATION_OFFSET) % BOARD_SHAPE_ROTATION.length;
+  const shapedSlot = Math.floor(stepsSinceThreshold / SHAPE_CADENCE);
+  const shapeIndex = shuffledBagIndex(shapedSlot, BOARD_SHAPE_ROTATION.length, SHAPE_ROTATION_SALT);
   return BOARD_SHAPE_ROTATION[shapeIndex];
 }
 
@@ -1530,10 +1602,8 @@ export function buildGeneratedLevelConfig(
     : undefined;
 
   const eligibleIds = eligibleBlockerIds(levelNumber, blockers.map((b) => b.id));
-  const chosenBlocker =
-    eligibleIds.length > 0
-      ? blockers.find((b) => b.id === eligibleIds[(levelNumber - 1) % eligibleIds.length])
-      : undefined;
+  const chosenBlockerId = generatedBlockerId(levelNumber, eligibleIds);
+  const chosenBlocker = chosenBlockerId ? blockers.find((b) => b.id === chosenBlockerId) : undefined;
   // Forced to 0 on a clearance level, regardless of what the blocker rotation
   // above would otherwise choose — see generatedLayerCells' own comment on
   // why (blocker positions are chosen by generateLevel's own seeded RNG,
