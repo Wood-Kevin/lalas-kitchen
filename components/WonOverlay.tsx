@@ -16,7 +16,7 @@ import {
 } from './spriteAsset';
 import { SteamWisp } from './SteamWisp';
 import { RecipeCardReveal } from './RecipeCardReveal';
-import { computeStarRating, isStrongWin } from './wonActions';
+import { computeStarRating, resolveCelebrationTier } from './wonActions';
 import { WinCelebrationBurst } from './WinCelebrationBurst';
 
 export interface WonOverlayProps {
@@ -174,13 +174,15 @@ export function WonOverlay({
           : resolveSpriteAsset(getSpriteForMatchType(objectives[0].targetMatchType, config), spriteAssets);
   const { accent, secondaryAccent, secondaryAccentText, mutedText, text, panel, border } = config.palette;
   const stars = computeStarRating(movesRemaining, movesLimit);
-  // A perfect-play finish or a fresh recipe unlock both already read as this
-  // screen's own stand-out moment (the star row's top tier, or
-  // RecipeCardReveal replacing the plated dish entirely) — see
-  // wonActions.ts's isStrongWin. The burst amplifies a peak the screen is
-  // already marking, applied to whichever of the two branches below is
-  // actually showing.
-  const strongWin = isStrongWin(stars, unlockedRecipeCard !== null);
+  // Three tiers, not a binary gate (SPEC.md's win-tier thread) — see
+  // wonActions.ts's resolveCelebrationTier. A perfect-play finish or a
+  // fresh recipe unlock both already read as this screen's own stand-out
+  // moment (the star row's top tier, or RecipeCardReveal replacing the
+  // plated dish entirely), so 'full' amplifies a peak the screen is
+  // already marking; 'light' gives an ordinary-but-real 2-star win its own
+  // smaller escalation instead of reading identically to a 1-star win.
+  // Applied to whichever of the two branches below is actually showing.
+  const celebrationTier = resolveCelebrationTier(stars, unlockedRecipeCard !== null);
 
   return (
     <View style={styles.backdrop}>
@@ -202,7 +204,9 @@ export function WonOverlay({
               </View>
             </View>
           )}
-          {strongWin && <WinCelebrationBurst colors={[YOLK, FLAME, accent, secondaryAccent]} />}
+          {celebrationTier !== 'quiet' && (
+            <WinCelebrationBurst colors={[YOLK, FLAME, accent, secondaryAccent]} intensity={celebrationTier} />
+          )}
         </View>
 
         <Text style={[styles.levelLabel, { color: accent }]}>LEVEL {levelIndex}</Text>

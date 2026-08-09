@@ -77,7 +77,13 @@ export function buildSaveData(
   // gameplay save doesn't silently drop a crash record that was written by
   // a completely different code path. Every call site passes its current
   // ref value, same shape as consecutiveLosses above.
-  lastCrash?: CrashRecord
+  lastCrash?: CrashRecord,
+  // The daily first-win bonus's two fields (see engine/gameState.ts's
+  // SaveData comments and SPEC.md's daily-first-win-moment decision) —
+  // threaded through the same way consecutiveLosses/lastCrash are, from
+  // App.tsx's own refs, so a save round-trip can never silently drop them.
+  lastDailyBonusClaimedDate?: string,
+  pendingDailyBonusGrant: boolean = false
 ): SaveData {
   return {
     skinId,
@@ -94,7 +100,31 @@ export function buildSaveData(
     hapticsEnabled,
     consecutiveLosses,
     lastCrash,
+    lastDailyBonusClaimedDate,
+    pendingDailyBonusGrant,
   };
+}
+
+// Local calendar date ("YYYY-MM-DD"), not UTC — a player's "today" should
+// match their own device's day, not shift near midnight in timezones east
+// or west of UTC. Takes a Date rather than calling `new Date()` internally
+// so this stays a pure, directly-testable function; every real call site
+// passes `new Date()` itself.
+export function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Whether today's win should earn the daily first-win bonus — true the
+// first time any level is won on a calendar day that differs from the
+// last one a bonus was earned on (including never having earned one at
+// all, when lastClaimedDate is undefined). Pure so it's testable without
+// touching App.tsx's refs or a real Date — see SPEC.md's verification
+// table.
+export function shouldGrantDailyBonus(lastClaimedDate: string | undefined, today: string): boolean {
+  return lastClaimedDate !== today;
 }
 
 // The loss condition: moves hit zero without the objective met. Exactly one
@@ -646,6 +676,25 @@ export function findNextRecipeCard(
   return best ? { card: best, levelsAway: best.milestoneLevel - fromLevelNumber } : undefined;
 }
 
+// The "since your last real unlock" baseline for Home's windowed
+// recipe-progress fill (see levelProgress.ts's buildRecipeProgressFraction
+// and SPEC.md's recipe-progress-visibility thread). Anchored on unlock
+// status, not just milestone level, so a milestone that was somehow passed
+// without unlocking (the rare, already-disclosed "locked behind the
+// anchor" case findNextRecipeCard's own tests cover) never becomes a false
+// baseline — the story this bar tells is "progress since you last actually
+// got a card," which only unlocked cards can anchor. 0 for a fresh save
+// with nothing unlocked yet, so the very first gap windows from the start
+// of the game to the first milestone.
+export function findPreviousUnlockedMilestoneLevel(recipeCards: RecipeCard[], unlockedRecipeCards: string[]): number {
+  let best = 0;
+  for (const card of recipeCards) {
+    if (!unlockedRecipeCards.includes(card.id)) continue;
+    if (card.milestoneLevel > best) best = card.milestoneLevel;
+  }
+  return best;
+}
+
 // Adds a recipe card id to the unlocked list if it isn't already there —
 // same idempotent-add shape as markTutorialSeen/markLevelCompleted above,
 // so replaying an already-unlocked milestone level (Board.tsx's "Play
@@ -874,12 +923,57 @@ const SCORE_OBJECTIVE_MIN_LEVEL_NUMBER = 3;
 // around often enough to stay familiar.
 const SCORE_OBJECTIVE_CADENCE = 5;
 
+// mulberry32, same implementation as engine/generator.ts and
+// engine/gameState.ts — duplicated rather than imported since generator.ts
+// doesn't export it (see engine/DECISIONS.md) and this file has no reason to
+// import from gameState.ts for a five-line pure function. Used below to
+// pick each objective-type mechanic's shuffled-bag hit position.
+function mulberry32(seed: number): () => number {
+  let state = seed | 0;
+  return function next(): number {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Real playtest feedback ("recycled objectives on a predictable loop" — see
+// SPEC.md's loop-variety thread and engine/DECISIONS.md): a generated
+// level's objective type used to be a pure `(levelNumber - MIN) % CADENCE`
+// check, so the Nth eligible level was ALWAYS the hit — a player who's put
+// in real hours can predict a level's mechanic from its number alone.
+// Deterministic-shuffled-bag technique instead: levels are grouped into
+// consecutive windows of `cadence` (the "bag"), and each bag's hit position
+// is a seeded pseudo-random index in [0, cadence) rather than always
+// position 0 — same exact long-run frequency (still exactly 1-in-cadence),
+// same generator determinism guarantee (the same levelNumber always
+// produces the same result, since bagIndex is a pure function of it), just
+// no longer guessable by mental arithmetic. `salt` keeps each mechanic's
+// bag independently shuffled — without it, score/clearance/escort would all
+// land their hits on the same relative position within every window.
+function shuffledBagHitPosition(bagIndex: number, cadence: number, salt: number): number {
+  const rng = mulberry32(bagIndex * 2654435761 + salt);
+  return Math.floor(rng() * cadence);
+}
+
+function isMechanicLevel(levelNumber: number, minLevelNumber: number, cadence: number, salt: number): boolean {
+  if (levelNumber < minLevelNumber) return false;
+  const offset = levelNumber - minLevelNumber;
+  const bagIndex = Math.floor(offset / cadence);
+  const positionInBag = offset % cadence;
+  return positionInBag === shuffledBagHitPosition(bagIndex, cadence, salt);
+}
+
+// Arbitrary, distinct per mechanic — see shuffledBagHitPosition's own
+// comment for why each needs its own salt.
+const SCORE_OBJECTIVE_SALT = 0x5c0e2;
+
 // Answers only "is this levelNumber a score-flavored one," never "should THIS
 // level use it" — the decision lives at the one real call site
 // (buildGeneratedLevelConfig) rather than being duplicated here.
 export function isScoreObjectiveLevel(levelNumber: number): boolean {
-  if (levelNumber < SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) return false;
-  return (levelNumber - SCORE_OBJECTIVE_MIN_LEVEL_NUMBER) % SCORE_OBJECTIVE_CADENCE === 0;
+  return isMechanicLevel(levelNumber, SCORE_OBJECTIVE_MIN_LEVEL_NUMBER, SCORE_OBJECTIVE_CADENCE, SCORE_OBJECTIVE_SALT);
 }
 
 // The score-target equivalent of generatedTargetCount above, for a
@@ -1104,14 +1198,14 @@ const CLEARANCE_MIN_LEVEL_NUMBER = 5;
 // was removed, and at their original cadences the three non-collect types
 // together would have outnumbered plain collect levels.
 const CLEARANCE_CADENCE = 6;
+const CLEARANCE_OBJECTIVE_SALT = 0x3a119;
 
 // A 'clearance' objective never mixes with 'score', 'escort' or a 'collect'
 // target — it REPLACES the level's objectives entirely. The priority order
 // among the three (score, then clearance, then escort) lives at the one call
 // site in buildGeneratedLevelConfig.
 export function isClearanceObjectiveLevel(levelNumber: number): boolean {
-  if (levelNumber < CLEARANCE_MIN_LEVEL_NUMBER) return false;
-  return (levelNumber - CLEARANCE_MIN_LEVEL_NUMBER) % CLEARANCE_CADENCE === 0;
+  return isMechanicLevel(levelNumber, CLEARANCE_MIN_LEVEL_NUMBER, CLEARANCE_CADENCE, CLEARANCE_OBJECTIVE_SALT);
 }
 
 // --- Escort ('dropdown') objectives -----------------------------------------
@@ -1125,10 +1219,10 @@ export function isClearanceObjectiveLevel(levelNumber: number): boolean {
 // before reappearing.
 const ESCORT_MIN_LEVEL_NUMBER = 7;
 const ESCORT_CADENCE = 8;
+const ESCORT_OBJECTIVE_SALT = 0x7f4c9;
 
 export function isEscortObjectiveLevel(levelNumber: number): boolean {
-  if (levelNumber < ESCORT_MIN_LEVEL_NUMBER) return false;
-  return (levelNumber - ESCORT_MIN_LEVEL_NUMBER) % ESCORT_CADENCE === 0;
+  return isMechanicLevel(levelNumber, ESCORT_MIN_LEVEL_NUMBER, ESCORT_CADENCE, ESCORT_OBJECTIVE_SALT);
 }
 
 // How many dropdown pieces a generated escort level places, and where.

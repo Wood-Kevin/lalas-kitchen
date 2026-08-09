@@ -1,4 +1,4 @@
-# SPEC.md — Lala's Kitchen: Commercial-Polish Consolidation & Win Celebration
+# SPEC.md — Lala's Kitchen: Loop Variety, Win-Tier Rewards & Recipe Engagement
 
 <!--
 This file is the contract between the architect (me + conversational Claude)
@@ -14,222 +14,243 @@ Status meanings:
 -->
 
 **Status:** AGREED
-**Date agreed:** 2026-08-08 (approved via Claude Code plan mode — the plan at
-`C:\Users\kevin\.claude\plans\rosy-hugging-lamport.md` is the record of that
-approval; this file restates it in SPEC.md's standard shape per "the plan
-lives in the repo")
+**Date agreed:** 2026-08-09 (Kevin: "do the free hint or shuffle. Not going to break anything. Star thresholds sound good" — resolves the daily-bonus-shape fork in favor of the resource-grant alternative and confirms the proposed star-threshold ratios as-is)
 **Owner:** Kevin
 
 ---
 
 ## 1. Problem
 
-**Problem:** The project pivoted from "built calm for one specific player"
-to a genre-standard commercial-polish pass this session — Kevin: "calm was
-probably the wrong word to run a base from... the big annoyance for her was
-the sounds and constant microtransactions... even if calm was the baseline,
-bland still doesn't fit." Two constraints stayed permanent (sound/haptics
-off by default, nothing purchasable); everything else — visual richness,
-celebratory feedback, genre-standard feel — became open ground.
+**Problem:** Real playtest feedback, after the commercial-polish consolidation pass shipped
+(see the archived `SPEC-commercial-polish-consolidation-and-celebration-2026-08-08.md`):
+"just feels like we are still missing something major," refined into three distinct threads
+through direct follow-up:
 
-Mid-session, another tool ("codex") was found running against this repo on
-a since-deleted branch, working the same brief. Kevin stopped it and asked
-this session to take over and consolidate whatever it had produced — stashed
-before deletion, nothing lost (`git stash@{0}`, "codex commercial polish
-before branch deletion"). A full read-only review of that stash (six files:
-`Hud.tsx`, `Board.tsx`, and four new components) found most of it sound but
-two real problems: `Hud.tsx`'s padding grew past even the values this same
-session's earlier HUD-character build (see the archived
-`SPEC-hud-reward-texture-and-character-2026-08-08.md`) had already measured
-and tightened for tap accuracy, and `KitchenSceneDecor.tsx` mounted
-unconditionally across the entire screen instead of scoped to the board.
+1. **The core loop reads as recycled.** Generated-level objective type is a pure function of
+   level number — `(levelNumber - MIN) % CADENCE === 0`, checked in a fixed priority order
+   (score, then clearance, then escort, else collect). Score levels land every 5th eligible
+   level, clearance every 6th, escort every 8th, board shape every 2nd. None of this is
+   randomized; the exact same sequence repeats every time (full period 120 levels, but the
+   rhythm is felt long before that). A player who's put in real hours can predict what a level
+   will ask for from its number alone.
+2. **Ordinary wins feel flat.** The win-celebration burst built last session is gated to a
+   3-star finish or a fresh recipe unlock — a binary "burst or nothing." The 3-star bar
+   (`THREE_STAR_UNUSED_RATIO`, half the move budget left unused) was calibrated against a
+   greedy bot evaluating every legal move, not against how an actual casual player performs —
+   so most real wins likely land at 1-2 stars and get no escalation at all, which is close to
+   what a real report just confirmed (a 1-star win, no burst, felt like nothing happened).
+3. **There's no return hook.** The original commercial-polish scope named two tracks —
+   feel/juice (built) and monetization-adjacent UX, engagement without purchases (explicitly
+   deferred to "its own conversation," never picked back up). Today the only thing resembling
+   engagement is a plain text line on Home ("a new recipe waits N levels ahead").
 
-A first draft of the consolidation plan carried forward a stale "avoid
-fireworks/full-screen celebration effects" restriction, quoted directly from
-two pre-existing docs (`docs/commercial-polish-with-charm-plan.md`,
-`docs/release-character-pack.md`). Kevin corrected this directly: "We can
-add firework type effects and such. Not sure where you are getting to not
-add something like that." Those two docs predated this session's own
-"calm was the wrong word" conversation and were never re-checked against
-it — real celebration effects, including particle/firework-style bursts,
-are in scope, bounded to genuine peaks (not every ordinary match).
-
-**Lane:** Joy — felt game-quality and consolidation work for the one real
-player, not a market-facing feature.
+**Lane:** Joy — felt game-quality work for the one real player, not a market-facing feature.
+Every constraint from prior sessions still applies: sound/haptics off by default, nothing
+purchasable, no timers or urgency framing, and — per standing instruction — no notifications,
+ever, opt-in or not.
 
 ## 2. Scope
 
-**In scope (this build):**
-- Apply the codex stash to a clean working tree; review and land what's
-  sound, fix what isn't, extend what's genuinely incomplete.
-- Re-verify `Hud.tsx`'s sizing against the same live-measurement method the
-  prior HUD-character spec established, retuning if codex's padding growth
-  reopened a `tileSize` regression.
-- Fix `KitchenSceneDecor.tsx`'s scope: bound to the board's own measured
-  area, gated the same way the board grid itself is gated.
-- Verify `ScorePopup`'s fixed position doesn't collide with the HUD.
-- Extract `Board.tsx`'s inline score-popup-tone / Lala-copy branching into
-  pure, named, tested functions, matching this codebase's established
-  pattern (`cascadeTiming.ts`, `wonActions.ts`).
-- Land `WonOverlay.tsx`'s sequential `AnimatedStar` reveal.
-- Build a real win-celebration particle burst for a strong win (3-star, or
-  a win that also unlocked a recipe card), reusing this game's own accent
-  colors, bounded to the win overlay's own card area — not full-screen.
-- Decide and, where cheap, close `LalaMomentBanner`'s copy-bank coverage
-  gap (originally 4 of 12 triggers from `release-character-pack.md`).
-- Correct the two stale "avoid fireworks" doc lines, plus any component
-  comment that inherited the same now-superseded reasoning.
+**In scope (this build), one item per thread, each confirmed directly with the architect:**
+
+- **Thread 1 — seeded shuffle-bag.** Replace the modulo-cadence gates for generated-level
+  objective type (score/clearance/escort) with a deterministic, seeded shuffle-bag: exactly
+  the same long-run frequency as today (still 1-in-5, 1-in-6, 1-in-8 of eligible levels), but
+  which specific level within each window lands the mechanic is no longer predictable by mental
+  arithmetic. Board-shape rotation and blocker selection are explicitly NOT touched this pass —
+  see Explicitly out of scope.
+- **Thread 2 — three-tier win celebration + loosened star thresholds.** `WinCelebrationBurst`
+  gains a light/full intensity split: 1-star keeps today's quiet star-pop + sparkle only,
+  2-star gets a smaller/shorter version of the burst, 3-star or a recipe unlock keeps the full
+  treatment unchanged. Separately, `THREE_STAR_UNUSED_RATIO`/`TWO_STAR_UNUSED_RATIO` move down
+  (proposed 1/2 → 1/3 and 1/3 → 1/6 respectively — see Decision block for the reasoning and the
+  explicit disclosure that these numbers are a starting hypothesis, not a calibration).
+- **Thread 3 — recipe-progress visibility + gentle daily first-win moment.** Home's plain
+  "a new recipe waits N levels ahead" text becomes a real visual progress indicator (a fill
+  bar/ring toward the next recipe card, reusing that card's own sprite as the target icon). A
+  new daily touch: the first level won each calendar day grants one free Hint-or-Shuffle use
+  (a single shared bonus token, spendable on whichever the player taps first) for the *next*
+  level entered, announced once via a dedicated `LalaMomentBanner` line when that level starts.
+  No streak tracking, nothing lost by skipping a day — see Decision block for the mechanism and
+  why the initially-proposed flavor-only alternative was superseded.
 
 **Explicitly out of scope:**
-- Phase 4 content work (recipe chapters, authored level names, milestone
-  vignette art) — fully spec'd elsewhere, untouched by the codex stash, a
-  separate later slice.
-- The full board-surface backdrop *texture*
-  (`release-character-pack.md` Section 5) — `KitchenSceneDecor` is a
-  narrower corner-accent stand-in, not this; no asset exists yet.
-- Any monetization-adjacent engagement mechanic beyond what already exists
-  (the recipe-progress hint). Streaks/timers/urgency remain out — that
-  restriction wasn't challenged this session, only the celebration-effects
-  one was.
-- Any change to score calculation, engine matching/clearing logic, or
-  persisted save shape — this build is presentation-layer only.
+- Board-shape template rotation and blocker-type selection staying on their current fixed
+  cadences — Thread 1 targets objective type specifically, the most directly *felt* recycling
+  (it changes what you're asked to do every level); shape/blocker predictability is a real,
+  smaller-feeling follow-up candidate, not silently dropped, logged to `DEFERRED_COMPLEXITY.md`
+  once this ships.
+- Any change to how score/clearance/escort targets or move budgets are calculated — this build
+  touches *which level gets which mechanic*, never the mechanic's own difficulty tuning.
+- Any streak, daily-login-with-loss, timer, or purchasable engagement mechanic — ruled out by
+  standing constraints, not reconsidered here.
+- Push notifications of any kind, opt-in or not — standing instruction, not up for debate in
+  this build.
+- Recalibrating the star thresholds against real telemetry — no analytics pipeline exists for
+  this single-player project; the proposed new ratios are a reasoned hypothesis pending a real
+  human playing against them, exactly like every other hand-picked constant this project
+  discloses rather than pretends is measured.
 
 ## 3. Architecture decisions
 
-### Decision: Re-verify, don't trust, codex's HUD sizing changes
-- **Choice:** Live `getBoundingClientRect()` measurement over CDP against
-  the real running app, same method and same worst-case viewport
-  (375×667 SE, level 1, 8×5) the prior HUD-character spec used, before
-  landing any of codex's `Hud.tsx` changes as-is.
-- **Why:** Codex's stash grew `chip.minHeight` 42→58 and tray padding
-  6/4→10/8 — past even the *pre-tightening* values this session's own
-  earlier work had already measured and shrunk for tap accuracy. Landing
-  it unverified would silently re-open a regression this project had
-  already paid down once.
-- **Rejected alternative and why:** Accept codex's padding on aesthetic
-  grounds alone — the exact thing the prior HUD spec's own verification
-  step was built to prevent.
+### Decision: Objective-type selection becomes a seeded shuffle-bag, not true randomness
+- **Choice:** For each mechanic (score/clearance/escort), levels past that mechanic's own
+  `MIN_LEVEL_NUMBER` are grouped into consecutive windows of size `CADENCE` (unchanged: 5/6/8).
+  Today, position 0 of every window is always the hit. Instead, each window's hit position is a
+  deterministic pseudo-random index in `[0, CADENCE)`, seeded from `(bagIndex, a per-mechanic
+  salt constant)` via the same `mulberry32` PRNG this codebase already duplicates between
+  `generator.ts` and `gameState.ts` (a third, `appPersistence.ts`-local copy, following that
+  existing precedent rather than exporting one — see the sibling Decision below). Same level
+  number always produces the same result on replay (the generator's core "same seed always
+  produces the same level" guarantee, preserved); the same *frequency* survives exactly (still
+  1-in-5, 1-in-6, 1-in-8), only the position within each window varies.
+- **Why:** This keeps every existing difficulty-tuning decision (the cadence numbers themselves,
+  chosen specifically so score stays common and escort stays rare) completely untouched, and
+  keeps the generator's determinism contract intact — a real requirement this codebase has never
+  broken, confirmed across every generator-touching decision so far. It only removes the ability
+  to predict a level's mechanic from arithmetic on its number, which is the literal thing
+  "recycled objectives on a predictable loop" describes.
+- **Rejected alternative and why:** True runtime randomness (`Math.random()` at generation time)
+  — rejected outright, since it would mean the SAME level number shows a DIFFERENT objective
+  type on a retry, breaking the reasonable expectation that "level 47" is always the same
+  challenge, and breaking this project's own standing "deterministic generator" contract
+  (`engine/generator.ts`'s whole reason for a seeded PRNG in the first place).
 
-### Decision: `KitchenSceneDecor` is rescoped, not deleted
-- **Choice:** Keep the component, move its mount point from a top-level
-  sibling spanning the whole screen into a new child of `Board.tsx`'s
-  `boardArea`, gated on the same `tileSize > 0` condition the board grid
-  itself uses.
-- **Why:** The component's own internals (`pointerEvents="none"`
-  throughout, fixed corner offsets meant to "peek" from behind the board)
-  were always correct — only its caller's placement was wrong. Its fixed
-  offsets only make sense relative to the board's own bounds, not the full
-  screen (which includes the HUD and every overlay).
-- **Rejected alternative and why:** Rewrite it to measure its own
-  position dynamically — unnecessary complexity; the existing fixed
-  offsets are fine once the parent container is the right size.
+### Decision: A third local `mulberry32`, not a shared export
+- **Choice:** `appPersistence.ts` gets its own local copy of `mulberry32`, matching how
+  `gameState.ts` already has its own copy rather than importing `generator.ts`'s.
+- **Why:** `generator.ts` doesn't export it today (confirmed by direct reading, cited in
+  `engine/DECISIONS.md` as the reason `gameState.ts` duplicated it rather than importing). A
+  third small, private, well-understood pure function is cheaper and lower-risk than restructuring
+  either existing module's exports for a one-line shared utility.
+- **Rejected alternative and why:** Export it from `generator.ts` and import in both other
+  files — genuinely the more conventional fix, but touches a module boundary two other files
+  already deliberately worked around, for a function short enough that duplication carries
+  negligible real cost.
 
-### Decision: `resolveScorePopupTone`/`resolveLalaMomentCopy` are pure, tested functions
-- **Choice:** Pull `Board.tsx`'s inline nested-ternary tone/copy branching
-  into `components/rewardMoment.ts`, two named pure functions, with unit
-  tests covering every priority ordering.
-- **Why:** Matches this codebase's own established pattern for
-  presentation-derived decisions (`cascadeTiming.ts`'s
-  `passRewardIntensity`, `wonActions.ts`'s `computeStarRating`) — a
-  branching decision embedded in a component function is untestable
-  without a render harness this project has never built; extracted, it's
-  a plain function a unit test can drive directly.
-- **Rejected alternative and why:** Leave it inline, verify only by
-  reading — worked for codex's original 4-branch version, but grew
-  fragile once this build added 4 more signals (`effectDescriptor`,
-  first-move, moves-remaining) to the same decision.
+### Decision: Three celebration tiers, not a continuous scale
+- **Choice:** `wonActions.ts`'s `isStrongWin` (boolean) is replaced outright by
+  `resolveCelebrationTier(stars, unlockedRecipeCard): 'quiet' | 'light' | 'full'` — 1-star is
+  `'quiet'` (unchanged treatment), 2-star is `'light'`, 3-star or a recipe unlock is `'full'`
+  (unchanged treatment). `WinCelebrationBurst`/`celebrationParticles.ts` gain an `intensity`
+  parameter scaling particle count, flight distance, and duration down for `'light'` — same
+  mechanism, smaller numbers, not a second component.
+- **Why:** Matches the exact floor/ceiling reward-hierarchy shape this whole project has used
+  since the visual-reward-language spec (`passRewardIntensity`, `scaledByReward`) — more tiers
+  where the underlying signal already has more tiers (stars already have three values), rather
+  than inventing a fourth. A clean replacement, not a boolean kept alongside a new tier function —
+  `isStrongWin` has exactly one call site (`WonOverlay.tsx`), so there's no reason to keep both.
+- **Rejected alternative and why:** A continuously scaling burst (particle count as a smooth
+  function of some score-like value) — more "authentic" in principle, but this project's own
+  reward signals are already discrete (star count, tier), and a continuous scale would need a
+  new continuous input invented for the sole purpose of feeding it.
 
-### Decision: Real celebration effects are in scope, bounded to genuine peaks
-- **Choice:** Build `WinCelebrationBurst.tsx` — a real multi-particle
-  radial burst, reusing this game's own accent-color language — gated by
-  `wonActions.ts`'s new `isStrongWin` (3-star finish, or a win that
-  unlocked a recipe card). An ordinary win keeps the existing subtler
-  star-pop + sparkle treatment.
-- **Why:** Directly confirmed by Kevin, correcting the two stale doc
-  lines this plan's first draft had carried forward unchecked. Gating by
-  win quality reuses the same floor/ceiling reward-hierarchy shape
-  `passRewardIntensity`/`scaledByReward` already established for board
-  effects this same day — "more juice where it's earned," not uniformly
-  louder everywhere.
-- **Rejected alternative and why:** A burst on every win, or no burst at
-  all — the former ignores the reward-hierarchy precedent this project
-  already committed to; the latter is exactly the over-cautious reading
-  that needed correcting.
+### Decision: Loosen both star thresholds, proposed as a hypothesis, not a final calibration
+- **Choice:** `THREE_STAR_UNUSED_RATIO` moves from 1/2 to 1/3 (exactly where the 2-star bar sits
+  today); `TWO_STAR_UNUSED_RATIO` moves from 1/3 to 1/6.
+- **Why:** The current 1/2 bar was itself the result of a bot-simulation finding the *original*
+  2/3 bar unreachable — but the bot it was measured against evaluates every legal move each
+  turn, which is not how a real casual player plays. With no telemetry to calibrate against (this
+  is a single-player project with no analytics pipeline), the honest move is a reasoned guess,
+  explicitly disclosed as such, rather than another simulation run that would just encode the
+  same "optimal bot" bias one level down. Halving both bars preserves the *relative* spacing
+  between tiers while making the top tier reachable by a meaningfully efficient — not
+  near-perfect — real player.
+- **Rejected alternative and why:** Re-running the greedy-bot simulation with a *less*-than-optimal
+  bot to approximate casual play — plausible, but inventing a synthetic "casual bot" model is its
+  own unvalidated assumption, arguably a worse foundation than a disclosed guess pending real
+  play. Revisit numerically once real sessions land against these.
 
-### Decision: The burst also applies to a recipe-card win, reversing that component's own prior note
-- **Choice:** `WonOverlay.tsx` layers `WinCelebrationBurst` over
-  whichever of `RecipeCardReveal` or the plain illustration is showing —
-  including recipe-card wins, even though `RecipeCardReveal.tsx`'s own
-  comment had separately documented "no confetti... the only celebration
-  cue" as its own approved design brief.
-- **Why:** This plan's own approved Step 7 explicitly named "a win that
-  also unlocked a recipe card" as a strong-win case. `RecipeCardReveal`'s
-  own restraint was reasoned from the same general "calm" framing Kevin's
-  correction reopened — not a separate, still-standing constraint — so
-  applying the same reversal here is consistent, not a silent override.
-  `RecipeCardReveal.tsx`'s own comment is corrected in the same session,
-  per "docs move with the code."
-- **Rejected alternative and why:** Leave `RecipeCardReveal` bursts-free
-  as a deliberately quieter treatment — a real, defensible option, but
-  one that would need a fresh, explicit confirmation rather than reading
-  it into the existing approval, since the plan's own text already named
-  this case.
+### Decision: The daily first-win moment grants one free hint-or-shuffle use, not flavor only
+- **Choice:** The first level won each calendar day (device-local date, same accepted
+  clock-trust tradeoff `SaveData.livesLastRegenAt` already discloses) grants a single shared
+  bonus token — spendable on either the Hint or the Shuffle button, whichever the player taps
+  first — usable on the *next* level entered, past that attempt's normal 2-use cap. Tracked by
+  two new `SaveData` fields: `lastDailyBonusClaimedDate?: string` (prevents earning it twice in
+  one day) and `pendingDailyBonusGrant?: boolean` (true from the moment it's earned until the
+  next level mounts and picks it up). Announced once, when the next level starts, via a
+  dedicated `LalaMomentBanner` line — the bonus is silent otherwise, which would read as a
+  hidden mechanic nobody notices rather than a reward.
+- **Why:** Confirmed directly by the architect over the flavor-only alternative — "do the free
+  hint or shuffle, not going to break anything." A genuinely felt reward (an extra use of a
+  resource the player already values, per the existing Hint/Shuffle cap precedent) rather than
+  a text-only acknowledgment, and the architect's own risk read of the cap-machinery concern
+  raised in review was that it's a manageable, well-scoped addition, not a real hazard.
+- **Rejected alternative and why:** Flavor-only, no mechanical grant — this session's own
+  original proposal, chosen initially for lower risk to `Board.tsx`'s per-attempt cap machinery.
+  Superseded by direct architect confirmation preferring the richer reward; the risk concern is
+  addressed in implementation by scoping the bonus as one shared token (not independent +1s to
+  both caps) consumed atomically on first use, and by clearing the persisted grant the moment a
+  level mounts with it available — so there's exactly one place the grant can be lost track of,
+  not several.
+
+### Decision: Recipe-progress becomes a windowed fill indicator, not a lifetime one
+- **Choice:** The Home progress indicator fills based on `(currentLevel - previousMilestoneLevel)
+  / (nextMilestoneLevel - previousMilestoneLevel)` — progress *within the current gap* between
+  recipe cards — rather than total cards unlocked over the full 52-card set.
+- **Why:** A lifetime-progress bar would sit at ~90%+ full almost permanently once a player is
+  deep into the 52-card curve (the milestone spacing widens considerably in the back half — see
+  `CLAUDE.md`'s recipe-box milestone sequence), making the indicator feel static exactly when a
+  return-hook is supposed to feel alive. A windowed bar resets to a fresh, visibly-moving 0% at
+  every unlock, which is the property that makes it worth glancing at again next session.
+- **Rejected alternative and why:** A lifetime "X/52 cards" counter — genuinely simpler (already
+  exists as a plain count on the collection screen), but that's exactly why it doesn't need to
+  be duplicated here; the collection screen already owns the honest, un-gamified total.
 
 ## 4. Data model
 
-No database — client-only game. No engine or persisted-save changes in
-this build (this section restates that from the archived HUD spec since
-it still holds).
+No database — client-only game.
 
 | Table | Owned by | Access rule | Enforcement |
 |-------|----------|-------------|-------------|
-| `Board.tsx`'s `scorePopup`/`lalaMoment` state (presentation-layer, per-move) | Presentation layer | Per-move only, keyed and replaced every commit | Cleared by each component's own `onDone` callback |
-| `components/rewardMoment.ts` (new, pure functions) | Presentation layer | No state — pure functions of already-existing move data | Unit tests (`rewardMoment.test.ts`) |
-| `components/celebrationParticles.ts` (new, pure layout) | Presentation layer | No state — deterministic function of count/colors | Unit tests (`celebrationParticles.test.ts`) |
-| `ApplyMoveResult` / `SaveData` | Engine | **Unchanged** | Existing `gameState.ts` tests |
+| `SaveData.lastDailyBonusClaimedDate?: string` (new) | Engine (persisted save) | Written by the App.tsx win-transition handler that already computes `unlockedRecipeCard`/`completedLevels` for that same transition | `engine/gameState.ts`'s `isValidSaveData` gains a matching optional-field check, same shape as every other optional `SaveData` field (`consecutiveLosses`, `lastCrash`, etc.) |
+| `SaveData.pendingDailyBonusGrant?: boolean` (new) | Engine (persisted save) | Set `true` alongside `lastDailyBonusClaimedDate` on a qualifying win; cleared to `false` the moment a level next mounts with it available (Board.tsx's own `onDailyBonusConsumed` callback into App.tsx) | Same `isValidSaveData` optional-field convention |
+| `appPersistence.ts`'s shuffle-bag position function (new, pure) | Presentation/generator-adjacent layer | No state — deterministic function of `(bagIndex, cadence, salt)` | Unit tests asserting exactly one hit per window, determinism, and unchanged long-run frequency |
+| `wonActions.ts`'s `resolveCelebrationTier` (replaces `isStrongWin`) | Presentation layer | No state — pure function of `(stars, unlockedRecipeCard)` | Unit tests covering all 6 input combinations |
+| `ApplyMoveResult` / core engine matching, cascading, scoring | Engine | **Unchanged** | Existing `gameState.ts`/`matrix.ts` tests |
 
 ## 5. Security posture
 
-**Above the floor:** Nothing new. No network surface, no new dependency
-(Reanimated primitives already in use throughout), no persistence change.
+**Above the floor:** Nothing new. No network surface, no new dependency, `lastDailyBonusClaimedDate`
+is the only new persisted field and carries no sensitive data (a plain date string, same
+spoofable-via-device-clock tradeoff already accepted and disclosed for `livesLastRegenAt`).
 
 **Floor deferrals (should be empty):** None.
 
-**Adversarial pass scheduled:** No — no attack surface changes.
+**Adversarial pass scheduled:** No — no attack surface changes. The only "abuse" surface (winding
+the device clock to claim the daily line repeatedly) grants nothing worth abusing — it's a text
+line, not a resource.
 
 ## 6. Verification plan
 
 | Behavior | Command / probe | Signal that proves it |
 |----------|----------------|-----------------------|
-| Codex stash applied cleanly, six files present | `git status` after `git stash apply` | **Done**: matched the reviewed file list exactly |
-| HUD sizing re-tightened, no regression vs. the prior spec's accepted numbers | Live `getBoundingClientRect()` over CDP, level 1, 375×667 | **Done**: `hudHeight=118, boardAreaHeight=504, byWidth=65, byHeight=63, tileSize=63` — matches the prior spec's own accepted value exactly |
-| `KitchenSceneDecor` scoped to the board, not the full screen | Code review of its new mount point in `Board.tsx`; `npx tsc` compiles; app renders without crashing over CDP | **Done**: moved inside `boardArea`, gated on `tileSize > 0`; full jest suite (which type-compiles every file) green throughout |
-| `ScorePopup`'s fixed position doesn't collide with the HUD | Render-tree analysis: `ScorePopup` is a child of `board` (inside `boardArea`), `Hud` and `boardArea` are non-overlapping flex siblings in `styles.container` | **Done** — structurally cannot collide regardless of HUD height, confirmed by reading the actual JSX nesting, not assumed |
-| Tone/copy branching is pure, named, and tested | `components/rewardMoment.ts` + `rewardMoment.test.ts` | **Done**: 16 tests covering every priority ordering across both functions |
-| `WonOverlay`'s star reveal matches established Reanimated conventions | Code review against `Sparkle`'s own `withDelay`/`withSequence`/`withTiming` pattern in the same file | **Done** — identical primitives; no Reanimated component in this codebase (`Sparkle`, `SteamWisp`, `ComboStreakBanner`, `PausedOverlay`) has a dedicated test file, so this matches established precedent rather than needing new coverage |
-| Win-celebration burst fires only for a strong win | `wonActions.test.ts`'s `isStrongWin` tests; `WonOverlay.tsx`'s `strongWin` gate | **Done**: 5 tests (3-star with/without recipe, recipe-only at 1/2 stars, ordinary win excluded) |
-| Burst particle layout is deterministic and testable | `celebrationParticles.test.ts` | **Done**: 7 tests (count, empty-input guards, color cycling, golden-angle spread, stagger window, determinism, unique ids) |
-| Stale "avoid fireworks" docs corrected | `docs/commercial-polish-with-charm-plan.md`, `docs/release-character-pack.md`, `docs/playability-review-2026-08-08.md` (historical, annotated not rewritten), `RecipeCardReveal.tsx`'s own comment | **Done** — all four corrected in this session |
-| `LalaMomentBanner` copy-bank coverage | `resolveLalaMomentCopy`'s test coverage; `DEFERRED_COMPLEXITY.md`'s `lala-moment-banner-coverage` entry | **Done**: 8 of 12 triggers wired (up from 4), remaining 4 disclosed as a considered decision with reasoning, not an oversight |
-| Test suite green throughout | `npx jest` | **Done**: 816/816 passing (up from 790 at session start: +10 `rewardMoment`, +7 `celebrationParticles`, +3 `wonActions`, +6 more `rewardMoment` for the expanded Lala coverage) |
-| `npx tsc` typecheck | `npx tsc --noEmit` | **Not usable this session** — fails on a pre-existing, unrelated environment issue (`expo/tsconfig.base.json`'s `customConditions` requires `moduleResolution: bundler`/`node16`/`nodenext`, but this project's own `tsconfig.json` overrides it to `node10`); confirmed via `git status`/`git log` that `tsconfig.json`, `package.json`, and `node_modules/expo/package.json` are all untouched by this session or the codex stash. Jest (which type-compiles every file via ts-jest) substitutes as the real compile-correctness check |
-| It actually feels like a genre-standard win moment, not "too much" | Real play by Kevin, ideally after an OTA reaches his device | The row that decides whether this build succeeded — a felt judgment the browser-pane environment's board-render limitation can't substitute for, the same standing gap every animation feature this session discloses |
+| Objective-type shuffle-bag preserves exact long-run frequency | Unit test sweeping a large level range (e.g. 3–1000) counting hits per mechanic | Score hits `total_eligible / 5` (±1 for remainder), clearance `/6`, escort `/8` — same ratios as today's modulo gates |
+| Shuffle-bag is deterministic per level number | Unit test calling `isScoreObjectiveLevel(N)` (etc.) twice for the same N | Identical result both calls |
+| Shuffle-bag is no longer predictable by simple modulo | Unit test confirming at least one window's hit position is NOT at position 0 | A window where the hit isn't the first eligible level in it |
+| Win celebration tier resolves correctly for all 6 star/recipe combinations | `wonActions.test.ts` | 1-star→quiet (both recipe states), 2-star→light (both states), 3-star→full (both states) |
+| Light burst is visibly smaller than full, not just relabeled | `celebrationParticles.test.ts` comparing `buildCelebrationParticles` output at both intensities | Fewer particles and/or shorter distances at `'light'` than `'full'` |
+| New star thresholds compute correctly at the boundary values | `wonActions.test.ts`, extending the existing `computeStarRating` suite | 1/3 and 1/6 boundaries hit exactly, same structure as the existing boundary tests |
+| Daily bonus is earned once per calendar day, never twice | Unit test around the new pure win-transition helper with two wins on the same simulated date vs. two on different dates | Second same-day win does not re-set `pendingDailyBonusGrant`; a win on a new date does |
+| The bonus token is shared, not double-granted to both caps | Unit test / code review of `Board.tsx`'s hint and shuffle handlers | Spending the token on Hint leaves Shuffle at its normal cap and vice versa — exactly one extra use total, not one extra on each |
+| The bonus is consumed once offered, not re-offered on a later level | Unit test / code review of the mount-time `onDailyBonusConsumed` call | `pendingDailyBonusGrant` clears the moment a level mounts with it available, regardless of whether the token is actually spent that attempt |
+| `SaveData` round-trips both new fields correctly, old saves still load | `gameState.test.ts`'s existing `loadSave` malformed/missing-field suite, extended | A save missing either field loads with it `undefined`, not a crash |
+| Recipe progress bar reflects the correct windowed fraction | Unit test against `levelProgress.ts`'s extended hint-building function at several current-level values within a known gap | Fraction matches `(current - prev) / (next - prev)` exactly |
+| It actually reads as varied/rewarding/engaging in real play | Real play by Kevin, ideally after an OTA reaches the device | The row that decides whether this build succeeded — a felt judgment, not a metric, same standing disclosure every prior spec this session has carried |
 
 ## 7. Career evidence
 
-- [ ] A short writeup on consolidating a second AI tool's uncommitted,
-      stashed work mid-session: what review caught (a tap-accuracy
-      regression, a scope bug) vs. what was sound as-is
-- [ ] Before/after capture of a strong win (star reveal + celebration
-      burst) once a real device/desktop session can render it
-- [ ] A short note on the "corrected a stale doc constraint, twice" thread
-      this session (calm-not-frantic over-reading → fireworks
-      over-reading) as a transferable lesson on re-checking old docs
-      against a changed brief rather than trusting them by inertia
+- [ ] A short writeup on the shuffle-bag technique itself — deterministic-but-unpredictable
+      sequencing is a genuinely transferable pattern (matchmaking, content rotation, A/B
+      assignment) beyond this one game
+- [ ] Before/after comparison of the recipe-progress indicator (text line vs. visual fill)
+- [ ] A decision-block post on the star-threshold change: calibrating against a real user's
+      report vs. a bot simulation, and being honest about which one is actually load-bearing
 
 ## 8. Change log
 
 | Date | Change | Why |
 |------|--------|-----|
-| 2026-08-08 | Drafted, status AGREED directly (plan-mode approval already secured — see the plan file referenced above). Prior `SPEC.md` (HUD reward texture & character) archived to `docs/specs/SPEC-hud-reward-texture-and-character-2026-08-08.md`, fully AGREED and implemented — a separate, completed initiative. | New, distinct initiative per the spec skill's "do not overwrite an existing spec" rule; plan-mode approval already constitutes the explicit go-ahead this file restates |
-| 2026-08-08 | Implemented and tested: codex stash applied and consolidated (HUD re-tightened, `KitchenSceneDecor` rescoped, `ScorePopup` position verified safe by construction); `rewardMoment.ts` extraction; `WonOverlay`'s `AnimatedStar` landed as-is; `WinCelebrationBurst.tsx` + `celebrationParticles.ts` built and wired for strong wins (including recipe-card wins, reversing `RecipeCardReveal`'s own prior no-burst note); `LalaMomentBanner` coverage expanded 4→8 of 12 triggers; stale "avoid fireworks" lines corrected in three docs plus one component comment. 816/816 tests. `npx tsc` unusable this session (pre-existing, unrelated environment issue, disclosed above) — jest's ts-jest compile substitutes. Not yet felt-verified on a real device. | Implementation session; the open row is a human "does this feel right, not too much" judgment |
+| 2026-08-09 | Drafted, status DRAFT. Prior `SPEC.md` (commercial-polish consolidation & win celebration) archived to `docs/specs/SPEC-commercial-polish-consolidation-and-celebration-2026-08-08.md`, fully AGREED and implemented — a separate, completed initiative. Three threads (loop predictability, ordinary-win reward flatness, no return hook) each confirmed with the architect via direct multiple-choice before drafting, per this project's architect/runner boundary. | New, distinct initiative; directional decisions already made in conversation, mechanism-level decisions (thresholds, data model, rejected alternatives) proposed here for the architect's review before AGREED |
+| 2026-08-09 | DRAFT → AGREED. Daily-bonus-shape fork resolved in favor of the resource-grant alternative (a real free Hint-or-Shuffle use, not flavor-only) — see the updated Decision block. Star thresholds (1/3, 1/6) confirmed as proposed, no changes. The board-shape/blocker-rotation scope cut was not separately objected to, so it stands as drafted. | Architect review response: "do the free hint or shuffle. Not going to break anything. Star thresholds sound good" |
+| 2026-08-09 | Implemented and tested, all three threads: the seeded shuffle-bag (`appPersistence.ts`'s `isScoreObjectiveLevel`/`isClearanceObjectiveLevel`/`isEscortObjectiveLevel`, a third local `mulberry32`), `resolveCelebrationTier` replacing `isStrongWin` with a light/full intensity split plus the loosened star thresholds, the daily-bonus shared Hint-or-Shuffle token (`SaveData.pendingDailyBonusGrant`/`lastDailyBonusClaimedDate`, `Board.tsx`'s `hasDailyBonusToken`), and the windowed recipe-progress fill bar (`findPreviousUnlockedMilestoneLevel`, `buildRecipeProgressFraction`, `Home.tsx`). 850/850 tests (up from 825). A genuine debugging detour during live verification — a `ReferenceError` that survived a full dev-server restart and a forced reload — was root-caused to a stale browser-tab sub-bundle cache (confirmed via a direct bundle `fetch()` showing already-correct compiled code, then a fresh tab showing zero errors), not a real code defect; see `engine/DECISIONS.md`'s matching entry for the full trace. Not yet felt-verified: the recipe-progress bar's actual visual appearance, and the daily-bonus/shuffle-bag behavior end-to-end against a real save — both disclosed in `DEFERRED_COMPLEXITY.md`. | Implementation session; the open rows are human judgment calls (does the loop feel varied, do ordinary wins feel better, is the daily bonus noticed) this environment can't substitute for |

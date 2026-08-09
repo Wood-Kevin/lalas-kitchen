@@ -201,6 +201,19 @@ export interface BoardProps {
   // from animateCascade below.
   soundEnabled: boolean;
   hapticsEnabled: boolean;
+  // The daily first-win bonus (see SPEC.md's daily-first-win-moment
+  // decision) — true when this exact level entry is the one that should
+  // offer a free Hint-or-Shuffle use. Read once at mount (see
+  // hasDailyBonusToken below); App.tsx computes it fresh per Board mount
+  // from its own persisted ref, so it's always correct at the moment a new
+  // level starts (Board is fully remounted on every level change via its
+  // own key={levelIndex} — see App.tsx's render).
+  dailyBonusAvailable: boolean;
+  // Fired once, at mount, the moment a level actually picks up a pending
+  // bonus — clears the persisted flag immediately, whether or not the
+  // token ends up spent this attempt, so it's never re-offered to a later
+  // level (see App.tsx's handleDailyBonusConsumed).
+  onDailyBonusConsumed: () => void;
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
@@ -241,6 +254,8 @@ export function Board({
   nextRecipeHint,
   soundEnabled,
   hapticsEnabled,
+  dailyBonusAvailable,
+  onDailyBonusConsumed,
 }: BoardProps) {
   const [gameState, setGameState] = useState<GameState>(() => createGameState(levelConfig));
   // Computed once at mount, from this level's own starting props — same
@@ -516,6 +531,15 @@ export function Board({
   // manual Shuffle button too — real playtest feedback reversed that
   // button's original uncapped design (see engine/DECISIONS.md).
   const [shuffleUsesUsed, setShuffleUsesUsed] = useState(0);
+  // The daily first-win bonus (see SPEC.md's daily-first-win-moment
+  // decision): a single shared token, spendable on either Hint or Shuffle,
+  // past that button's normal per-attempt cap. Seeded once from the
+  // dailyBonusAvailable prop at this genuinely fresh mount (Board fully
+  // remounts on every level change — see App.tsx's key={levelIndex}), and
+  // deliberately NOT reset by handlePlayAgain: the bonus belongs to this
+  // level ENTRY, not to any one attempt within it, so it survives a retry
+  // of the same level until actually spent.
+  const [hasDailyBonusToken, setHasDailyBonusToken] = useState(dailyBonusAvailable);
 
   // The board actually drawn: the mid-cascade snapshot when animating, else
   // the committed game state. Grid dimensions are identical either way, so
@@ -546,6 +570,22 @@ export function Board({
     // alone would report the same state repeatedly for no reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
+
+  // The daily first-win bonus's one-time announcement (see
+  // hasDailyBonusToken's own comment above) — runs exactly once, at this
+  // genuinely fresh mount, never re-fires on a later re-render. Consumes
+  // the persisted grant immediately regardless of whether the token ends
+  // up spent this attempt, per onDailyBonusConsumed's own contract.
+  useEffect(() => {
+    if (dailyBonusAvailable) {
+      onDailyBonusConsumed();
+      setLalaMoment({ key: 'daily-bonus', copy: 'A free hint or shuffle today, whichever you need.' });
+    }
+    // Deliberately mount-only — dailyBonusAvailable is a fixed prop for the
+    // lifetime of this mount (see its own comment), and onDailyBonusConsumed
+    // is a stable App.tsx callback.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Show a special piece's one-time tutorial the first time it comes to rest on
   // the committed board — or, failing that, the spread-warning tutorial the
@@ -1164,13 +1204,23 @@ export function Board({
   // The hint button's own tap handler (see the hintPair/hintUsesUsed
   // declarations above). Guarded by both canAcceptMove (no point hinting a
   // move that can't be made right now — mirrors every other input path's
-  // gate) and canUseHint (the button itself only renders while this is true,
-  // but the check is repeated here so a stray tap during the render gap can't
-  // sneak past the cap). Calls the exact same findAnyLegalMove the old
-  // automatic timer used — no new detection logic, only a new trigger.
+  // gate) and canUseHint OR hasDailyBonusToken (the button itself only
+  // renders while one of those is true, but the check is repeated here so a
+  // stray tap during the render gap can't sneak past either). Calls the
+  // exact same findAnyLegalMove the old automatic timer used — no new
+  // detection logic, only a new trigger. Past the normal cap, spends the
+  // shared daily-bonus token instead of incrementing hintUsesUsed — the
+  // token is consumed only once the normal allowance is actually exhausted,
+  // never ahead of it, so it always reads as a genuine extra rather than a
+  // substitute for one of the normal two.
   function handleRequestHint() {
-    if (!canAcceptMove() || !canUseHint(hintUsesUsed)) return;
-    setHintUsesUsed((used) => nextAttemptUseCount(used, 'use'));
+    const withinCap = canUseHint(hintUsesUsed);
+    if (!canAcceptMove() || (!withinCap && !hasDailyBonusToken)) return;
+    if (withinCap) {
+      setHintUsesUsed((used) => nextAttemptUseCount(used, 'use'));
+    } else {
+      setHasDailyBonusToken(false);
+    }
     setHintPair(findAnyLegalMove(gameState.board));
   }
 
@@ -1212,7 +1262,8 @@ export function Board({
   // it a fresh (or absent) spawn entry. Cleared here exactly like
   // handlePlayAgain already clears them for a fresh attempt's board swap.
   function handleRequestShuffle() {
-    if (!canAcceptMove() || !canUseShuffle(shuffleUsesUsed)) return;
+    const withinCap = canUseShuffle(shuffleUsesUsed);
+    if (!canAcceptMove() || (!withinCap && !hasDailyBonusToken)) return;
     stepTimersRef.current.forEach((timer) => clearTimeout(timer));
     stepTimersRef.current = [];
     setHintPair(null);
@@ -1222,7 +1273,14 @@ export function Board({
     setSwapDurationIds(new Set());
     setSwapDetourState(null);
     setFallDelayMs(0);
-    setShuffleUsesUsed((used) => nextAttemptUseCount(used, 'use'));
+    // Same shared-token pattern as handleRequestHint above — spends the
+    // daily-bonus token only once the normal per-attempt cap is actually
+    // exhausted, never ahead of it.
+    if (withinCap) {
+      setShuffleUsesUsed((used) => nextAttemptUseCount(used, 'use'));
+    } else {
+      setHasDailyBonusToken(false);
+    }
     setGameState((current) => requestManualShuffle(current));
     // The one LalaMomentBanner trigger that isn't a move outcome (see
     // rewardMoment.ts's resolveLalaMomentCopy) — release-character-pack.md's
@@ -1372,7 +1430,7 @@ export function Board({
         // matching the bonus-moves grant's own established precedent,
         // rather than leaving a disabled dead tap target on screen).
         <View style={styles.topBar}>
-          {canUseShuffle(shuffleUsesUsed) && (
+          {(canUseShuffle(shuffleUsesUsed) || hasDailyBonusToken) && (
             <Pressable
               onPress={handleRequestShuffle}
               disabled={!canAcceptMove()}
@@ -1391,7 +1449,7 @@ export function Board({
               <Text style={[styles.hintButtonLabel, { color: skinConfig.palette.accent }]}>🔀 Shuffle</Text>
             </Pressable>
           )}
-          {canUseHint(hintUsesUsed) && (
+          {(canUseHint(hintUsesUsed) || hasDailyBonusToken) && (
             <Pressable
               onPress={handleRequestHint}
               disabled={!canAcceptMove()}

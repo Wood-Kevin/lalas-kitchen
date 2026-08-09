@@ -39,6 +39,25 @@ export interface HomeProps {
   // next-unplayed level. Undefined once nothing lies ahead (past the last
   // curated milestone), in which case the card shows only its plain count.
   nextRecipeHint?: string;
+  // The windowed fill fraction (0-1) toward nextRecipeHint's own card — see
+  // levelProgress.ts's buildRecipeProgressFraction and SPEC.md's
+  // recipe-progress-visibility thread. Undefined exactly when
+  // nextRecipeHint is (nothing lies ahead), never a bare 0. Deliberately
+  // windowed (since the player's last real unlock), not lifetime progress
+  // over the full curated set — see that function's own comment for why a
+  // lifetime bar would read as static instead of alive. This is a
+  // different surface from unlockedRecipeCardCount/totalRecipeCardCount
+  // above, which stay a plain, un-gamified count — see
+  // buildRecipeBookSubtitle's own "not a competitive achievement system"
+  // design brief, which this doesn't touch.
+  nextRecipeProgressFraction?: number;
+  // The target card's own sprite reference (RecipeCard.sprite), shown as
+  // the fill bar's destination icon — reusing the real card art rather
+  // than a generic icon, without naming the card in text (see
+  // buildNextRecipeHint's own "never leak the surprise" comment, which
+  // this respects the same way: the icon is the card's illustration, not
+  // its title).
+  nextRecipeSprite?: string;
   onStartNext: () => void;
   onBrowseAllLevels: () => void;
   // The recipe book card's own tap target — opens the RecipeBook collection
@@ -77,6 +96,8 @@ export function Home({
   unlockedRecipeCardCount,
   totalRecipeCardCount,
   nextRecipeHint,
+  nextRecipeProgressFraction,
+  nextRecipeSprite,
   onStartNext,
   onBrowseAllLevels,
   onOpenRecipeBook,
@@ -84,6 +105,7 @@ export function Home({
   onDevReset,
 }: HomeProps) {
   const recipeBookSubtitle = buildRecipeBookSubtitle(unlockedRecipeCardCount, totalRecipeCardCount);
+  const nextRecipeIcon = nextRecipeSprite ? resolveSpriteAsset(nextRecipeSprite, spriteAssets) : undefined;
 
   const heroSprite = resolveSpriteAsset('home-hero-500h-crop.webp', spriteAssets);
   const nextIconSprite =
@@ -171,9 +193,43 @@ export function Home({
           <Text style={[styles.cardTitle, { color: config.palette.text }]}>Your recipe book</Text>
           <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>{recipeBookSubtitle}</Text>
           {nextRecipeHint !== undefined && (
-            <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>
-              {nextRecipeHint}
-            </Text>
+            <>
+              <Text style={[styles.progressLine, { color: config.palette.mutedText }]}>
+                {nextRecipeHint}
+              </Text>
+              {/* The windowed fill (SPEC.md's recipe-progress-visibility
+                  thread) — resets to a fresh, visibly-moving start at every
+                  unlock rather than crawling toward the full 52-card set,
+                  so it stays worth glancing at again next session instead
+                  of reading as permanently near-full. The target card's own
+                  icon anchors what the fill is heading toward without
+                  naming it (see nextRecipeSprite's own comment). */}
+              <View style={styles.recipeProgressRow}>
+                <View
+                  style={[styles.recipeProgressTrack, { backgroundColor: config.palette.background[0] }]}
+                >
+                  <View
+                    style={[
+                      styles.recipeProgressFill,
+                      {
+                        backgroundColor: config.palette.accent,
+                        width: `${Math.round((nextRecipeProgressFraction ?? 0) * 100)}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                {nextRecipeIcon &&
+                  (nextRecipeIcon.kind === 'image' ? (
+                    <Image
+                      source={nextRecipeIcon.source}
+                      style={styles.recipeProgressIcon}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Text style={{ color: config.palette.text }}>{nextRecipeIcon.label}</Text>
+                  ))}
+              </View>
+            </>
           )}
         </View>
       </Pressable>
@@ -333,6 +389,26 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.bodyRegular,
     fontSize: 14,
     lineHeight: 20,
+  },
+  recipeProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 2,
+  },
+  recipeProgressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  recipeProgressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  recipeProgressIcon: {
+    width: 20,
+    height: 20,
   },
   nextRow: {
     flexDirection: 'row',

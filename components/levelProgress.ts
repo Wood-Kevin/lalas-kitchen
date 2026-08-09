@@ -200,6 +200,28 @@ export function buildLevelSummary(
 // the hint promises *that* something is coming, never *what*. Same calm
 // register as everything else on this card: no countdown framing, no
 // exclamation, no urgency.
+// The windowed fill fraction for Home's recipe-progress indicator (SPEC.md's
+// recipe-progress-visibility thread) — progress WITHIN the current gap
+// between recipe cards, not lifetime progress over the full curated set.
+// Deliberately windowed, not cumulative: the milestone spacing widens
+// considerably in the back half of the 52-card curve (see CLAUDE.md's
+// recipe-box milestone sequence), so a lifetime bar would sit at ~90%+ full
+// almost permanently once a player is deep into it — static exactly when a
+// return-hook is supposed to feel alive. A windowed bar resets to a fresh,
+// visibly-moving 0% at every unlock instead. Clamped to [0, 1] defensively
+// (a locked-but-passed milestone — see findPreviousUnlockedMilestoneLevel's
+// own comment — could otherwise put currentLevel before previousMilestoneLevel).
+export function buildRecipeProgressFraction(
+  currentLevel: number,
+  previousMilestoneLevel: number,
+  nextMilestoneLevel: number
+): number {
+  const span = nextMilestoneLevel - previousMilestoneLevel;
+  if (span <= 0) return 1;
+  const progressed = currentLevel - previousMilestoneLevel;
+  return Math.max(0, Math.min(1, progressed / span));
+}
+
 export function buildNextRecipeHint(levelsAway: number): string {
   // "your next level" rather than "this level": both surfaces that show
   // this (Home's recipe book card, the win overlay) anchor the distance on

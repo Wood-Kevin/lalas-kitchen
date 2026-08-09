@@ -34,6 +34,7 @@ import {
   consecutiveLossesAfterLoss,
   didLevelJustEnd,
   findRecipeCardForLevel,
+  findPreviousUnlockedMilestoneLevel,
   grantInstantLife,
   livesAfterLoss,
   markLevelCompleted,
@@ -44,12 +45,15 @@ import {
   resolveStartLevelIndex,
   resolveStartScreen,
   shouldApplyBreather,
+  shouldGrantDailyBonus,
+  localDateString,
   startingLives,
   unlockRecipeCard,
 } from './appPersistence';
 import {
   buildLevelSummary,
   buildNextRecipeHint,
+  buildRecipeProgressFraction,
   resolveLevelMapIndices,
   resolveLevelStatus,
   resolveNextUnplayedLevel,
@@ -418,6 +422,17 @@ function AppRoot() {
   // AppRoot remount (a crash always forces one via ErrorBoundary's
   // resetKey), so there's no live-update case a plain ref would miss.
   const lastCrashRef = useRef<CrashRecord | undefined>(undefined);
+  // The daily first-win bonus's two fields (see engine/gameState.ts's
+  // SaveData comments and SPEC.md's daily-first-win-moment decision).
+  // Ref-only, same reasoning as consecutiveLossesRef: read directly in this
+  // component's own render body when passing dailyBonusAvailable to Board
+  // (see the JSX below), which is enough — a real re-render already happens
+  // whenever a win updates other state in the same handleBoardStateChange
+  // branch, and again whenever handleNextLevel/handlePlayLevel changes
+  // levelIndex (remounting Board via its own key prop), so a fresh mount
+  // always reads the current ref value, never a stale one.
+  const lastDailyBonusClaimedDateRef = useRef<string | undefined>(undefined);
+  const pendingDailyBonusGrantRef = useRef(false);
   // Whether the level currently loaded into `levelConfig` was actually
   // granted a breather at the moment it started — decided once in
   // handleNextLevel/handlePlayLevel and read (never re-derived) by
@@ -485,6 +500,8 @@ function AppRoot() {
     hapticsEnabledRef.current = initialHapticsEnabled;
     consecutiveLossesRef.current = save?.consecutiveLosses ?? 0;
     lastCrashRef.current = save?.lastCrash;
+    lastDailyBonusClaimedDateRef.current = save?.lastDailyBonusClaimedDate;
+    pendingDailyBonusGrantRef.current = save?.pendingDailyBonusGrant ?? false;
     isBreatherAttemptRef.current = false;
     livesRef.current = regenerated.lives;
     livesLastRegenAtRef.current = regenerated.livesLastRegenAt;
@@ -575,7 +592,9 @@ function AppRoot() {
         livesLastRegenAtRef.current,
         undefined,
         consecutiveLossesRef.current,
-        lastCrashRef.current
+        lastCrashRef.current,
+        lastDailyBonusClaimedDateRef.current,
+        pendingDailyBonusGrantRef.current
       )
     );
   }, []);
@@ -687,6 +706,18 @@ function AppRoot() {
             setUnlockedRecipeCards(updatedCards);
           }
           setRevealedRecipeCard(isNewUnlock ? card! : null);
+
+          // The daily first-win bonus (see SPEC.md's daily-first-win-moment
+          // decision): the FIRST win on a calendar day earns a free
+          // Hint-or-Shuffle use for whichever level is entered next. Grant
+          // only, never consume, here — consumption happens once, at the
+          // next level's own mount (Board.tsx's onDailyBonusConsumed below),
+          // deliberately a separate event from earning it.
+          const today = localDateString(new Date());
+          if (shouldGrantDailyBonus(lastDailyBonusClaimedDateRef.current, today)) {
+            lastDailyBonusClaimedDateRef.current = today;
+            pendingDailyBonusGrantRef.current = true;
+          }
         }
         // Life-spend used to happen right here (shouldSpendLifeOnLoss), keyed
         // purely off this transition — but a moves-exhausted pause might
@@ -698,6 +729,16 @@ function AppRoot() {
     },
     [persistLatestState]
   );
+
+  // Fired by Board.tsx once, at the mount of whichever level actually picks
+  // up a pending daily bonus (see handleBoardStateChange's grant above and
+  // SPEC.md's daily-first-win-moment decision) — clears the persisted flag
+  // immediately, regardless of whether the bonus token ends up spent that
+  // attempt, so it's never re-offered to a later level.
+  const handleDailyBonusConsumed = useCallback(() => {
+    pendingDailyBonusGrantRef.current = false;
+    persistLatestState();
+  }, [persistLatestState]);
 
   // WonOverlay's primary action, wired through Board — advances to the next
   // level, carrying over whatever lives are left (lives are a cross-level
@@ -889,7 +930,9 @@ function AppRoot() {
         livesLastRegenAtRef.current,
         undefined,
         consecutiveLossesRef.current,
-        lastCrashRef.current
+        lastCrashRef.current,
+        lastDailyBonusClaimedDateRef.current,
+        pendingDailyBonusGrantRef.current
       )
     );
   }, []);
@@ -926,7 +969,9 @@ function AppRoot() {
         livesLastRegenAtRef.current,
         undefined,
         consecutiveLossesRef.current,
-        lastCrashRef.current
+        lastCrashRef.current,
+        lastDailyBonusClaimedDateRef.current,
+        pendingDailyBonusGrantRef.current
       )
     );
   }, []);
@@ -949,7 +994,9 @@ function AppRoot() {
         livesLastRegenAtRef.current,
         undefined,
         consecutiveLossesRef.current,
-        lastCrashRef.current
+        lastCrashRef.current,
+        lastDailyBonusClaimedDateRef.current,
+        pendingDailyBonusGrantRef.current
       )
     );
   }, []);
@@ -990,6 +1037,21 @@ function AppRoot() {
   // when the player actually taps in (handleNextLevel/handlePlayLevel).
   const nextLevelIndex = resolveNextUnplayedLevel(completedLevels);
   const nextLevelSummary = buildLevelSummary(buildLevelConfig(nextLevelIndex, lives), nextLevelIndex);
+  // The calm forward-looking session goal Home shows, anchored on the real
+  // next-unplayed level (see findNextRecipeCard for why it only ever looks
+  // ahead, never back at replayable gaps). Computed once here and read into
+  // three Home props (text, fill fraction, target icon) below rather than
+  // three separate lookups — see SPEC.md's recipe-progress-visibility
+  // thread for why the fraction is windowed (since-last-unlock), not
+  // lifetime.
+  const nextRecipeAhead = findNextRecipeCard(skinConfig.recipeCards, nextLevelIndex, unlockedRecipeCards);
+  const nextRecipeProgressFraction = nextRecipeAhead
+    ? buildRecipeProgressFraction(
+        nextLevelIndex,
+        findPreviousUnlockedMilestoneLevel(skinConfig.recipeCards, unlockedRecipeCards),
+        nextRecipeAhead.card.milestoneLevel
+      )
+    : undefined;
   // resolveLevelMapIndices (not the old resolveVisibleLevelIndices) is what
   // guarantees the current level — and a few genuinely reachable locked
   // levels past it — always appear on the map, even when nextLevelIndex is
@@ -1051,17 +1113,9 @@ function AppRoot() {
             nextLevel={nextLevelSummary}
             unlockedRecipeCardCount={unlockedRecipeCards.length}
             totalRecipeCardCount={skinConfig.recipeCards.length}
-            // The calm forward-looking session goal, anchored on the real
-            // next-unplayed level (see findNextRecipeCard for why it only
-            // ever looks ahead, never back at replayable gaps).
-            nextRecipeHint={(() => {
-              const ahead = findNextRecipeCard(
-                skinConfig.recipeCards,
-                nextLevelIndex,
-                unlockedRecipeCards
-              );
-              return ahead ? buildNextRecipeHint(ahead.levelsAway) : undefined;
-            })()}
+            nextRecipeHint={nextRecipeAhead ? buildNextRecipeHint(nextRecipeAhead.levelsAway) : undefined}
+            nextRecipeProgressFraction={nextRecipeProgressFraction}
+            nextRecipeSprite={nextRecipeAhead?.card.sprite}
             onStartNext={() => handlePlayLevel(nextLevelIndex)}
             onBrowseAllLevels={handleOpenAllLevels}
             onOpenRecipeBook={handleOpenRecipeBook}
@@ -1145,6 +1199,10 @@ function AppRoot() {
             lastTutorialShownAt={lastTutorialShownAtRef.current}
             onTutorialShown={handleTutorialShown}
             unlockedRecipeCard={revealedRecipeCard}
+            // Read directly off the ref — see that ref's own comment for why
+            // this is always fresh at the moment a new Board mount reads it.
+            dailyBonusAvailable={pendingDailyBonusGrantRef.current}
+            onDailyBonusConsumed={handleDailyBonusConsumed}
             // Same hint Home shows, anchored one level PAST the one being
             // played — from the win screen, "ahead" starts at the next
             // level. Recomputed naturally when a win updates

@@ -17,6 +17,7 @@ import {
   findSpreadWarningTutorial,
   SPREAD_WARNING_TUTORIAL_ID,
   findNextRecipeCard,
+  findPreviousUnlockedMilestoneLevel,
   findRecipeCardForLevel,
   STRIPED_TUTORIAL_ID,
   COLOR_BOMB_TUTORIAL_ID,
@@ -61,6 +62,8 @@ import {
   TUTORIAL_MIN_GAP_MS,
   canShowTutorialNow,
   shouldActivateTutorial,
+  localDateString,
+  shouldGrantDailyBonus,
 } from './appPersistence';
 import { RecipeCard } from './components/skinConfig';
 import { StarRating } from './components/wonActions';
@@ -520,26 +523,52 @@ describe('generatedObjectiveCount', () => {
   });
 });
 
+// These three describe blocks (isScoreObjectiveLevel/isClearanceObjectiveLevel/
+// isEscortObjectiveLevel) used to assert exact on-cadence level numbers
+// (e.g. "always true at 3, 8, 13"), matching the old plain-modulo gate. The
+// seeded-shuffle-bag rewrite (see SPEC.md's loop-variety thread and
+// engine/DECISIONS.md) deliberately makes WHICH level within each window
+// hits unpredictable by design — so these now assert the invariants that
+// actually matter: below-threshold exclusion, determinism, exactly one hit
+// per window (the same long-run frequency the old gate had), and that the
+// hit position genuinely varies rather than silently still landing on
+// position 0 every time.
 describe('isScoreObjectiveLevel', () => {
   test('no score objective below the threshold', () => {
     expect(isScoreObjectiveLevel(1)).toBe(false);
     expect(isScoreObjectiveLevel(2)).toBe(false);
   });
 
-  test('on-cadence levels starting at the threshold (3, then every 5th)', () => {
-    expect(isScoreObjectiveLevel(3)).toBe(true);
-    expect(isScoreObjectiveLevel(8)).toBe(true);
-    expect(isScoreObjectiveLevel(13)).toBe(true);
+  test('is deterministic — the same levelNumber always returns the same answer', () => {
+    expect(isScoreObjectiveLevel(6)).toBe(isScoreObjectiveLevel(6));
+    expect(isScoreObjectiveLevel(47)).toBe(isScoreObjectiveLevel(47));
   });
 
-  test('off-cadence levels get no score objective', () => {
-    for (const levelNumber of [4, 5, 6, 7, 9, 10, 11, 12]) {
-      expect(isScoreObjectiveLevel(levelNumber)).toBe(false);
+  test('exactly one hit per window of 5 consecutive eligible levels — same long-run frequency as the old modulo gate', () => {
+    const windowSize = 5;
+    const start = 3; // SCORE_OBJECTIVE_MIN_LEVEL_NUMBER
+    for (let windowStart = start; windowStart < start + windowSize * 40; windowStart += windowSize) {
+      let hits = 0;
+      for (let levelNumber = windowStart; levelNumber < windowStart + windowSize; levelNumber++) {
+        if (isScoreObjectiveLevel(levelNumber)) hits++;
+      }
+      expect(hits).toBe(1);
     }
   });
 
-  test('is deterministic — the same levelNumber always returns the same answer', () => {
-    expect(isScoreObjectiveLevel(6)).toBe(isScoreObjectiveLevel(6));
+  test('the hit position is not always the first level of its window — the shuffle is real, not accidental modulo', () => {
+    const windowSize = 5;
+    const start = 3;
+    const positions: number[] = [];
+    for (let windowStart = start; windowStart < start + windowSize * 20; windowStart += windowSize) {
+      for (let i = 0; i < windowSize; i++) {
+        if (isScoreObjectiveLevel(windowStart + i)) {
+          positions.push(i);
+          break;
+        }
+      }
+    }
+    expect(positions.some((p) => p !== 0)).toBe(true);
   });
 });
 
@@ -585,16 +614,36 @@ describe('isClearanceObjectiveLevel', () => {
     expect(isClearanceObjectiveLevel(4)).toBe(false);
   });
 
-  test('on-cadence levels starting at the threshold (5, then every 6th)', () => {
-    expect(isClearanceObjectiveLevel(5)).toBe(true);
-    expect(isClearanceObjectiveLevel(11)).toBe(true);
-    expect(isClearanceObjectiveLevel(17)).toBe(true);
+  test('is deterministic — the same levelNumber always returns the same answer', () => {
+    expect(isClearanceObjectiveLevel(11)).toBe(isClearanceObjectiveLevel(11));
+    expect(isClearanceObjectiveLevel(53)).toBe(isClearanceObjectiveLevel(53));
   });
 
-  test('off-cadence levels get no clearance objective', () => {
-    for (const levelNumber of [6, 7, 8, 9, 10, 12, 13, 14]) {
-      expect(isClearanceObjectiveLevel(levelNumber)).toBe(false);
+  test('exactly one hit per window of 6 consecutive eligible levels — same long-run frequency as the old modulo gate', () => {
+    const windowSize = 6;
+    const start = 5; // CLEARANCE_MIN_LEVEL_NUMBER
+    for (let windowStart = start; windowStart < start + windowSize * 40; windowStart += windowSize) {
+      let hits = 0;
+      for (let levelNumber = windowStart; levelNumber < windowStart + windowSize; levelNumber++) {
+        if (isClearanceObjectiveLevel(levelNumber)) hits++;
+      }
+      expect(hits).toBe(1);
     }
+  });
+
+  test('the hit position is not always the first level of its window — the shuffle is real, not accidental modulo', () => {
+    const windowSize = 6;
+    const start = 5;
+    const positions: number[] = [];
+    for (let windowStart = start; windowStart < start + windowSize * 20; windowStart += windowSize) {
+      for (let i = 0; i < windowSize; i++) {
+        if (isClearanceObjectiveLevel(windowStart + i)) {
+          positions.push(i);
+          break;
+        }
+      }
+    }
+    expect(positions.some((p) => p !== 0)).toBe(true);
   });
 });
 
@@ -792,24 +841,32 @@ describe('buildGeneratedLevelConfig', () => {
   });
 
   test('places a real score objective on an on-cadence, single-objective level', () => {
-    // levelIndex 6, handBuiltLevelCount 3 -> levelNumber 3 -> on-cadence
-    // (isScoreObjectiveLevel(3) === true) and still single-objective
-    // (typeCount well below MIN_TYPES_FOR_SECOND_OBJECTIVE at levelNumber 3).
-    // levelNumber 3 is also shaped (generatedShapeId(3) is on-cadence too),
-    // so the expected target must go through the same real playableRatio a
-    // plain-rectangle assumption would silently get wrong — same approach
-    // the "builds a full LevelConfig" test above uses.
-    const config = buildGeneratedLevelConfig(6, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
-    const shapeId = generatedShapeId(3);
+    // levelIndex 10, handBuiltLevelCount 3 -> levelNumber 7 -> the first
+    // levelNumber the seeded shuffle-bag (see SPEC.md's loop-variety thread
+    // and engine/DECISIONS.md's objective-shuffle-bag entry) actually lands
+    // a score hit on — no longer simply "the threshold level" the way plain
+    // modulo made it. A score objective always replaces the array outright
+    // regardless of typeCount, so single-objective holds here
+    // unconditionally, not because typeCount happens to be small.
+    // levelNumber 7 is also shaped
+    // (generatedShapeId(7) is on-cadence), so the expected target must go
+    // through the same real playableRatio a plain-rectangle assumption
+    // would silently get wrong — same approach the "builds a full
+    // LevelConfig" test above uses.
+    const config = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    const shapeId = generatedShapeId(7);
     const voidCells = shapeId ? BOARD_SHAPE_TEMPLATES[shapeId](8, 6) : undefined;
     const ratio = playableCellRatio(8, 6, voidCells);
-    expect(config.objectives).toEqual([{ type: 'score', targetCount: generatedScoreTarget(3, ratio) }]);
+    expect(config.objectives).toEqual([{ type: 'score', targetCount: generatedScoreTarget(7, ratio) }]);
   });
 
   test('an off-cadence level stays plain collect, unaffected', () => {
-    // levelNumber 4 (levelIndex 7) — one past the score-cadence level 3, off
-    // the SCORE_OBJECTIVE_CADENCE (3) rotation.
-    const config = buildGeneratedLevelConfig(7, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    // levelNumber 8 (levelIndex 11) — one past the on-cadence score hit at
+    // levelNumber 7, confirmed off-cadence via isScoreObjectiveLevel itself
+    // rather than a hand-derived arithmetic claim, since the shuffle-bag's
+    // hit position isn't simple modulo arithmetic any more.
+    expect(isScoreObjectiveLevel(8)).toBe(false);
+    const config = buildGeneratedLevelConfig(11, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config.objectives[0].type).not.toBe('score');
     expect(config.objectives[0]).toHaveProperty('targetMatchType');
   });
@@ -827,40 +884,43 @@ describe('buildGeneratedLevelConfig', () => {
 
   test('a score-objective level still gets its blockers/shape exactly like a collect level would', () => {
     const blockers = [{ id: 'cling', hitsToClear: 1 }];
-    const scoreLevel = buildGeneratedLevelConfig(6, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
+    // levelIndex 10 -> levelNumber 7, same on-cadence score hit the test above uses.
+    const scoreLevel = buildGeneratedLevelConfig(10, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
     expect(scoreLevel.objectives[0].type).toBe('score');
     expect(scoreLevel.blockerCount).toBeGreaterThan(0);
     expect(scoreLevel.blockerMatchType).toBe('cling');
   });
 
   test('places a real clearance objective with real layerCells on an on-cadence, single-objective level', () => {
-    // levelIndex 8, handBuiltLevelCount 3 -> levelNumber 5: on-cadence for
-    // clearance (isClearanceObjectiveLevel(5) === true) but NOT for score
-    // ((5-3)%3 !== 0), and still single-objective.
-    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    // levelIndex 30, handBuiltLevelCount 3 -> levelNumber 27: on-cadence for
+    // clearance under the seeded shuffle-bag (isClearanceObjectiveLevel(27)
+    // === true — see engine/DECISIONS.md's objective-shuffle-bag entry for
+    // why this is no longer the threshold level under simple modulo), and
+    // still single-objective (clearance always replaces the array outright).
+    const config = buildGeneratedLevelConfig(30, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config.objectives).toEqual([{ type: 'clearance' }]);
     expect(config.layerCells).toBeDefined();
     expect(config.layerCells!.length).toBeGreaterThan(0);
   });
 
   test('a clearance-objective level gets NO blockers even when the blocker rotation would otherwise place them', () => {
-    // Same levelNumber 5 as above; generatedBlockerCount(5) would normally
-    // be 2 with a real eligible blocker in the pool — confirms the
+    // Same levelNumber 27 as above; generatedBlockerCount(27) would normally
+    // place a real eligible blocker in the pool — confirms the
     // clearance-level override actually suppresses it, not just that a
     // blocker-less pool was passed.
     const blockers = [{ id: 'cling', hitsToClear: 1 }];
-    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
+    const config = buildGeneratedLevelConfig(30, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6, blockers);
     expect(config.objectives).toEqual([{ type: 'clearance' }]);
     expect(config.blockerCount).toBeUndefined();
     expect(config.blockerMatchType).toBeUndefined();
   });
 
   test('a clearance-objective level still gets its board shape, and layerCells avoid every void cell', () => {
-    // levelNumber 5 is also shaped (generatedShapeId(5) is on-cadence too) —
-    // confirms layerCells and voidCells never collide on the real generated
-    // voidCells, not just the synthetic ones generatedLayerCells' own unit
-    // tests use.
-    const config = buildGeneratedLevelConfig(8, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
+    // levelNumber 27 is also shaped (generatedShapeId(27) is on-cadence
+    // too, the "ring" template) — confirms layerCells and voidCells never
+    // collide on the real generated voidCells, not just the synthetic ones
+    // generatedLayerCells' own unit tests use.
+    const config = buildGeneratedLevelConfig(30, 3, ['A', 'B', 'C', 'D', 'E', 'F'], 8, 6);
     expect(config.voidCells).toBeDefined();
     expect(config.voidCells!.length).toBeGreaterThan(0);
     const voidKeys = new Set(config.voidCells!.map((p) => `${p.row},${p.col}`));
@@ -1895,16 +1955,42 @@ describe('backfillUnlockedRecipeCards — one-time catch-up for pre-feature prog
 // of dropdownPositions at all.
 // ---------------------------------------------------------------------------
 describe('isEscortObjectiveLevel', () => {
-  test('on-cadence levels starting at the threshold (7, then every 8th)', () => {
-    expect(isEscortObjectiveLevel(7)).toBe(true);
-    expect(isEscortObjectiveLevel(15)).toBe(true);
-    expect(isEscortObjectiveLevel(23)).toBe(true);
-  });
-
   test('nothing before the threshold — escort is the last of the three types to arrive', () => {
     for (const levelNumber of [1, 2, 3, 4, 5, 6]) {
       expect(isEscortObjectiveLevel(levelNumber)).toBe(false);
     }
+  });
+
+  test('is deterministic — the same levelNumber always returns the same answer', () => {
+    expect(isEscortObjectiveLevel(15)).toBe(isEscortObjectiveLevel(15));
+    expect(isEscortObjectiveLevel(71)).toBe(isEscortObjectiveLevel(71));
+  });
+
+  test('exactly one hit per window of 8 consecutive eligible levels — same long-run frequency as the old modulo gate', () => {
+    const windowSize = 8;
+    const start = 7; // ESCORT_MIN_LEVEL_NUMBER
+    for (let windowStart = start; windowStart < start + windowSize * 40; windowStart += windowSize) {
+      let hits = 0;
+      for (let levelNumber = windowStart; levelNumber < windowStart + windowSize; levelNumber++) {
+        if (isEscortObjectiveLevel(levelNumber)) hits++;
+      }
+      expect(hits).toBe(1);
+    }
+  });
+
+  test('the hit position is not always the first level of its window — the shuffle is real, not accidental modulo', () => {
+    const windowSize = 8;
+    const start = 7;
+    const positions: number[] = [];
+    for (let windowStart = start; windowStart < start + windowSize * 20; windowStart += windowSize) {
+      for (let i = 0; i < windowSize; i++) {
+        if (isEscortObjectiveLevel(windowStart + i)) {
+          positions.push(i);
+          break;
+        }
+      }
+    }
+    expect(positions.some((p) => p !== 0)).toBe(true);
   });
 });
 
@@ -1957,9 +2043,11 @@ describe('generatedDropdownPositions', () => {
 describe('buildGeneratedLevelConfig — escort levels', () => {
   const ALL_TYPES = ['A', 'B', 'C', 'D', 'E', 'F'];
   const BLOCKERS = [{ id: 'jar', hitsToClear: 1 }];
-  // levelIndex 18 with 11 hand-built levels -> generated level number 7, the
-  // first escort level.
-  const escortConfig = () => buildGeneratedLevelConfig(18, 11, ALL_TYPES, 8, 5, BLOCKERS, false, 6);
+  // levelIndex 46 with 11 hand-built levels -> generated level number 35,
+  // the first escort level under the seeded shuffle-bag (see
+  // engine/DECISIONS.md's objective-shuffle-bag entry — levelNumber 7,
+  // escort's old fixed threshold, is now a score level instead).
+  const escortConfig = () => buildGeneratedLevelConfig(46, 11, ALL_TYPES, 8, 5, BLOCKERS, false, 6);
 
   test('places a single escort objective and the dropdown pieces it is derived from', () => {
     const config = escortConfig();
@@ -1980,9 +2068,9 @@ describe('buildGeneratedLevelConfig — escort levels', () => {
   test('is always a plain rectangle, even on a shape-cadence level', () => {
     // Voids cut columns into short segments and disqualify whole columns,
     // working directly against a mechanic that is entirely about vertical
-    // travel. Generated level 7 IS on the shape cadence, so this would carry
-    // voidCells if escort didn't suppress them.
-    expect(generatedShapeId(7)).toBeDefined();
+    // travel. Generated level 35 IS on the shape cadence, so this would
+    // carry voidCells if escort didn't suppress them.
+    expect(generatedShapeId(35)).toBeDefined();
     expect(escortConfig().voidCells).toBeUndefined();
   });
 
@@ -2064,5 +2152,65 @@ describe('findNextRecipeCard (the collection looks forward, never back)', () => 
   test('order in the config array does not matter - the smallest milestone wins', () => {
     const shuffled = [cards[2], cards[0], cards[1]];
     expect(findNextRecipeCard(shuffled, 1, [])?.card.id).toBe('first');
+  });
+});
+
+describe('findPreviousUnlockedMilestoneLevel', () => {
+  const cards = [
+    { id: 'first', title: 'First', flavorText: '', milestoneLevel: 2, sprite: 'a.webp' },
+    { id: 'second', title: 'Second', flavorText: '', milestoneLevel: 5, sprite: 'b.webp' },
+    { id: 'third', title: 'Third', flavorText: '', milestoneLevel: 9, sprite: 'c.webp' },
+  ];
+
+  test('a fresh save with nothing unlocked windows from the very start of the game', () => {
+    expect(findPreviousUnlockedMilestoneLevel(cards, [])).toBe(0);
+  });
+
+  test('finds the highest unlocked milestone, not just the most recently unlocked', () => {
+    expect(findPreviousUnlockedMilestoneLevel(cards, ['first', 'second'])).toBe(5);
+    // Order of the unlocked-ids list shouldn't matter.
+    expect(findPreviousUnlockedMilestoneLevel(cards, ['second', 'first'])).toBe(5);
+  });
+
+  test('a locked milestone that happens to be behind the anchor is never used as the baseline', () => {
+    // "second" (milestone 5) is unlocked but "first" (milestone 2) isn't —
+    // the rare locked-behind-the-anchor case findNextRecipeCard's own tests
+    // cover. The baseline is still the highest UNLOCKED one (5), not the
+    // highest passed one.
+    expect(findPreviousUnlockedMilestoneLevel(cards, ['second'])).toBe(5);
+  });
+
+  test('order in the config array does not matter', () => {
+    const shuffled = [cards[2], cards[0], cards[1]];
+    expect(findPreviousUnlockedMilestoneLevel(shuffled, ['first', 'third'])).toBe(9);
+  });
+});
+
+describe('localDateString', () => {
+  test('formats a date as local YYYY-MM-DD, zero-padded', () => {
+    expect(localDateString(new Date(2026, 0, 5))).toBe('2026-01-05');
+    expect(localDateString(new Date(2026, 11, 31))).toBe('2026-12-31');
+  });
+
+  test('uses the date components as given, not UTC — a late-night local date does not roll over', () => {
+    // Date(year, monthIndex, day, hours, minutes) is always constructed in
+    // local time, so 23:30 on the 5th stays "the 5th" here — the whole
+    // point of not using toISOString(), which would shift this to UTC and
+    // could read as the 6th depending on the device's timezone offset.
+    expect(localDateString(new Date(2026, 5, 5, 23, 30))).toBe('2026-06-05');
+  });
+});
+
+describe('shouldGrantDailyBonus', () => {
+  test('grants when no bonus has ever been claimed', () => {
+    expect(shouldGrantDailyBonus(undefined, '2026-08-09')).toBe(true);
+  });
+
+  test('grants on a genuinely new calendar day', () => {
+    expect(shouldGrantDailyBonus('2026-08-08', '2026-08-09')).toBe(true);
+  });
+
+  test('does not grant twice on the same calendar day', () => {
+    expect(shouldGrantDailyBonus('2026-08-09', '2026-08-09')).toBe(false);
   });
 });

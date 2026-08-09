@@ -2911,6 +2911,62 @@ describe('loadSave — corrupted or malformed saves fall back to fresh', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
+  test('a malformed lastDailyBonusClaimedDate (a number, not a string) falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 1,
+        lives: 5,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+        lastDailyBonusClaimedDate: 20260809, // should be a string
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a malformed pendingDailyBonusGrant (a string, not a boolean) falls back to null', async () => {
+    const storage = createInMemoryStorage();
+    await storage.setItem(
+      saveKey('lalas-kitchen'),
+      JSON.stringify({
+        skinId: 'lalas-kitchen',
+        currentLevel: 1,
+        lives: 5,
+        livesLastRegenAt: 1700000000000,
+        itemsCollected: {},
+        powerUpCounts: {},
+        pendingDailyBonusGrant: 'yes', // should be a boolean
+      })
+    );
+
+    expect(await loadSave('lalas-kitchen', storage)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  test('a valid daily-bonus pair round-trips correctly', async () => {
+    const storage = createInMemoryStorage();
+    const save: SaveData = {
+      skinId: 'lalas-kitchen',
+      currentLevel: 6,
+      lives: 5,
+      livesLastRegenAt: 1700000000000,
+      itemsCollected: {},
+      powerUpCounts: {},
+      lastDailyBonusClaimedDate: '2026-08-09',
+      pendingDailyBonusGrant: true,
+    };
+    await saveProgress('lalas-kitchen', save, storage);
+
+    expect(await loadSave('lalas-kitchen', storage)).toEqual(save);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
   // A save genuinely missing every optional field (predating all of them)
   // must still load successfully — this fix must not become stricter than
   // the pre-existing "optional fields fall back at the read site" contract.

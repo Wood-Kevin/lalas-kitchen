@@ -44,7 +44,7 @@ function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labe
 // calm-not-frantic constraint. Both were reasoned from the same "calm"
 // framing the architect corrected during the commercial-polish pass — a
 // recipe unlock is exactly the kind of genuine peak wonActions.ts's
-// isStrongWin now flags, so WonOverlay now layers WinCelebrationBurst over
+// resolveCelebrationTier now flags as 'full', so WonOverlay now layers WinCelebrationBurst over
 // this component too (see WonOverlay.tsx's celebrationSlot), not just over
 // the plain plated-dish illustration. This component itself still adds no
 // burst of its own — the layering happens one level up, in WonOverlay.

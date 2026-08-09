@@ -27,14 +27,22 @@ const RING_DISTANCES = [42, 58, 74];
 // like a single beat, not a sequence of separate events.
 const STAGGER_WINDOW_MS = 140;
 
-export function buildCelebrationParticles(count: number, colors: string[]): CelebrationParticle[] {
+// distanceScale lets a caller shrink the whole burst (see
+// WinCelebrationBurst.tsx's 'light' intensity, SPEC.md's win-tier thread)
+// without a second ring-distance table — every existing call site omits it
+// and gets the original full-size rings unchanged.
+export function buildCelebrationParticles(
+  count: number,
+  colors: string[],
+  distanceScale: number = 1
+): CelebrationParticle[] {
   if (count <= 0 || colors.length === 0) return [];
   const particles: CelebrationParticle[] = [];
   for (let i = 0; i < count; i++) {
     particles.push({
       id: `particle-${i}`,
       angleDeg: (i * GOLDEN_ANGLE_DEG) % 360,
-      distance: RING_DISTANCES[i % RING_DISTANCES.length],
+      distance: RING_DISTANCES[i % RING_DISTANCES.length] * distanceScale,
       delayMs: Math.round((i / count) * STAGGER_WINDOW_MS),
       color: colors[i % colors.length],
       rotateDeg: (i * 53) % 360,

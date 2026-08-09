@@ -2409,6 +2409,24 @@ export interface SaveData {
   // resolves the real default (0 — a save with no history of this yet has
   // no streak) at read time via `??`, never here.
   consecutiveLosses?: number;
+  // Calendar date (device-local, "YYYY-MM-DD") the daily first-win bonus was
+  // last earned — see appPersistence.ts's shouldGrantDailyBonus and
+  // SPEC.md's daily-first-win-moment decision. Prevents earning it twice on
+  // the same day; the actual grant is `pendingDailyBonusGrant` below, kept
+  // as a separate field since "earned today" and "not yet offered to a
+  // level" are genuinely different facts (a player could earn it, then not
+  // start another level until tomorrow — the date field alone can't tell
+  // that story). Optional for the same pre-existing-save-file reason as
+  // every other field here; App.tsx's applyLoadedSave resolves the real
+  // default (undefined — no bonus ever earned) at read time.
+  lastDailyBonusClaimedDate?: string;
+  // True from the moment a daily bonus is earned until the next level mounts
+  // and picks it up (Board.tsx's onDailyBonusConsumed clears it immediately
+  // on mount, whether or not the bonus ends up spent that attempt — see
+  // SPEC.md's verification table for why "offered" and "spent" are
+  // deliberately different events). Optional, defaulting to false at read
+  // time, same shape as consecutiveLosses above.
+  pendingDailyBonusGrant?: boolean;
   // The most recent uncaught crash ErrorBoundary caught, if any — see
   // recordCrash below and components/ErrorBoundary.tsx/errorRecovery.ts.
   // This is the one real signal that a crash happened on a real device with
@@ -2481,6 +2499,12 @@ function isValidSaveData(value: unknown): value is SaveData {
   if (value.soundEnabled !== undefined && typeof value.soundEnabled !== 'boolean') return false;
   if (value.hapticsEnabled !== undefined && typeof value.hapticsEnabled !== 'boolean') return false;
   if (value.consecutiveLosses !== undefined && typeof value.consecutiveLosses !== 'number') return false;
+  if (value.lastDailyBonusClaimedDate !== undefined && typeof value.lastDailyBonusClaimedDate !== 'string') {
+    return false;
+  }
+  if (value.pendingDailyBonusGrant !== undefined && typeof value.pendingDailyBonusGrant !== 'boolean') {
+    return false;
+  }
   if (value.lastCrash !== undefined && !isValidCrashRecord(value.lastCrash)) return false;
 
   return true;

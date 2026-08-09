@@ -1,6 +1,7 @@
 import {
   buildLevelSummary,
   buildNextRecipeHint,
+  buildRecipeProgressFraction,
   buildRecipeBookSubtitle,
   resolveLevelDisplayName,
   resolveLevelMapIndices,
@@ -212,5 +213,35 @@ describe('buildNextRecipeHint (a calm destination, never a countdown)', () => {
   test('further distances use the plain count', () => {
     expect(buildNextRecipeHint(3)).toBe('A new recipe waits 3 levels ahead.');
     expect(buildNextRecipeHint(18)).toBe('A new recipe waits 18 levels ahead.');
+  });
+});
+
+describe('buildRecipeProgressFraction (windowed, not lifetime, progress)', () => {
+  test('right at the previous milestone the window is empty', () => {
+    expect(buildRecipeProgressFraction(10, 10, 20)).toBe(0);
+  });
+
+  test('right at the next milestone the window is full', () => {
+    expect(buildRecipeProgressFraction(20, 10, 20)).toBe(1);
+  });
+
+  test('halfway through the gap is exactly half full', () => {
+    expect(buildRecipeProgressFraction(15, 10, 20)).toBe(0.5);
+  });
+
+  test('a fresh save (previousMilestoneLevel 0) windows from the start of the game', () => {
+    expect(buildRecipeProgressFraction(1, 0, 2)).toBe(0.5);
+  });
+
+  test('clamps to 1 rather than overshooting past the next milestone', () => {
+    expect(buildRecipeProgressFraction(25, 10, 20)).toBe(1);
+  });
+
+  test('clamps to 0 rather than going negative if currentLevel is somehow before the baseline', () => {
+    expect(buildRecipeProgressFraction(5, 10, 20)).toBe(0);
+  });
+
+  test('a degenerate zero-width window does not throw or divide into NaN', () => {
+    expect(buildRecipeProgressFraction(10, 10, 10)).toBe(1);
   });
 });

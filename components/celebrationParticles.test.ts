@@ -40,4 +40,16 @@ describe('buildCelebrationParticles', () => {
     const ids = buildCelebrationParticles(14, ['#fff']).map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  test('distanceScale defaults to 1 — omitting it matches passing it explicitly', () => {
+    expect(buildCelebrationParticles(6, ['#fff'])).toEqual(buildCelebrationParticles(6, ['#fff'], 1));
+  });
+
+  test('distanceScale shrinks every particle\'s distance proportionally, for the light win-celebration tier', () => {
+    const full = buildCelebrationParticles(6, ['#fff'], 1);
+    const light = buildCelebrationParticles(6, ['#fff'], 0.6);
+    for (let i = 0; i < full.length; i++) {
+      expect(light[i].distance).toBeCloseTo(full[i].distance * 0.6);
+    }
+  });
 });
