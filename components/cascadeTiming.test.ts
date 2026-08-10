@@ -27,6 +27,12 @@ import {
   SWEEP_STRETCH_ALONG_SCALE,
   SWEEP_STRETCH_ACROSS_SCALE,
   RADIAL_PULSE_DISTANCE_FRACTION,
+  DEBRIS_GRID_SIZE,
+  DEBRIS_BASE_PARTICLE_COUNT,
+  DEBRIS_MAX_EXTRA_PARTICLES,
+  DEBRIS_SPEED,
+  DEBRIS_DRAG,
+  DEBRIS_GRAVITY,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -308,6 +314,17 @@ describe('per-mechanism clear motion stays distinct and in the calm register', (
   test('the radial pulse nudges a cleared tile away from the real blast origin, but stays inside its own cell', () => {
     expect(RADIAL_PULSE_DISTANCE_FRACTION).toBeGreaterThan(0);
     expect(RADIAL_PULSE_DISTANCE_FRACTION).toBeLessThan(0.5);
+  });
+
+  test('the debris grid is finer than the blocker shatter\'s 2x2, and has exactly enough cells for a full-intensity burst', () => {
+    expect(DEBRIS_GRID_SIZE).toBeGreaterThan(2);
+    expect(DEBRIS_GRID_SIZE * DEBRIS_GRID_SIZE).toBe(DEBRIS_BASE_PARTICLE_COUNT + DEBRIS_MAX_EXTRA_PARTICLES);
+  });
+
+  test('debris physics constants stay positive (a real drag+gravity model, not a degenerate one)', () => {
+    expect(DEBRIS_SPEED).toBeGreaterThan(0);
+    expect(DEBRIS_DRAG).toBeGreaterThan(0);
+    expect(DEBRIS_GRAVITY).toBeGreaterThan(0);
   });
 });
 

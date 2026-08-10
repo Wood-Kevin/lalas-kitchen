@@ -355,6 +355,39 @@ export const SUPERCOMBO_CONVERT_PULSE_SCALE = 1.12;
 // SLOWS the chain's read into deliberate beats; it adds no flash or shake.
 export const CHAIN_LINK_STAGGER_MS = 260;
 
+// The sprite-crop debris burst (components/spriteDebris.ts +
+// Tile.tsx's SpriteCropDebrisParticle) — tiny flying crops of the clearing
+// piece's OWN sprite, replacing the old flat-colored spark burst
+// (EXPERIMENTAL_BURST_*, deleted) now that per-mechanism color washes are
+// gone entirely (decision #2 of engine/DECISIONS.md's colors-removed
+// rework entry). Values below are carried over unchanged from the old
+// burst — only WHAT flies (a real sprite crop vs. a colored dot) changed,
+// not the physics or the reward-scaled count.
+//
+// How finely a clearing tile's own sprite is subdivided for its debris
+// crops — deliberately finer than the blocker shatter's 2×2 (which stays a
+// distinct, larger "breaking apart" identity for a physical container), so
+// general debris reads as small scattering bits of the piece's own art,
+// not a second shatter effect. 4×4 = 16 cells, matching BASE + MAX_EXTRA
+// below exactly, so a full-intensity clear can sample every cell once with
+// no duplicate crop shown twice (see buildDebrisParticlePool).
+export const DEBRIS_GRID_SIZE = 4;
+// Base/max-extra particle counts — a plain 3-match throws a few bits, a
+// big cascade pass throws visibly more (see cascadeTiming.ts's
+// passRewardIntensity and spriteDebris.ts's debrisParticleCount).
+export const DEBRIS_BASE_PARTICLE_COUNT = 8;
+export const DEBRIS_MAX_EXTRA_PARTICLES = 8;
+// Real physics, not flat linear travel — an exponential-decay drag model
+// plus constant downward gravity: distance(t) = (v0/k) * (1 - e^(-k*t))
+// decelerates naturally outward, while a separate + 0.5*g*t^2 term pulls
+// every shard into a falling arc, so the burst reads as thrown debris
+// settling under gravity rather than dots sliding out and stopping dead.
+// DEBRIS_SPEED is v0 as a fraction of tileSize per second, before drag
+// takes over.
+export const DEBRIS_SPEED = 5.5;
+export const DEBRIS_DRAG = 3.2;
+export const DEBRIS_GRAVITY = 9;
+
 // Dev-only, opt-in via the RN-vs-Unity game-feel comparison harness (see
 // Board.tsx's BoardProps.experimentalJuice, Tile.tsx's ExitingTile.
 // experimentalHitStopMs, and SPEC.md's Track A scope) — a brief freeze on

@@ -37,7 +37,14 @@ import {
   SWEEP_STRETCH_ALONG_SCALE,
   SWEEP_STRETCH_ACROSS_SCALE,
   RADIAL_PULSE_DISTANCE_FRACTION,
+  DEBRIS_GRID_SIZE,
+  DEBRIS_BASE_PARTICLE_COUNT,
+  DEBRIS_MAX_EXTRA_PARTICLES,
+  DEBRIS_SPEED,
+  DEBRIS_DRAG,
+  DEBRIS_GRAVITY,
 } from './cascadeTiming';
+import { buildDebrisParticlePool, debrisParticleCount, DebrisParticleSpec } from './spriteDebris';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
 import { Position } from '../engine/gameState';
@@ -1056,79 +1063,64 @@ export interface ExitingTileProps {
   experimentalHitStopMs?: number;
 }
 
-// Dev-only (see experimentalBurst above) — the base spark count for an
-// ordinary clear; EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES more are added at
-// full rewardIntensity (see burstParticleCount below), so a big moment
-// (the striped-sweep pass) throws visibly more sparks than a plain match.
-const EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT = 8;
-const EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES = 8;
-const EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT =
-  EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT + EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES;
-
-// A fixed pool of per-particle variance (angle jitter, speed, size),
-// precomputed once at module load — deterministic seed-free "randomness"
-// (Math.random is fine here since it's plain JS at module scope, never
-// inside a worklet) so every clear's burst looks organic rather than a
-// perfect uniform starburst, without needing per-frame randomness.
-const EXPERIMENTAL_BURST_POOL = Array.from({ length: EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT }, (_, i) => {
-  const baseAngle = (i / EXPERIMENTAL_BURST_MAX_PARTICLE_COUNT) * 2 * Math.PI;
-  return {
-    angleRad: baseAngle + (Math.random() - 0.5) * 0.4,
-    speedMultiplier: 0.75 + Math.random() * 0.5,
-    size: 5 + Math.random() * 5,
-  };
-});
-// How fast a spark launches, as a fraction of tileSize per second, before
-// drag and gravity take over — real physics (an exponential-decay drag
-// model plus constant downward gravity), not the old flat linear travel:
-// distance(t) = (v0/k) * (1 - e^(-k*t)) decelerates naturally outward,
-// while a separate + 0.5*g*t^2 term pulls every spark into a falling arc,
-// so the burst reads as thrown debris settling under gravity rather than
-// dots sliding out and stopping dead.
-const EXPERIMENTAL_BURST_SPEED = 5.5;
-const EXPERIMENTAL_BURST_DRAG = 3.2;
-const EXPERIMENTAL_BURST_GRAVITY = 9;
+// The debris pool — every clear samples from this ONE precomputed,
+// pre-shuffled set (see spriteDebris.ts's buildDebrisParticlePool),
+// module-scoped so it's computed once at load, not per-clear (the same
+// "deterministic seed-free randomness, computed once, not per-frame"
+// convention the old EXPERIMENTAL_BURST_POOL established). Sized to the
+// grid's own full cell count, so a full-intensity clear can sample every
+// crop cell once with no duplicate shard.
+const DEBRIS_POOL = buildDebrisParticlePool(
+  DEBRIS_GRID_SIZE,
+  DEBRIS_BASE_PARTICLE_COUNT + DEBRIS_MAX_EXTRA_PARTICLES
+);
 // A stable empty-array reference for a non-bursting exit — avoids handing
 // React a fresh [] every render for the overwhelmingly common (real
 // gameplay) case where experimentalBurst is false.
-const EMPTY_BURST_PARTICLES: (typeof EXPERIMENTAL_BURST_POOL)[number][] = [];
+const EMPTY_DEBRIS_PARTICLES: DebrisParticleSpec[] = [];
 
-// Dev-only (see experimentalBurst above) — one outward-flying spark. A
-// small child component (not inlined in ExitingTile) so each instance gets
-// its own useAnimatedStyle reading the SAME shared `progress` value,
-// without needing a variable number of hooks in the parent.
-function ExperimentalBurstParticle({
+// One flying shard of the clearing piece's own sprite — a small child
+// component (not inlined in ExitingTile) so each instance gets its own
+// useAnimatedStyle reading the SAME shared `progress` value, without
+// needing a variable number of hooks in the parent. Same drag+gravity
+// trajectory the old colored-dot spark burst used (see cascadeTiming.ts's
+// DEBRIS_SPEED/DRAG/GRAVITY) — only WHAT flies changed, not the physics.
+function SpriteCropDebrisParticle({
   progress,
+  originXFrac,
+  originYFrac,
   angleRad,
   speedMultiplier,
-  size,
-  color,
   tileSize,
+  sprite,
+  accentColor,
 }: {
   progress: SharedValue<number>;
+  originXFrac: number;
+  originYFrac: number;
   angleRad: number;
   speedMultiplier: number;
-  size: number;
-  color: string;
   tileSize: number;
+  sprite: ResolvedSprite;
+  accentColor: string;
 }) {
-  const v0 = EXPERIMENTAL_BURST_SPEED * speedMultiplier * tileSize;
+  const cropSize = tileSize / DEBRIS_GRID_SIZE;
+  const v0 = DEBRIS_SPEED * speedMultiplier * tileSize;
   const particleStyle = useAnimatedStyle(() => {
     const t = progress.value; // true elapsed-time fraction, 0..1 — see the driver's linear easing
     // Drag-decelerated outward travel: fast off the start, smoothly
-    // settling rather than the old constant-velocity-then-clamp feel.
-    const outward = (v0 / EXPERIMENTAL_BURST_DRAG) * (1 - Math.exp(-EXPERIMENTAL_BURST_DRAG * t));
-    const fall = 0.5 * EXPERIMENTAL_BURST_GRAVITY * tileSize * t * t;
+    // settling rather than a constant-velocity-then-clamp feel.
+    const outward = (v0 / DEBRIS_DRAG) * (1 - Math.exp(-DEBRIS_DRAG * t));
+    const fall = 0.5 * DEBRIS_GRAVITY * tileSize * t * t;
     const dx = Math.cos(angleRad) * outward;
     const dy = Math.sin(angleRad) * outward + fall;
     return {
       position: 'absolute',
-      top: tileSize / 2 - size / 2,
-      left: tileSize / 2 - size / 2,
-      width: size,
-      height: size,
-      borderRadius: size / 2,
-      backgroundColor: color,
+      // Every shard starts centred on the tile — the sprite crop itself
+      // (originXFrac/originYFrac) is what makes each one show a different
+      // piece of the art, not its starting position.
+      top: tileSize / 2 - cropSize / 2,
+      left: tileSize / 2 - cropSize / 2,
       opacity: 1 - t,
       transform: [
         { translateX: dx },
@@ -1138,7 +1130,18 @@ function ExperimentalBurstParticle({
       ],
     };
   });
-  return <Animated.View style={particleStyle} pointerEvents="none" />;
+  return (
+    <Animated.View style={particleStyle} pointerEvents="none">
+      <SpriteCropWindow
+        originXFrac={originXFrac}
+        originYFrac={originYFrac}
+        sizeFrac={1 / DEBRIS_GRID_SIZE}
+        tileSize={tileSize}
+        sprite={sprite}
+        accentColor={accentColor}
+      />
+    </Animated.View>
+  );
 }
 
 // The four quarter-tile crop windows a blocker shatters into — top-left,
@@ -1152,16 +1155,57 @@ const BLOCKER_SHATTER_QUADRANTS: { qx: 0 | 1; qy: 0 | 1 }[] = [
   { qx: 1, qy: 1 },
 ];
 
-// One quarter-tile shard of a shattering blocker. The crop trick: a small
-// (half-tile) `overflow: hidden` window sits over its own quadrant, and an
-// inner view the FULL tile size, offset by the negative of that same
-// quadrant position, renders the tile's real SpriteContent inside it — so
-// whatever the sprite showed in that quadrant is what this window clips to,
-// at the exact same screen position it started in. The OUTER window is what
-// flies outward and rotates (progress-driven), so the crop and the content
-// inside it travel together as one rigid shard rather than the crop
-// re-sampling a moving image — the same physical read as a real fragment
-// breaking off and tumbling away.
+// The crop trick, generalized: a window sized `sizeFrac` of the tile,
+// positioned at (originXFrac, originYFrac) within it, `overflow: hidden`,
+// with an inner view the FULL tile size — offset by the negative of that
+// same origin — rendering the tile's real SpriteContent. Whatever the
+// sprite showed at that fractional position is what the window clips to,
+// at the exact screen position it started in. Purely the crop; it carries
+// no motion of its own — a caller wraps it in whatever Animated.View
+// supplies position/transform/opacity, so the crop and its motion can vary
+// independently (a blocker's coarse 2×2 shatter and a finer sprite-crop
+// debris grid both reuse this same window, with genuinely different
+// motion — see BlockerShatterFragment below and components/spriteDebris.ts).
+function SpriteCropWindow({
+  originXFrac,
+  originYFrac,
+  sizeFrac,
+  tileSize,
+  sprite,
+  accentColor,
+}: {
+  originXFrac: number;
+  originYFrac: number;
+  sizeFrac: number;
+  tileSize: number;
+  sprite: ResolvedSprite;
+  accentColor: string;
+}) {
+  const size = sizeFrac * tileSize;
+  return (
+    <View style={{ width: size, height: size, overflow: 'hidden' }}>
+      <View
+        style={{
+          position: 'absolute',
+          top: -originYFrac * tileSize,
+          left: -originXFrac * tileSize,
+          width: tileSize,
+          height: tileSize,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <SpriteContent sprite={sprite} accentColor={accentColor} />
+      </View>
+    </View>
+  );
+}
+
+// One quarter-tile shard of a shattering blocker — the crop window's own
+// motion: it flies outward and rotates (progress-driven), so the crop and
+// the content inside it travel together as one rigid shard rather than the
+// crop re-sampling a moving image — the same physical read as a real
+// fragment breaking off and tumbling away.
 function BlockerShatterFragment({
   progress,
   qx,
@@ -1195,7 +1239,6 @@ function BlockerShatterFragment({
       left: qx * half,
       width: half,
       height: half,
-      overflow: 'hidden',
       opacity: 1 - t,
       transform: [
         { translateX: dirX * travel },
@@ -1206,19 +1249,14 @@ function BlockerShatterFragment({
   });
   return (
     <Animated.View style={fragmentStyle} pointerEvents="none">
-      <View
-        style={{
-          position: 'absolute',
-          top: -qy * half,
-          left: -qx * half,
-          width: tileSize,
-          height: tileSize,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <SpriteContent sprite={sprite} accentColor={accentColor} />
-      </View>
+      <SpriteCropWindow
+        originXFrac={qx * 0.5}
+        originYFrac={qy * 0.5}
+        sizeFrac={0.5}
+        tileSize={tileSize}
+        sprite={sprite}
+        accentColor={accentColor}
+      />
     </Animated.View>
   );
 }
@@ -1260,18 +1298,15 @@ export function ExitingTile({
   // experimentalBurst is true — same "declared unconditionally, driven
   // conditionally" shape burstOpacity/burstScale below already use for
   // isPowderBurst.
-  const experimentalBurstProgress = useSharedValue(0);
-  // Dev-only — how many sparks this specific clear throws, scaled by
+  const debrisProgress = useSharedValue(0);
+  // How many debris shards this specific clear throws, scaled by
   // rewardIntensity: a plain 3-match gets the base count, the striped-sweep
   // pass gets visibly more. A plain slice of the precomputed pool, not a
   // fresh random draw per render — stable across re-renders of the same
   // exiting tile, and never touches a worklet.
-  const experimentalBurstParticles = experimentalBurst
-    ? EXPERIMENTAL_BURST_POOL.slice(
-        0,
-        EXPERIMENTAL_BURST_BASE_PARTICLE_COUNT + Math.round(rewardIntensity * EXPERIMENTAL_BURST_MAX_EXTRA_PARTICLES)
-      )
-    : EMPTY_BURST_PARTICLES;
+  const debrisParticles = experimentalBurst
+    ? DEBRIS_POOL.slice(0, debrisParticleCount(rewardIntensity, DEBRIS_BASE_PARTICLE_COUNT, DEBRIS_MAX_EXTRA_PARTICLES))
+    : EMPTY_DEBRIS_PARTICLES;
   const opacity = useSharedValue(1);
   const scale = useSharedValue(1);
   // travel = the swap spring's PERCEPTUAL duration (how long the slide is
@@ -1395,10 +1430,10 @@ export function ExitingTile({
     // of every clear kind (ordinary, sweep, blocker, radial) the same way.
     // LINEAR, deliberately — each particle's own useAnimatedStyle now reads
     // this as true elapsed-time t and derives its drag/gravity motion
-    // directly from t (see ExperimentalBurstParticle), so the easing curve
+    // directly from t (see SpriteCropDebrisParticle), so the easing curve
     // belongs entirely to the physics model, not the driver.
     if (experimentalBurst) {
-      experimentalBurstProgress.value = withTiming(1, {
+      debrisProgress.value = withTiming(1, {
         duration: Math.round(durationMs * 0.9),
         easing: Easing.linear,
       });
@@ -1687,11 +1722,11 @@ export function ExitingTile({
     zIndex: Math.round(exitRow.value * 1000) + 500,
   }));
 
-  // Dev-only (see experimentalBurst) — the particles' positioning wrapper,
-  // same shape as burstStyle above: tracks the tile's own animated
-  // position/stacking so the sparks originate from wherever it actually
+  // Dev-only (see experimentalBurst) — the debris shards' positioning
+  // wrapper, same shape as burstStyle above: tracks the tile's own animated
+  // position/stacking so the shards originate from wherever it actually
   // is (relevant on a swapped-and-cleared tile, which travels first).
-  const experimentalBurstContainerStyle = useAnimatedStyle(() => ({
+  const debrisContainerStyle = useAnimatedStyle(() => ({
     position: 'absolute',
     top: exitRow.value * tileSize,
     left: exitCol.value * tileSize,
@@ -1701,7 +1736,7 @@ export function ExitingTile({
   }));
 
   // The blocker shatter's four-fragment wrapper — same shape as
-  // experimentalBurstContainerStyle: tracks the tile's own animated
+  // debrisContainerStyle: tracks the tile's own animated
   // position/stacking so the shards originate from wherever the bag
   // actually is.
   const shatterContainerStyle = useAnimatedStyle(() => ({
@@ -1756,22 +1791,21 @@ export function ExitingTile({
       )}
       {experimentalBurst && (
         <Animated.View
-          style={experimentalBurstContainerStyle}
+          style={debrisContainerStyle}
           pointerEvents="none"
-          testID={`experimental-burst-${pieceId}`}
+          testID={`sprite-debris-${pieceId}`}
         >
-          {experimentalBurstParticles.map((particle, i) => (
-            <ExperimentalBurstParticle
+          {debrisParticles.map((particle, i) => (
+            <SpriteCropDebrisParticle
               key={i}
-              progress={experimentalBurstProgress}
+              progress={debrisProgress}
+              originXFrac={particle.originXFrac}
+              originYFrac={particle.originYFrac}
               angleRad={particle.angleRad}
               speedMultiplier={particle.speedMultiplier}
-              size={particle.size}
-              // TODO(sprite-crop-debris): temporary — accentColor stands in
-              // for the deleted per-mechanism washColor until this whole
-              // spark burst is replaced by sprite-crop debris.
-              color={accentColor}
               tileSize={tileSize}
+              sprite={sprite}
+              accentColor={accentColor}
             />
           ))}
         </Animated.View>
