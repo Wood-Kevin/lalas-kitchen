@@ -71,6 +71,14 @@ export interface ExitingEntry {
   // other clear, including a color bomb reached via chaining (not this
   // effect's own swap-triggered origin) — see DEFERRED_COMPLEXITY.md.
   radialDelayMs?: number;
+  // Present only alongside radialDelayMs — the real cell the blast
+  // originated from (the swapped bomb's post-swap position, per the
+  // swap-anchor rule), so Tile.tsx's ExitingTile can nudge each cleared
+  // tile outward from that REAL point instead of a generic in-place pop
+  // (see cascadeTiming.ts's RADIAL_PULSE_DISTANCE_FRACTION and
+  // engine/DECISIONS.md's colors-removed rework entry — the shape
+  // identity that replaces the old radialGlow/radialRing wash colors).
+  radialOrigin?: Position;
   // Set only on the supercombo's own converted pieces (never the bomb cell
   // itself) — plays a brief "this just became a special" pulse BEFORE the
   // synchronized sweepDelayMs pop begins, so the two real beats (convert, then
@@ -133,7 +141,9 @@ export function buildExitingEntry(
   // gameplay call site.
   experimentalHitStopMs: number = 0,
   // Present only alongside sweepDelayMs — see ExitingEntry.sweepAxis.
-  sweepAxis?: StripeDirection
+  sweepAxis?: StripeDirection,
+  // Present only alongside radialDelayMs — see ExitingEntry.radialOrigin.
+  radialOrigin?: Position
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -150,6 +160,7 @@ export function buildExitingEntry(
     sweepDelayMs,
     sweepAxis,
     radialDelayMs,
+    radialOrigin,
     convertedFlash,
     radialKind,
     rewardIntensity,

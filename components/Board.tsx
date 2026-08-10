@@ -1118,6 +1118,15 @@ export function Board({
         i === 0 && (effectDescriptor?.kind === 'color_bomb' || effectDescriptor?.kind === 'area_bomb')
           ? effectDescriptor.kind
           : undefined;
+      // The blast's REAL origin cell, derived the exact same way radialKind
+      // is (both effect kinds carry a Position `origin`) — so Tile.tsx's
+      // ExitingTile can nudge each cleared tile outward from where the
+      // detonation actually happened instead of a generic in-place pop (see
+      // exitingTile.ts's ExitingEntry.radialOrigin).
+      const radialOrigin: Position | undefined =
+        i === 0 && (effectDescriptor?.kind === 'color_bomb' || effectDescriptor?.kind === 'area_bomb')
+          ? effectDescriptor.origin
+          : undefined;
       // How rewarding this pass's clear should feel (SPEC.md's "reward-
       // scaling is visual-only" decision) — derived purely from this pass's
       // own diff, never from the engine's real score/tierByKey. See
@@ -1158,7 +1167,8 @@ export function Board({
             // Dev-only — see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS. 0
             // on every real gameplay path.
             experimentalHitStopMs,
-            sweep?.axis
+            sweep?.axis,
+            radialOrigin
           );
         }),
       ]);

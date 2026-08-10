@@ -26,6 +26,7 @@ import {
   SUPERCOMBO_CONVERT_PULSE_SCALE,
   SWEEP_STRETCH_ALONG_SCALE,
   SWEEP_STRETCH_ACROSS_SCALE,
+  RADIAL_PULSE_DISTANCE_FRACTION,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -302,6 +303,11 @@ describe('per-mechanism clear motion stays distinct and in the calm register', (
   test('the sweep stretch elongates along the beam and compresses across it, a real squash-and-stretch', () => {
     expect(SWEEP_STRETCH_ALONG_SCALE).toBeGreaterThan(1);
     expect(SWEEP_STRETCH_ACROSS_SCALE).toBeLessThan(1);
+  });
+
+  test('the radial pulse nudges a cleared tile away from the real blast origin, but stays inside its own cell', () => {
+    expect(RADIAL_PULSE_DISTANCE_FRACTION).toBeGreaterThan(0);
+    expect(RADIAL_PULSE_DISTANCE_FRACTION).toBeLessThan(0.5);
   });
 });
 

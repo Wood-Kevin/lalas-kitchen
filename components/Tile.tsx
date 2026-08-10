@@ -36,6 +36,7 @@ import {
   BLOCKER_SHATTER_ROTATE_DEG,
   SWEEP_STRETCH_ALONG_SCALE,
   SWEEP_STRETCH_ACROSS_SCALE,
+  RADIAL_PULSE_DISTANCE_FRACTION,
 } from './cascadeTiming';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -1012,6 +1013,12 @@ export interface ExitingTileProps {
   // outward instead of the whole board vanishing at once. Mutually
   // exclusive with sweepDelayMs — a cell is cleared by exactly one effect.
   radialDelayMs?: number;
+  // Present only alongside radialDelayMs — the real cell the blast
+  // originated from, so this tile's pop can nudge outward from that real
+  // point instead of a generic in-place pop (see
+  // cascadeTiming.ts's RADIAL_PULSE_DISTANCE_FRACTION and
+  // engine/DECISIONS.md's colors-removed rework entry).
+  radialOrigin?: Position;
   // True only on the supercombo's own converted pieces (never its bomb cell).
   // Plays a brief flicker BEFORE the normal pop-and-shrink begins, so
   // "converts to striped" and "sweeps together" read as two distinct beats
@@ -1242,6 +1249,7 @@ export function ExitingTile({
   sweepAxis,
   isPowderBurst,
   radialDelayMs,
+  radialOrigin,
   convertedFlash,
   rewardIntensity = 0,
   onExited,
@@ -1325,6 +1333,26 @@ export function ExitingTile({
   // The blocker shatter's single driver (0..1, see BlockerShatterFragments) —
   // only ever animated in the isBlockerClear branch below.
   const shatterProgress = useSharedValue(0);
+  // The radial family's outward pulse (see RADIAL_PULSE_DISTANCE_FRACTION's
+  // doc comment) — px offsets layered as translateX/Y, only ever animated
+  // in the radialDelayMs branch below. At rest (0) for every other clear
+  // kind.
+  const pulseOffsetX = useSharedValue(0);
+  const pulseOffsetY = useSharedValue(0);
+  // The direction this tile actually lies from the real blast origin
+  // (radialOrigin), normalized to a unit vector — a plain computation, not
+  // a shared value (same "worklet-free, computed once" pattern
+  // matchRotationSeed already uses below). undefined/no-pulse for the
+  // origin cell itself (zero distance — nothing to point away from) and
+  // for every non-radial clear.
+  const radialPulseVector = useMemo(() => {
+    if (!radialOrigin) return undefined;
+    const dRow = row - radialOrigin.row;
+    const dCol = col - radialOrigin.col;
+    const dist = Math.hypot(dRow, dCol);
+    if (dist < 0.001) return undefined;
+    return { x: dCol / dist, y: dRow / dist };
+  }, [radialOrigin, row, col]);
   // A deterministic per-tile sign/magnitude for the ordinary-match twist
   // (MATCH_POP_ROTATE_DEG) — hashed from the piece's own stable id rather
   // than Math.random(), so this component's animation stays reproducible
@@ -1482,8 +1510,6 @@ export function ExitingTile({
       // than the sweep's, so a board-spanning detonation reads as a
       // genuinely different kind of travel — then the same shrink every
       // cleared tile gets.
-      // TODO(radial-pulse): this uniform scale pop is a placeholder — an
-      // outward pulse from the real blast origin replaces it next.
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
       scale.value = withDelay(
         settle + radialDelayMs,
@@ -1492,6 +1518,25 @@ export function ExitingTile({
           withTiming(0, { duration: shrinkMs })
         )
       );
+      // The outward pulse (see RADIAL_PULSE_DISTANCE_FRACTION's doc
+      // comment) — the shape identity that replaces the old radialGlow/
+      // radialRing wash colors. Nudges out during the pop, then HOLDS at
+      // that offset while the tile shrinks away — it reads as "pushed by
+      // the blast, then gone," not a snap-back to center. No pulse for the
+      // origin cell itself (radialPulseVector is undefined there — nothing
+      // to point away from) or when this entry carries no real origin at
+      // all (radialOrigin omitted, e.g. a test/harness call site).
+      if (radialPulseVector) {
+        const pulseDistance = RADIAL_PULSE_DISTANCE_FRACTION * tileSize;
+        pulseOffsetX.value = withDelay(
+          settle + radialDelayMs,
+          withTiming(radialPulseVector.x * pulseDistance, { duration: SWEEP_GLOW_POP_MS })
+        );
+        pulseOffsetY.value = withDelay(
+          settle + radialDelayMs,
+          withTiming(radialPulseVector.y * pulseDistance, { duration: SWEEP_GLOW_POP_MS })
+        );
+      }
       opacity.value = withDelay(
         settle + radialDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
@@ -1584,8 +1629,14 @@ export function ExitingTile({
     // the two ever needing to touch the same shared value. stretchScaleX/Y
     // (see their own doc comment) stay at 1 — a no-op scaleX/scaleY — for
     // every clear except a real-axis sweep, which is the one case where
-    // `scale` itself is deliberately left untouched instead.
+    // `scale` itself is deliberately left untouched instead. pulseOffsetX/Y
+    // stay at 0 (a no-op translate) for every clear except a radial pop —
+    // placed FIRST in the array (same convention Tile's own live-tile
+    // animatedStyle uses for its drag offset) so the pulse's px distance
+    // isn't itself additionally stretched by a later scale entry.
     transform: [
+      { translateX: pulseOffsetX.value },
+      { translateY: pulseOffsetY.value },
       { scale: scale.value },
       { scale: convertPulse.value },
       { scaleX: stretchScaleX.value },

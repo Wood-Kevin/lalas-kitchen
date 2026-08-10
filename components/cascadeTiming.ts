@@ -300,6 +300,18 @@ export const COLOR_BOMB_WAVE_MS = 280;
 // reasoning SWEEP_TILE_STAGGER_MS's own comment already establishes.
 export const AREA_BOMB_WAVE_MS = 90;
 
+// How far, as a fraction of tileSize, a radially-cleared tile nudges away
+// from the blast's REAL origin at its pop beat — the shape identity that
+// replaces the old radialGlow color wash's own "different shape" job (see
+// engine/DECISIONS.md's colors-removed rework entry, decision #1). Kept
+// modest: a cleared tile must still read as belonging to its own cell right
+// up until it shrinks away, not visibly drift into a neighbour's airspace.
+// Shared by both color-bomb and area-bomb pulses for now — splitting them
+// (mirroring COLOR_BOMB_WAVE_MS vs. AREA_BOMB_WAVE_MS's own board-spanning-
+// vs-tight-local split) is cheap to add later once both are seen live
+// side by side.
+export const RADIAL_PULSE_DISTANCE_FRACTION = 0.16;
+
 // The supercombo's two beats share one timing knob: the "conversion" pulse
 // plays for exactly this long, and the synchronized pop-and-shrink for every
 // converted piece begins the instant it ends (see specialEffectAnimation.ts's

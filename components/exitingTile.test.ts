@@ -74,6 +74,33 @@ describe('buildExitingEntry sweepAxis (the beam\'s real travel direction, for th
   });
 });
 
+describe('buildExitingEntry radialOrigin (the real blast origin, for the outward pulse)', () => {
+  test('threads the origin through when the caller supplies one', () => {
+    const origin = { row: 4, col: 4 };
+    const entry = buildExitingEntry(
+      colorBomb,
+      from,
+      7,
+      undefined,
+      20,
+      undefined,
+      undefined,
+      undefined,
+      'color_bomb',
+      0,
+      0,
+      undefined,
+      origin
+    );
+    expect(entry.radialOrigin).toEqual(origin);
+  });
+
+  test('every existing call site — no origin supplied — stays undefined, byte-identical to before', () => {
+    const entry = buildExitingEntry(colorBomb, from, 7, undefined, 20);
+    expect(entry.radialOrigin).toBeUndefined();
+  });
+});
+
 describe('exitingTileSprite resolves through getSpriteForPiece using the full type', () => {
   test('a detonating color bomb resolves to its fixed sprite, not the "?" placeholder', () => {
     const entry = buildExitingEntry(colorBomb, from, 7, undefined);
