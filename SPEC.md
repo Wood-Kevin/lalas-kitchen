@@ -72,7 +72,11 @@ transferable story.
   `scripts/generate-sound-assets.js`-style procedural synthesis, tuned
   for more character than the current placeholders, not a licensed/paid
   asset pack (avoids a purchase decision inside an experiment whose
-  outcome is still undecided). Built as a real, reusable slice inside
+  outcome is still undecided) — **the "not a licensed/paid asset pack"
+  half of this sentence is now superseded for real-gameplay audio, see
+  section 3's "real gameplay audio now sourced from a licensed pack"
+  decision below; it still accurately describes the dev-only
+  `_juice`/`special_trigger` cues, which remain synthesized.** Built as a real, reusable slice inside
   the existing `components/`/`engine/` architecture (not a disposable
   demo) so it graduates directly into the game if RN wins the
   comparison.
@@ -111,7 +115,7 @@ transferable story.
 
 ## 3. Architecture decisions
 
-### Decision: Track A's particle burst deliberately overrides the "calm, not frantic" constraint, opt-in only
+### Decision: Track A's particle burst deliberately overrides the "calm, not frantic" constraint, opt-in only — see the soundEnabled-gating decision below for current behavior
 - **Choice:** `components/Tile.tsx`'s `ExitingTile` carries an explicit
   comment: "deliberately no particle burst or flash, per CLAUDE.md's
   'calm, not frantic' design constraint" — a real, intentional design
@@ -140,7 +144,7 @@ transferable story.
   production players the moment this code merged, which "Scope
   Discipline" and "No silent failures" both rule out.
 
-### Decision: Hit-stop and the "juiced" audio cues get the same opt-in-only treatment as the particle burst
+### Decision: Hit-stop and the "juiced" audio cues get the same opt-in-only treatment as the particle burst — SUPERSEDED, see the decision below
 - **Choice:** Track A's hit-stop freeze (`cascadeTiming.ts`'s `EXPERIMENTAL_HIT_STOP_MS`) and its three
   new `match_juice`/`cascade_juice`/`special_trigger` sound cues are gated behind the identical
   `experimentalJuice` flag the particle burst already uses — additive, opt-in, wired only through the
@@ -160,6 +164,111 @@ transferable story.
   judgment call, not confirmed with Kevin before building (see `engine/DECISIONS.md`'s matching entry
   and `DEFERRED_COMPLEXITY.md`) — flagged here rather than guessed at silently; revisit if either is
   wanted as a real default instead.
+- **This is now historical, not current behavior.** Commit `6a88f96` ("Make Track A's juice
+  branch-wide instead of scenario-gated") did exactly the rejected alternative above — flipped
+  `experimentalJuice` to an unconditional `true` for every real level, with no way to turn it off,
+  reasoning that the branch would stay disposable and never merge. A pre-merge multi-agent audit
+  (this session) flagged that as a live blocker the moment merging to `master` was actually on the
+  table: it silently reopened exactly the regression this decision block itself predicted and
+  rejected. See the decision immediately below for the actual current, resolved behavior.
+
+### Decision: Track A's juice is gated on `soundEnabled`, not scenario-only and not an unconditional default — PARTIALLY SUPERSEDED, see the decision below
+- **Choice:** `App.tsx` passes `experimentalJuice={soundEnabled}` to `Board` on the one real
+  gameplay render path — replacing both the original scenario-only gate and the later unconditional
+  `true`. `soundEnabled` defaults `false` (unchanged), so a player gets the calm, motion-only,
+  original-tuned match/cascade/win set by default; enabling Sound (an ordinary, one-tap, already-
+  supported action) opts into hit-stop, the particle/debris burst, and the juiced audio cues as one
+  coherent bundle, since the audio half already required `soundEnabled` to play at all — tying the
+  visual half to the same toggle means a player never gets one without the other.
+- **Why:** The branch-wide unconditional flip broke this project's own calm-not-frantic constraint
+  for every real player with zero opt-out, which is unacceptable once this branch is actually being
+  merged rather than tossed. But reverting to scenario-only would also throw away real, working
+  polish work with no path for a real player to ever experience it. Tying it to `soundEnabled`
+  keeps the default calm (matching the design-research-backed default), while giving a player who's
+  already signaled "I want more presence from this game" (by turning Sound on) the fuller treatment
+  — a real, principled gate rather than an arbitrary flag, and it needs no new UI.
+- **Rejected alternative and why:** (a) Reverting to `__DEV__`-only/scenario-gated — throws away a
+  real path for any player to ever feel this work, and doesn't match Kevin's explicit choice on the
+  merge-readiness question. (b) A dedicated new Settings toggle — more UI for a game whose Settings
+  screen is deliberately minimal (see CLAUDE.md's settings-screen entry), when an existing toggle
+  already carries the right meaning. (c) Keeping it unconditional and updating the docs to match —
+  considered and rejected outright: it's the one alternative that actually keeps shipping an
+  unverified, calm-constraint-violating experience to every player by default, which is the thing
+  this decision exists to fix.
+- **This decision's audio half did not hold up on a real listen.** "Tying the visual half to the
+  same toggle [as audio]" is exactly what broke: it meant `experimentalJuice`, once wired to
+  `soundEnabled`, made the brighter `_juice` cues the *only* thing a player could ever hear once
+  Sound was on — the calm `match`/`cascade` tones became permanently unreachable, not merely
+  opt-in. A real on-device listen (2026-08-09, the very next thing tried after this decision
+  shipped) confirmed it reads exactly as "a slot machine" — the character the calm set was
+  redesigned three times to escape. See the decision immediately below for the fix; the visual half
+  of this decision (hit-stop, particle burst gated on `soundEnabled`) is unaffected and still
+  current.
+
+### Decision: real gameplay audio is always the calm match/cascade/win set — the `_juice`/`special_trigger` register is not reachable by any player, at any soundEnabled state
+- **Choice:** `components/soundEffects.ts`'s `triggerPassEffects` no longer accepts an
+  `experimentalJuice`/`specialEffectFired` option at all — `SoundEffectsOptions` was narrowed to just
+  `soundEnabled`/`hapticsEnabled`/`soundService`/`hapticsService`, and the function unconditionally
+  plays `'match'`/`'cascade'`/`'win'`. `Board.tsx`'s call site no longer passes those two fields. The
+  `match_juice`/`cascade_juice`/`special_trigger` sound ids and their WAV assets are untouched and
+  still registered (`soundRegistry.ts`) — they're just never selected by any real code path anymore.
+  `experimentalJuice` itself still exists and is still `soundEnabled`-gated, still driving the visual
+  half (hit-stop, particle burst) exactly per the decision above — only the audio selection was
+  decoupled from it.
+- **Why:** The previous decision's own "one coherent bundle" framing was the bug — bundling audio
+  selection into the same flag as the visual gate meant there was no longer any real-gameplay path
+  that could ever reach the calm tones once Sound was on. That's not a smaller version of "shipping
+  the juice cues as a live default," it's the exact same problem this whole thread has been trying to
+  fix, just moved one flag over. Splitting audio-selection out entirely — rather than adding a third
+  gate on top of `soundEnabled` — was the simplest fix that can't regress the same way twice, since
+  there's no longer a flag capable of selecting the `_juice` register in real gameplay at all.
+- **Rejected alternative and why:** (a) A third, more specific flag (e.g. `experimentalJuiceAudio`)
+  still wired to `soundEnabled` — rejected for the same reason (a) was rejected in the decision above:
+  it's still one flag away from the same regression the moment anything ties it back to a real-player-
+  reachable condition. (b) Keep the juice audio reachable only from the dev-only game-feel-comparison
+  scenario specifically (re-threading a scenario-only signal distinct from `soundEnabled`) — the
+  scenario harness is already disclosed elsewhere as "left in place, unused for feel-testing going
+  forward" (see `engine/DECISIONS.md`'s "Track A goes branch-wide" entry), so restoring a second signal
+  just to preserve a comparison nobody is running was judged not worth the plumbing; if the harness is
+  ever revisited, `soundRegistry.ts`'s entries are still real and ready to wire back in deliberately.
+  (c) Delete the `_juice`/`special_trigger` assets and type entries outright — not done; they're real,
+  working, synthesized audio that cost real effort to build, and deleting them is a bigger, less
+  reversible call than disconnecting them, not something to do silently as a side effect of a bug fix.
+
+### Decision: real gameplay audio (match/cascade/win) now sourced from a licensed pack, reversing "not a licensed/paid asset pack" above
+- **Choice:** `soundRegistry.ts`'s `match`/`cascade`/`win` ids now point at three real, human-made
+  recordings from Chequered Ink's "400 Sounds Pack" (`ci.itch.io/400-sounds-pack`, Kevin's own find,
+  downloaded manually into the repo's gitignored `/sounds/` staging folder): `match_xylophone_2.wav`
+  and `match_xylophone_5.wav` from the pack's "Match Three" category (a 10-step soft-to-bright chime
+  ladder; `_2`/`_5` picked as a calm base with a modest step up for cascades, not the loudest rung),
+  and `xylophone_level_complete.wav` from "Musical Effects" for `win` (same instrument voice, for
+  timbral consistency across all three cues). License, confirmed directly from the pack's own page
+  before use: any use including commercial, no attribution required, only restriction is reselling the
+  unaltered assets as a standalone pack — clean for shipping. The original procedurally-synthesized
+  `match.wav`/`cascade.wav`/`win.wav` are left on disk, unreferenced, per this project's own
+  leave-real-work-on-disk convention (`background.wav`'s removal).
+- **Why:** Section 2's original "not a licensed/paid asset pack" call was scoped to an
+  outcome-undecided experiment where a purchase decision felt premature — that premise no longer
+  holds. Track A's audio is now real production code (per the two decisions above), the pack is free
+  and permissively licensed (no purchase decision at all), and three synthesis redesign passes still
+  hadn't produced a set confirmed calm on a real listen. A pack with an actual "match-three chimes"
+  category, made by a human sound designer, is a more direct fix for "these sound like a slot machine"
+  than a fourth synthesis pass would have been.
+- **Rejected alternative and why:** (a) A fourth procedural-synthesis pass — technically consistent
+  with the original decision, but each of the first three passes required guessing at envelope/timbre
+  parameters and then waiting for a real listen to find out if it worked; a real recording sidesteps
+  that guess-and-check loop entirely for the same cost (free). (b) Committing the whole 400-file pack
+  into the repo for future reuse — rejected as real, unjustified bloat (~64MB of files this game will
+  never use); only the 3 chosen files are copied into `skins/lalas-kitchen/sounds/`, and the raw pack
+  is gitignored (`/sounds/`) rather than tracked.
+- **Disclosed, not yet confirmed:** `win_chime.wav` (`xylophone_level_complete`) is a 3.4-second
+  layered resolution phrase, unheard by any human on this build. This project has already been burned
+  once by an unheard "positive"/fanfare-style cue reading as a casino/slot-machine trope (the original
+  synthesized win.wav's four-note ascending arpeggio) — a generic pack's "level complete" cue is
+  exactly the kind of asset where that trope tends to live. `match_chime`/`cascade_chime` carry lower
+  risk (short, single-hit chime hits, not a multi-note resolving phrase) but are equally unconfirmed by
+  ear. See `DEFERRED_COMPLEXITY.md`'s matching entry — this is not done until a real on-device listen
+  confirms all three, the same standard every prior sound-redesign pass in this project was held to.
 
 ### Decision: A shared JSON fixture pins the exact comparison scenario
 - **Choice:** One JSON file defines the fixed starting board and the
@@ -237,7 +346,8 @@ deployed anywhere.
 | Track B's juice pass runs in Unity | Live capture (screen recording) of the scenario playing in the Unity Editor or a local build | Recording exists, shows the new particle/shader/tween treatment firing |
 | The comparison is evidence-based, not impressionistic | Written comparison doc, scored against the feasibility plan's open questions (ceiling reached vs. investment-closeable vs. effort delta) | Doc exists, references both recordings directly, gives an explicit answer to each open question |
 | A decision gets made | This SPEC's change log | A dated entry recording Kevin's actual decision (continue on RN / commit to Unity / inconclusive, try again) once both tracks are seen |
-| Ordinary gameplay's calm-not-frantic behavior is unaffected by Track A's particle override | `npx jest` (full suite) plus a live check of a real hand-built level's ordinary match/sweep clear | Full test suite green; a real level's clear animation is visually identical to before this spec (no particle burst outside the dev scenario) |
+| Ordinary gameplay's calm-not-frantic behavior is unaffected by Track A's particle override while Sound is off, and its audio is always the calm set regardless of Sound | `npx jest` (full suite) plus a live check of a real hand-built level's ordinary match/sweep clear, both Sound on and off | Full test suite green; with Sound off, a real level's clear animation is visually identical to before this spec (no particle burst, no hit-stop); with Sound on OR off, only `match`/`cascade`/`win` ever play — never `match_juice`/`cascade_juice`/`special_trigger`, at any Sound state (see the two soundEnabled-gating decisions in §3, the second of which corrects the first) |
+| The licensed-pack match/cascade/win swap reads as calm, not a slot machine, on a real device | Real on-device listen with Sound on, all three cues (`match_chime`/`cascade_chime`/`win_chime`) | **Confirmed 2026-08-09** — Kevin: "Sounds are good enough state now." No swap needed; the fallback candidates noted in `DEFERRED_COMPLEXITY.md` stay available but are no longer an open item. |
 
 ## 7. Career evidence
 
@@ -260,3 +370,4 @@ deployed anywhere.
 | 2026-08-09 | Track A's remaining two scope items built: a hit-stop freeze (`cascadeTiming.ts`'s `EXPERIMENTAL_HIT_STOP_MS`, folded into the settle wait of whichever cascade pass fires a special effect, via a new pass-scoped `specialEffectFired` boolean that correctly covers IN-CASCADE triggers, not just swap-triggered ones) and three new "juiced" audio cues (`match_juice`/`cascade_juice`/`special_trigger`, `scripts/generate-game-feel-comparison-audio.js`). Added the "Hit-stop and the juiced audio cues get the same opt-in-only treatment" decision block (section 3) extending the particle burst's override to both — a judgment call, not confirmed with Kevin first. 871/871 tests. Live-verified over CDP: the real production `match.wav` never fetches over the network even on a genuine match (a pre-existing headless-Chrome audio gap, not caused by this change), so the sound-selection LOGIC was verified instead via a temporary, reverted-before-commit instrumentation log — confirmed pass 0 plays `match_juice` and pass 1 (the in-cascade striped-sweep pass) plays `cascade_juice` + `special_trigger`, and the scenario's score still lands at exactly 263. | Picking up SPEC.md's remaining Track A scope after the branch-sync session; the opt-in-only fork needed a real decision, not a guess, given the "graduates into the game" framing above |
 | 2026-08-09 | Kevin confirmed Unity Hub sign-in + editor install complete (verified directly: `Unity Hub.exe` and Editor 6000.5.7f1 both present, `Unity.exe -version` resolves), unblocking Track B. Session 1: scaffolded a new Unity 6.5 project at the sibling path (own local git repo, `.gitignore`'d Library/Temp/obj), ported just enough of `matrix.ts`/`gameState.ts` to C# (`Piece`/`ScenarioEngine`/`ScenarioData`/`BoardDiff`) to reproduce the fixed scenario, and headlessly verified it via `Unity.exe -batchmode -executeMethod ScenarioVerifier.Verify` against `scenario.json`'s exact expected values (all checks passed, confirmed by direct file evidence, not just an exit code). Built `ScenarioComparison.unity` (via a second batch-mode `SceneBuilder.Build` call, not hand-authored YAML) with a first Unity-native juice pass: a real `ParticleSystem` burst per clear, a 90ms `Time.timeScale` hit-stop on the striped-sweep pass (the identical number to Track A's `EXPERIMENTAL_HIT_STOP_MS` — a deliberate apples-to-apples data point for the eventual written comparison), a traveling sweep flash, and accelerating fall tweens with a landing squash. Disclosed plainly, not glossed over: no GUI automation exists for the Unity Editor from this environment (browser tools only drive Chrome), so the juice pass compiles and the scene builds cleanly, but has NOT been felt by a human yet — the same standing gap Track A's audio work already disclosed for its own unheard cues. | Kevin's "unity is installed" was verified before being acted on, not assumed; Track B's own scope (a throwaway, hand-verified C# slice, no test framework) came straight from this spec's existing decision, so no new fork was needed to start it |
 | 2026-08-09 | First real test-run session: both tracks' scenario rendered as bare "?" placeholder boxes (the abstract A-F/G-L letter matchTypes never resolve to real sprite art), which Kevin flagged as making the actual comparison unjudgeable ("hard to say [how the juice feels]"). Remapped the shared scenario to real Lala's Kitchen ingredient ids (`tomato`/`lemon`/`herb`/`garlic`/`chili`/`spoon`) on both tracks, re-verified against the real engine (unchanged score/structure). Mid-fix, Kevin redirected: "focusing on just getting the most we can out of react native and leaving unity alone" — **Track B is now paused by Kevin's own explicit direction**, not abandoned or superseded; this spec's original two-track comparison premise (section 1-2) stays the recorded plan, but active work narrows to Track A only until/unless Kevin asks to resume Track B. See `engine/DECISIONS.md`'s matching entries and the auto-memory feedback note this session saved (`feedback_focus_rn_only_leave_unity_alone`). | Real playtest feedback (unjudgeable placeholders) plus a direct scope redirect — both acted on immediately rather than finishing an unwanted Unity pass first |
+| 2026-08-09 | Kevin reported the real-audio-backend tones still read as "a slot machine" after actually enabling Sound; root cause was a Claude Code regression (the prior soundEnabled-gating fix had accidentally coupled audio selection to `experimentalJuice`, making the `_juice` register the only thing reachable — see the two decisions above), fixed by decoupling audio selection entirely. Kevin then found a real, permissively-licensed sound pack (Chequered Ink's "400 Sounds Pack", itch.io) with an actual "match three chimes" category and asked about using it; downloaded it manually into a new gitignored `/sounds/` staging folder. Picked and wired in 3 real recordings for match/cascade/win — see the "real gameplay audio now sourced from a licensed pack" decision above for the exact files, license terms, and the one disclosed, unconfirmed risk (`win_chime`'s length/character hasn't had a real listen). 877/877 tests still passing (registry/asset swap only, no logic changed). | Kevin's own find, directly reversing section 2's original "not a licensed/paid asset pack" scoping now that Track A's audio is real production code, not a still-undecided experiment |

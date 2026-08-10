@@ -6615,6 +6615,74 @@ colors as Board.tsx/Home.tsx's own gradients.
 Every screen in the app now shares the same base gradient material. `RecipeBook.tsx`/`Settings.tsx`
 remain flat — never raised this session, not assumed in scope; see `DEFERRED_COMPLEXITY.md`.
 
+## Recipe book art pass: closed the disclosed flat-background gap; recipe-card art itself confirmed consistent (2026-08-09)
+
+**The trigger.** "Recipe book still needs an art pass" — a direct follow-up to the sound-pack work,
+picking back up this session's original "expert game art designer" review thread.
+
+**The investigation, before changing anything.** Sampled the full 52-card recipe set across its
+milestone range (both the original 12 and the later 40-card batch), plus the gameplay-tile and
+mascot art for comparison. Found the 52 cards genuinely consistent with each other — same soft
+watercolor-illustration style, same warm parchment-texture background, same composition convention
+— across the whole range, including right at the 12/40 art-pack boundary where a style seam would
+most likely show. Confirmed all 52 `config.recipeCards` entries resolve to a real registered
+`spriteRegistry.ts` entry (zero missing/placeholder-fallback cards). The gameplay tiles (bold,
+thick-outline, cel-shaded icons) and the recipe-card/mascot art (soft painterly illustration) are a
+genuinely different style family — but a deliberate, coherent one already established by the mascot
+portrait, not a mismatched art-pack problem to fix.
+
+**What was actually wrong.** `RecipeBook.tsx` was still on a flat `background[0]` fill — the exact
+gap the Level Map gradient entry above explicitly disclosed and left open ("`RecipeBook.tsx`/
+`Settings.tsx` remain flat — never raised this session, not assumed in scope"). Fixed with the
+identical `LinearGradient` swap `LevelMap.tsx`/`Home.tsx`/`Board.tsx` already use — same
+`palette.background` two-stop array, same `start`/`end` props, no new palette data. `Settings.tsx`
+stays flat, deliberately out of scope for this specific ask.
+
+**Also fixed in passing:** two stale doc comments (`RecipeCardReveal.tsx`, `RecipeBook.tsx`) still
+said "no real recipe-card art exists yet" — factually wrong since all 52 cards now have real,
+registered art (see this file's 40-card-extension-wired entry). Corrected to describe the current
+state; the text-label fallback path itself is untouched, still a real defensive branch, just no
+longer a live path for any current card.
+
+**Verification:** `npx jest` 877/877 (presentation-only change, no logic touched). Not yet
+live-verified — the same standing browser-render limitation every visual change in this file
+discloses; whether the gradient actually reads as an improvement on a real device is Kevin's own
+call. See `DEFERRED_COMPLEXITY.md`.
+
+**A real screenshot then confirmed there was more to the "art pass" than the missing gradient.**
+Kevin's own capture of the live grid ("[Image] is what it looks like") showed every unlocked card
+reading as a flat, near-identical gold/amber square sitting on stark white card chrome — not a
+mismatched-art-pack problem (per the sampling above), but a real color clash: `styles.cell` uses
+`panel` (`#FBF3E1`, near-white cream) while every recipe illustration bakes in its own warm
+parchment-texture background, much closer to `palette.background`'s `#EFC087` stop. At the old
+`cellIllustration` width (68% of the cell's usable content width), enough bare white `panel` showed
+around each thumbnail to read as "a gold sticker pasted on a white card" rather than one cohesive
+card. The same screenshot also showed a real, if subtle, row-alignment inconsistency: `cell` used
+`justifyContent: 'center'`, so a 2-line title ("Sunday Tomato Stew") and a 1-line sibling ("Lemon
+Squeeze") in the same row centered their own image+title block differently, nudging the images
+themselves out of alignment with each other.
+
+**The fix, sized from real numbers, not guessed.** At the actual rendered grid (375px reference
+viewport, 20px screen padding each side, 3 columns, 12px `CELL_GAP`): cell width ≈ (335 − 24) / 3 ≈
+103.7px, cell height ≈ width / 0.82 ≈ 126.5px, usable content area after 8px padding ≈ 87.7 ×
+110.5px. The old 68% illustration was 59.6px square, leaving ~50.9px of vertical slack for a title
+that needs at most ~35px (2 lines at 12pt + 6px margin) — genuinely more slack than needed. Raised
+to 76%: a 66.7px image, leaving ~43.8px — still comfortably above the ~35px a full 2-line title
+needs, so no overflow risk at the longest real title, while meaningfully shrinking the visible white
+margin. `cell`'s `justifyContent` changed from `'center'` to `'flex-start'`, pinning every image to
+the same fixed offset from the top of its card regardless of how its own title wraps — any slack
+from a shorter title now falls below the title instead of shifting the image itself.
+
+**Deliberately not touched:** the illustrations themselves, and `styles.cell`'s `panel` background
+color — changing the card chrome color would be inconsistent with every other panel/card surface in
+the app (Home's feature cards, tutorial overlays, LevelMap's own card chrome all share `panel`), so
+the fix stays scoped to how much of that color shows, not what color it is.
+
+**Verification:** `npx jest` 877/877 (style-only change). Not yet re-confirmed by a second live
+screenshot — the sizing above was computed from the same real numbers the rendered screenshot
+implied, not assumed, but whether it actually reads better is still Kevin's own call to make on the
+next real look.
+
 ## Grid width: 8x5 -> 8x7, after a real "the grid feels tiny" report (2026-08-09)
 
 **The trigger.** A direct, subjective playtest-style report: "I feel like our grid is tiny compared
@@ -7091,3 +7159,615 @@ refactor rather than separately re-triggered live (commit 4).
 branch rather than an experimental override (left unchanged — the branch itself is still explicitly
 disposable); live-triggering a real color-bomb/area-bomb detonation and a real supercombo to confirm the
 pulse and convert-pulse paths visually, not just by code review and test.
+
+## Track A's juice moves off "unconditional live default" and onto soundEnabled (2026-08-09, pre-merge audit)
+
+**The trigger.** A full multi-agent merge-readiness audit, run because this branch was about to actually
+be pulled into `master` rather than stay disposable. The audit's dependent-systems and docs-drift
+dimensions independently converged on the same finding: `6a88f96`'s branch-wide flip (`experimentalJuice`
+always `true`) was explicitly justified by "toss it if it doesn't work out" — the premise that this
+branch would never merge. The moment a real merge is on the table, that premise is gone, and what's left
+is a live, unconditional override of CLAUDE.md's calm-not-frantic constraint — hit-stop and a particle
+burst on every clear, with zero in-app way to turn it off — shipping to the exact real player (Kevin's
+mom) that constraint was written for. `SPEC.md`'s own decision block had already anticipated and rejected
+exactly this outcome; `6a88f96` reopened it without re-confirming against that rejection.
+
+**The fix.** Presented to Kevin as a real fork (re-gate it / ship it live on purpose / hold off and
+playtest first), not guessed at silently. Kevin's call: leave it off by default, and enabling Sound turns
+it on. `App.tsx` now passes `experimentalJuice={soundEnabled}` instead of a bare `experimentalJuice`
+(always-true) prop — `soundEnabled` itself is unchanged, still defaulting `false`. Since the juiced
+audio cues already required `soundEnabled` to play at all (`triggerPassEffects`'s own
+`soundEnabled ? ... : ...` gate), this makes the visual half (hit-stop, particle/debris burst) follow the
+exact same condition the audio half already had — a player either gets the whole calm-tuned bundle or
+the whole juiced bundle, never a mismatched mix of "silent but bursting with particles."
+
+**Why soundEnabled and not a new toggle.** A dedicated Settings control was considered and rejected: this
+game's Settings screen is deliberately minimal (see the settings-screen entry above), and Sound already
+carries the right meaning — a player who taps it on is already asking for a more present experience.
+Reusing it costs zero new UI and zero new persisted state.
+
+**Docs updated in the same pass**, per this project's own documentation discipline: `SPEC.md`'s two Track
+A decision blocks (particle burst, hit-stop/juiced-audio) are marked superseded with a pointer to a new
+decision block describing the current soundEnabled-gated behavior, and its verification-table row now
+says "with Sound off" instead of implying the dev scenario was the only gate. `DEFERRED_COMPLEXITY.md`'s
+Track A entry now describes the real gating history (dev-harness-only → unconditional → soundEnabled)
+instead of the stale "never live for a real player" claim `6a88f96` left behind. Every inline code comment
+across `cascadeTiming.ts`, `exitingTile.ts`, `soundEffects.ts`, `soundService.ts`, `soundRegistry.ts`,
+`Board.tsx`, and `Tile.tsx` that still said "Dev-only" / "0 on every real gameplay path" for these fields
+was corrected to describe the soundEnabled gate instead — `6a88f96` had only updated the top-level prop
+doc comments, not these deeper call-site ones, which is exactly the kind of residual drift the audit's
+dependent-systems check exists to catch.
+
+**Verification:** `npx jest` 880/880, unchanged. Not yet live-verified with Sound toggled on
+end-to-end against a real level — the same standing browser-automation board-render limitation every
+other feel change in this file discloses; the audit's own recommendation is to add this to the next real
+playtest pass alongside the other never-felt-verified live defaults it surfaced (the HUD/Home/Level-Map
+facelift, the win-celebration burst, and the colors-removed clear-FX motion).
+
+## Exit no longer discards a move that already committed, just hasn't animated yet (2026-08-09, pre-merge audit)
+
+**The bug.** `attemptSwap` calls the engine's `applyMove` synchronously and gets the fully computed result
+immediately — moves, lives, objectives, even a win, all already decided. But `Board.tsx` doesn't actually
+commit that result to `gameState` (and therefore doesn't persist it, since `onStateChange` only fires from
+an effect keyed on `gameState`) until `animateCascade` reaches its **final** pass — `commitFinalState`
+calls `setGameState(finalState)` there, with every intermediate pass deferred via a chained `setTimeout`
+(`stepTimersRef`). The Exit button carried no gate at all, unlike Hint and Shuffle right beside it (both
+`disabled={!canAcceptMove()}`), so it was always tappable — including mid-cascade. Tapping it there
+unmounts `Board`, whose cleanup effect clears every pending `stepTimersRef` timer, so the deferred
+`commitFinalState`/`setGameState` never runs. The move the player just made — and the engine already
+scored — silently vanishes as if it never happened.
+
+Pre-existing architecture, not introduced by this branch's 32 commits — but never disclosed anywhere in
+`DEFERRED_COMPLEXITY.md`, and the branch's own hit-stop addition (now gated on `soundEnabled`, see the
+entry above) specifically lengthens the vulnerable window on chain-reaction and bomb-detonation passes —
+exactly the moves most worth not losing. Surfaced by the same pre-merge multi-agent audit that caught the
+juice-effects regression.
+
+**The fix.** `Board.tsx`'s Exit `Pressable` now carries `disabled={animatingRef.current}` (and matching
+`opacity: animatingRef.current ? 0.5 : 1`) — deliberately narrower than Hint/Shuffle's full
+`!canAcceptMove()` gate. `canAcceptMove` also checks for an open tutorial and an in-flight snap-back,
+neither of which risks losing data on exit; disabling Exit during those too would be new, unrequested
+friction (per Scope Discipline) for a problem those conditions don't actually cause. `animatingRef.current`
+alone precisely brackets the real risk window: it's set `true` at the top of `animateCascade` and cleared
+`false` inside `commitFinalState`, right after `setGameState(finalState)` — exactly "is there a computed-
+but-not-yet-committed move right now."
+
+**What did NOT change:** `onExit`/`handleGoHome` themselves, the Hint/Shuffle gate, or anything about how
+a cascade animates — this is a pure gate addition on one existing button, following the same
+`disabled`/`opacity` convention its two neighbors already use.
+
+**Verification:** `npx jest` 880/880, unchanged (this app has no Board-component render test harness to
+extend — the same standing browser-pane board-render limitation every visual feature in this file
+discloses). Not yet felt-verified live: confirming the button visibly dims and genuinely blocks the tap
+during a real multi-pass cascade is a good candidate for the same upcoming playtest pass the juice-gating
+fix above is queued for.
+
+## Ring's playable band widened from 1 cell to 2, after a real report and a real score-target investigation (2026-08-09)
+
+**The trigger.** A real playtest report ("that shape needs at least 2 rows — really it's the most annoying
+shape to play, because it's almost one match option and reshuffles a lot") arrived while investigating an
+unrelated player report: a score-objective level (Level 36, 749/750, out of moves) that felt unfair. That
+investigation traced to a real gap — `generatedScoreTarget` never got the same `playableRatio`-scaling fix
+`generatedTargetCount` received after an *earlier* `ring`-unfairness report, because it derives its target
+from `generatedMovesLimit`, whose own floor (`MIN_MOVES = 18`) is already pinned by level ~13 regardless of
+shape, silently absorbing the shape input before the score formula ever sees it. That's still a real,
+separate, unfixed gap (see the "still open" note below) — but the player's own follow-up diagnosis pointed
+at something more fundamental: `ring`'s original geometry (`ringVoids`, unchanged since it was first built)
+voided every interior cell, leaving only a literal 1-cell-wide border playable. A path that thin structurally
+limits matching — most cells on it have only two playable neighbors — so legal moves are scarce and the
+stuck-board rescue fires far more than on any other template.
+
+**The fix.** `engine/boardShapes.ts`'s `ringVoids` now leaves a band `RING_BAND_THICKNESS` (2) cells thick on
+every side before voiding the interior, instead of exactly 1. At the real generated board size (8 rows x 7
+cols), this raises `ring`'s playable ratio from ~46% (26/56, using this session's own re-measurement — the
+game's own test suite had it at 55%/22-of-40, the historical 8x5 number, never re-verified after the
+grid-width widening) to ~79% (44/56) — in line with `cut_corners` (also 79%) and `plus` (86%), rather than
+being a severe outlier. A real void hole still exists in the middle; it's proportional now instead of eating
+the whole board's width down to a single file.
+
+**A second, adjacent finding, surfaced while re-measuring `ring` for this fix, not separately gone looking
+for:** `diamond` and `hourglass` are *also* an outlier at the real 8x7 board size — 32/56 (~57%), not the
+~70% CLAUDE.md's own board-shape-variety-expansion text claims. That number was computed and verified at the
+historical 8x5 board size and never re-checked after the grid-width change; at 7 columns,
+`diamondTaperSteps` grows to 3 (`min(floor(8/2), floor((7-1)/2))`), a proportionally much more aggressive cut
+than at 5 columns. **Not fixed this session** — the player's report and this session's actual investigation
+were both specifically about `ring`; `diamond`/`hourglass` are disclosed as a new, separate, real finding
+rather than silently fixed alongside it (or silently left for someone to discover the hard way) — see
+`DEFERRED_COMPLEXITY.md`'s matching entry for the open question of whether to fix them the same way, and
+CLAUDE.md's board-shape-variety-expansion text, which still states the stale ~70% figure and needs its own
+correction if/when that's addressed.
+
+**Tests updated, not just the implementation:** `engine/boardShapes.test.ts`'s `ringVoids`/`playableCellRatio`
+describe blocks now assert the real geometry at the real 8x7 board size (not the historical 8x5 fixture size
+those blocks were originally written against) and add a dedicated test asserting every void cell sits at
+least `RING_BAND_THICKNESS` cells from every edge — a direct regression guard for the actual "almost one
+match option" complaint, not just a byte-count check. `engine/matrix.test.ts`'s "adversarial worst case"
+shuffle-rescue stress test used `ringVoids` specifically because it was the most restrictive template; it's
+now rebuilt against `diamondVoids` at the real 8x7 size instead, so it keeps stress-testing the shape that's
+actually hardest today rather than one that no longer is.
+
+**Verification:** `npx jest` 881/881 (880 plus one new regression test), including the rebuilt adversarial
+shuffle-rescue test and the corrected `playableCellRatio` assertions. Not yet felt-verified live — the same
+standing board-render limitation every visual/difficulty feature in this file discloses; whether a real
+`ring` level now feels meaningfully less "stuck" is Kevin's own call to make on a real playthrough. The
+`generatedScoreTarget` playableRatio gap that started this whole investigation is still open — deliberately
+not fixed in the same pass, since `ring`'s own severity reduction was judged the more load-bearing fix and
+the score-target gap needs its own confirmed floor constant before touching it (see
+`DEFERRED_COMPLEXITY.md`).
+
+## Real gameplay audio is unconditionally the calm set — the juice-gating fix's own regression, caught on a real listen (2026-08-09)
+
+**The bug.** The soundEnabled-gating fix earlier this session (see the "Track A's juice moves off
+'unconditional live default' and onto soundEnabled" entry above) tied `experimentalJuice` to `soundEnabled`
+to fix a real merge-blocking regression: hit-stop and the particle burst were unconditionally live for every
+player. That fix's own reasoning explicitly said tying the visual half to the same toggle the audio half
+already used would mean "a player either gets the whole calm-tuned bundle or the whole juiced bundle" — but
+that framing had it backwards. `components/soundEffects.ts`'s `triggerPassEffects` selects cues with
+`experimentalJuice ? 'match_juice' : 'match'`, evaluated *inside* `if (soundEnabled)`. Once
+`experimentalJuice` became `soundEnabled` itself, the two were the same boolean inside that block —
+`experimentalJuice` was unconditionally `true` there, so `'match'`/`'cascade'` became permanently dead code.
+Every player who enabled Sound could only ever hear `match_juice`/`cascade_juice`/`special_trigger`, never
+the calm set — the exact same "unconditional live default" failure shape the fix was supposed to close,
+just moved from the visual flag to the audio one. Confirmed the same day by Kevin, on a real listen: "I just
+enabled sounds and they sound like a slot machine."
+
+**Why this one's worse than the visual regression it followed.** `match_juice`/`cascade_juice`/
+`special_trigger` weren't just *unverified* — they were deliberately built to reuse "the pre-redesign 880Hz
+register the calm pass moved away from" (`scripts/generate-game-feel-comparison-audio.js`'s own header),
+specifically for an A/B contrast against the calm set. The calm `match.wav`/`cascade.wav`/`win.wav` had
+already been redesigned three separate times (see this file's sound-redesign entries) precisely because an
+earlier real listen called the original character "a slot machine." Wiring the *deliberately* slot-machine-
+like register to the ordinary Sound toggle silently reopened a question this project had already spent three
+passes closing — worse than shipping something merely unverified, it shipped something already known-bad.
+
+**The fix.** `SoundEffectsOptions` (`components/soundEffects.ts`) no longer has `experimentalJuice`/
+`specialEffectFired` fields at all — `triggerPassEffects` unconditionally plays `'match'`/`'cascade'`/
+`'win'`, full stop, regardless of any flag or `soundEnabled` state. `Board.tsx`'s call site no longer passes
+those two fields (though the `experimentalJuice`/`specialEffectFired` variables themselves are untouched and
+still drive the *visual* half — hit-stop, particle burst — exactly as the prior fix intended; only audio
+selection was decoupled). `match_juice`/`cascade_juice`/`special_trigger`'s sound ids, WAV assets, and
+registry entries are untouched, left in place as real working assets rather than deleted, in case the
+dev-only game-feel-comparison harness is ever deliberately revisited — but no live code path can reach them
+anymore. `services/soundService.ts`/`skins/lalas-kitchen/soundRegistry.ts`'s doc comments, and `SPEC.md`'s
+matching decision block, are corrected in the same pass rather than left describing the soundEnabled-gated
+framing that caused this.
+
+**A real, disclosed side effect:** since there is now only one `<Board>` render path with only one
+`triggerPassEffects` call site, the dev-only game-feel-comparison scenario's audio A/B capability is
+incidentally inert too — opening that scenario no longer reaches the juice register either. Not treated as
+a loss worth separate plumbing to preserve: that harness was already disclosed as "left in place, unused for
+feel-testing going forward" before this fix.
+
+**Verification:** `npx jest` 877/877 (881 minus 6 tests for the removed behavior, plus 2 new regression
+guards — one asserting only `match`/`cascade`/`win` ever play across a real multi-pass move, one a
+type-level `@ts-expect-error` guard confirming `SoundEffectsOptions` structurally cannot carry an
+`experimentalJuice` field again without a compile error). Not independently re-confirmed by another
+on-device listen this session — Kevin's own real-device report is what caught the bug in the first place;
+whether the calm `match`/`cascade`/`win` set itself (unchanged by this fix, the same three-times-redesigned
+tones) actually reads as calm now that it's reliably what plays is the next real thing to confirm live.
+
+## Real gameplay audio switched from procedural synthesis to a real, licensed sound pack (2026-08-09)
+
+**The context.** Immediately after the fix above, Kevin's own read was sharper than "the gating was wrong":
+"That quality of the audio was the issue, but good fix anyway." The gating bug was real and worth fixing,
+but it was never the root cause of "sounds like a slot machine" — the *tone quality* of the synthesized
+`match.wav`/`cascade.wav`/`win.wav` set was. Three prior redesign passes (see this file's sound-redesign
+entries) had each guessed at synthesis parameters — envelope shape, decay curve, echo taps — verified only
+by waveform computation, never by an actual ear, because no audio tool or licensed asset source existed in
+this environment. Kevin then found one: Chequered Ink's "400 Sounds Pack" on itch.io (`ci.itch.io/400-
+sounds-pack`), a free (name-your-own-price), permissively-licensed (any use including commercial, no
+attribution required, only restriction is reselling the unaltered assets standalone), human-made WAV
+collection that happens to include a dedicated "Match Three" category.
+
+**What was picked and why.** Downloaded manually by Kevin into a new gitignored `/sounds/` staging folder at
+the repo root (`.gitignore`'s new `/sounds/` entry — the raw ~64MB pack itself was never meant to be
+committed, only the handful of files actually used). Investigated the pack's structure first rather than
+guessing: the "Match Three" category is two 10-step ascending chime ladders (`match_synth_1..10_MAX`,
+`match_xylophone_1..10_MAX`, one per instrument voice), and "Musical Effects" has 10 instrument families each
+with a `_level_complete` variant. Ran real waveform analysis (duration/peak/zero-crossing-rate as a
+brightness proxy — the same technique the prior synthesis redesigns used, just applied to real recordings
+instead of guessing synthesis parameters) rather than picking by filename alone: `match_synth`'s ~2.3s
+sustained-tone duration was judged too long for a cue that can retrigger every ~150-600ms on a fast cascade
+(`cascadeTiming.ts`'s `PASS_BEAT_MS` = 140), where `match_xylophone`'s ~850-1080ms chime-like decay fits the
+existing "soft chime tones" design intent (`scripts/generate-sound-assets.js`'s own original framing) far
+better. Picked `match_xylophone_2` (mellow end of the ladder) for `match` and `match_xylophone_5` (a modest
+step up, not the loudest rung) for `cascade` — deliberately leaving headroom in the untouched 3/4/6-10 steps
+for a possible future cascade-depth-scaled ladder, not built now (see `DEFERRED_COMPLEXITY.md`).
+`xylophone_level_complete` was picked for `win` for timbral consistency (same instrument voice as the match/
+cascade pair) over the other 9 instrument families available for the same role.
+
+**The one thing this did NOT resolve.** No audio-analysis technique available in this environment can
+determine whether a cue *feels* calm versus exciting — that's a subjective, by-ear judgment, and this
+project has already been burned once by shipping an unheard "positive"/fanfare cue that turned out to read
+as a casino trope (the original synthesized `win.wav`'s four-note ascending arpeggio). `xylophone_level_
+complete` is a 3.4-second layered resolution phrase — plausibly exactly right for a level-complete moment,
+plausibly also exactly the kind of generic-pack fanfare that trope lives in. Disclosed explicitly rather than
+assumed fixed: `match_chime`/`cascade_chime`/`win_chime` are all wired in and passing tests, but none has had
+a real on-device listen yet. See `SPEC.md`'s matching decision block and `DEFERRED_COMPLEXITY.md` for the
+swap-out path if `win_chime` doesn't land (a one-line `soundRegistry.ts` change to one of two already-staged
+alternatives, `xylophone_chime_positive.wav` or `xylophone_positive_long.wav`, both shorter/less fanfare-like).
+
+**Verification:** `npx jest` 877/877 (registry/asset swap only — `soundEffects.test.ts`'s coverage asserts
+against sound *ids*, not file contents, so it was unaffected). Not yet felt-verified live — this is the
+disclosed gap above, and closing it is the next real step, not assumed done by this pass.
+
+## Board play-area background art (2026-08-09)
+
+**The ask.** Kevin's own find: a sage-tile kitchen counter illustration (`board-background-sage.webp`,
+1024x1536), asked directly whether it could become the play board's background.
+
+**What was checked before wiring it in.** `Board.tsx`'s `boardArea` has no existing background image —
+just the screen-level `LinearGradient` behind everything, plus `KitchenSceneDecor`'s corner-only cloth/
+herb dressing (deliberately scoped to peek from the board's corners, "not compete with it," per that
+component's own doc comment). Investigated how much of a full boardArea-filling image would actually be
+visible given CLAUDE.md's explicit "board renders close to edge to edge" constraint: `boardWidth =
+cols * tileSize`/`rows * tileSize` with `tileSize` picked to maximize fit, so on an ordinary rectangular
+level the tile grid covers nearly the entire boardArea — real visibility is mostly limited to (a) a
+margin strip on whichever axis isn't the sizing constraint, and (b) void cells on shaped boards, which
+CLAUDE.md's board-shape entry already confirms render as nothing (the background shows through the
+cutout). Flagged, not silently assumed away: the image's own kitchen-tile backsplash pattern could
+visually compete with the actual match-3 grid boundaries wherever it does peek through — this couldn't
+be confirmed without a live render, so it's disclosed rather than guessed past.
+
+**The fix.** Registered as `board-background-sage.webp` (`spriteRegistry.ts`, no resizing/re-encoding —
+used as supplied). Rendered as a new bottommost layer inside `boardArea`, added *before*
+`KitchenSceneDecor` in JSX (so it paints behind the cloth/herb corner dressing, which paints behind the
+tile grid, same stacking convention that component's own doc comment already established) — a plain
+`Image` with `StyleSheet.absoluteFillObject`, `resizeMode="cover"`, `pointerEvents="none"`, gated behind
+the same `tileSize > 0` condition every other boardArea layer already uses. `resolveSpriteAsset`'s
+existing kind-check (`'image'` vs. text-label fallback) guards the lookup the same way every other sprite
+consumer in this app does — no new fallback logic needed.
+
+**Deliberately not touched:** `KitchenSceneDecor`'s corner cloth/herb decoration. Now that a full
+photographic kitchen scene sits behind the board, that separate decorative layer may read as redundant
+or cluttered next to it — a real, plausible follow-up, not acted on without seeing the combined result
+first per this session's own "confirm before deciding on a genuine fork" standard.
+
+**Verification:** `npx jest` 877/877 (new layer, no logic touched). Not live-verified — no browser render
+available this session, the same standing limitation every visual change in this file discloses. Whether
+it actually reads well (and whether the corner decor should come out) is Kevin's own call on a real
+device. See `DEFERRED_COMPLEXITY.md`.
+
+## Board play-area background: rescoped to full-screen after a real screenshot caught broken scaling (2026-08-09)
+
+**The bug, caught immediately on a real screenshot.** "That image did not scale to the board at all" —
+and the screenshot showed exactly why: the tile grid occupied only the left ~40% of the visible width,
+with the background's own kitchen-tile pattern rendered far larger than the real game tiles, spilling
+across a huge empty region to the right. Root cause was the disclosed risk above turning out to matter in
+a concrete way the original entry hadn't fully worked through: `boardArea` is a `flex: 1` region sized by
+layout, not by the board's own content — on this (height-bound) viewport, `tileSize` was capped by
+available height, so `boardWidth = cols * tileSize` came out much narrower than `boardArea.width`. The
+background `Image`, filling `boardArea` with `resizeMode="cover"`, scaled itself against that whole
+oversized rectangle — mostly empty space — instead of against the actual board, so its own texture scale
+ended up unrelated to the real tile size.
+
+**The fix, per Kevin's direct correction ("I want the whole image to be the play background so it sits
+nicely behind everything").** Two changes: (1) moved the `Image` out of `boardArea` entirely and into the
+outer `LinearGradient` container, as the very first child — genuinely "behind everything" now, including
+the `Hud`, not just behind the board grid. The screen's own container is a stable, portrait-shaped region
+on a real device (unlike `boardArea`, whose shape depends on `tileSize`'s fit math), so it doesn't carry
+the same failure mode. (2) Switched `resizeMode` from `"cover"` to `"contain"` — guarantees the entire
+image is always visible with no cropping, regardless of viewport aspect ratio, directly matching "the
+whole image" rather than leaving that to chance on whatever shape the container happens to be. A smaller,
+related fix found while making this change (not from the screenshot, from re-checking the layout math):
+`styles.container` carries `paddingHorizontal`/`paddingTop` for the board content, and RN positions an
+absolutely-positioned child inside its parent's *padding* box, not its outer edge — a plain
+`absoluteFillObject` would have left thin gradient-colored slivers on three sides instead of true
+edge-to-edge coverage. Countered with matching negative offsets (`top: -12`,
+`left/right: -BOARD_HORIZONTAL_PADDING`) so the image reaches the actual screen edge.
+
+**Deliberately not re-litigated:** the void-cell/margin visibility analysis and the corner-decor
+redundancy question from the original entry — both were about how much of the board grid the image would
+peek through, which is now moot at full-screen scope (the image is now the base layer behind the entire
+screen, not something threading through gameplay gaps).
+
+**Verification:** `npx jest` 877/877 (layout-only change). Not yet re-confirmed by a second live
+screenshot — the fix is reasoned directly from the failure the first screenshot showed and RN's own
+documented absolute-positioning-inside-padding-box behavior, not verified by another render. See
+`DEFERRED_COMPLEXITY.md`.
+
+## Board play-area background: real root cause of "still too big" — the app's own web width cap wasn't clipping it (2026-08-09)
+
+**The bug.** A third screenshot ("still too big") showed the position/framing fix above genuinely
+working — the cloth and cutting-board corners now line up correctly with the board — but the
+background's own tile pattern still rendered roughly 2x larger than the real game tiles. Root cause
+wasn't the image or `resizeMode` at all: `App.tsx` already caps the whole app's web content to a real
+phone width (480px, centered, `maxWidth: Platform.OS === 'web' ? 480 : undefined`) — a pre-existing fix
+from an earlier session for exactly this class of problem ("everything stretches edge to edge" on a wide
+desktop test browser). `<Board>` renders inside that cap. But React Native doesn't clip a parent's
+children by default (`overflow: 'visible'` unless set otherwise), and `styles.container` never set
+`overflow: 'hidden'` — so the background image's negative offsets (added in the previous fix specifically
+to reach past `container`'s own padding to its true edge) kept going straight through the 480px boundary
+into the surrounding desktop-browser chrome, rendering at nearly the full ~2000px test-window width
+instead of the actual ~480px app column. Its tile pattern was scaled against a container roughly four
+times wider than the app actually is — directly explaining the ~2x mismatch reported.
+
+**The fix.** One line: `overflow: 'hidden'` on `Board.tsx`'s `styles.container`. Clips every
+absolutely-positioned child (the background image included) to the container's real, already-capped
+bounds — the same bounds every other element (the HUD, the board grid) was already implicitly respecting
+through ordinary flex layout. A rough sanity check on the numbers: at the real ~480px cap (minus 24px
+padding ≈ 456px usable), `resizeMode="contain"` on the 1024-wide source scales by ≈0.469, putting the
+source's own ≈128px tile squares at ≈60px — close to the real ≈48px game tile size. At the previous
+unclipped ~800px effective width, the same math gives ≈97px tile squares — roughly double, matching what
+was reported.
+
+**Also done this session, per Kevin's direct follow-up ("we can get rid of the herb and table cloth once
+the sizing is correct"):** `KitchenSceneDecor`'s corner gingham-cloth-and-herb dressing is removed
+outright — the render call and its now-unused import deleted from `Board.tsx`, and `components/
+KitchenSceneDecor.tsx` deleted entirely (confirmed unreferenced anywhere else in the codebase before
+removal, the same clean-removal discipline the background-music-loop removal used rather than leaving
+dead code behind). `herb.webp` itself is untouched — it's a real gameplay piece sprite, only borrowed
+decoratively by the now-removed component.
+
+**Verification:** `npx jest` 877/877 (both changes together — a one-line style fix and a clean removal,
+no logic touched). Still not live-verified — the same standing limitation, and now the fourth pass on
+this specific feature; each of the first three was reasoned carefully and still needed a live screenshot
+to catch what code review alone missed, so this one should be held to the same standard, not assumed
+correct on reasoning alone. See `DEFERRED_COMPLEXITY.md`.
+
+## Board play-area background: the real fifth bug, found and fixed live via direct DOM inspection, not another screenshot round-trip (2026-08-09)
+
+**The report.** "The whole bottom half of the artwork isn't visible in game," with a fourth screenshot.
+This time, rather than reason further from a static image, Kevin supplied the running dev server's
+localhost URL and it was investigated directly with Chrome DevTools (`getBoundingClientRect`/
+`getComputedStyle` on the live `<img>` element) — the same standard `docs/verification/` has used
+throughout this project, now actually available mid-session instead of only disclosed as a gap.
+
+**The real bug, confirmed by real numbers, not guessed:** the live DOM showed the image's rendered box at
+`width: 1024px; height: 1536px` — its literal *natural* pixel dimensions, not scaled to the container at
+all. React Native Web has a specific quirk (not present on native iOS/Android) where an `Image` positioned
+purely via `top`/`left`/`right`/`bottom` insets, with no explicit `width`/`height`, falls back to its
+intrinsic size instead of stretching to fill the box those insets define. Every prior fix in this feature's
+history (the boardArea-vs-container rescoping, the `overflow: 'hidden'` clip) was a real, correct fix for
+the bug it targeted — but none of them touched this one, because none of them had live DOM evidence to
+find it. At true 100% zoom, the image was ~2x the size of the ~480px-capped app column (explaining "still
+too big") and, having a raw height of 1536px against an ~855px viewport, everything past the visible/
+clipped area — including most of its own bottom half — was cut off by this container's own
+`overflow: 'hidden'` (explaining "the whole bottom half... isn't visible").
+
+**The fix.** Added explicit `width: '100%', height: '100%'` to the Image's style array, alongside the
+existing inset properties. This is what actually lets `resizeMode` govern the rendered scale — without it,
+`resizeMode` was moot, since the image was never being resized against the container in the first place.
+
+**Verified live, not reasoned this time:** re-inspected the same `<img>` element on the hot-reloaded page —
+`getBoundingClientRect()` now reports `width: 480, height: 855`, matching the real app column and full
+viewport exactly. A follow-up screenshot (full board, and a zoomed crop of the counter/garlic/herb detail)
+confirms the entire scene now renders — wooden spoon crock and potted plant at the left edge, garlic/oil/
+cutting board area, the counter and cabinet drawer below the grid — with no visible distortion and a tile
+pattern scale that reads as proportionate to the real game tiles. One honest discrepancy, disclosed rather
+than smoothed over: `getComputedStyle` reports `objectFit: "fill"` (stretches to exactly fill the box),
+not `"contain"` as specified — RN Web isn't translating `resizeMode="contain"` to `object-fit: contain`
+once explicit width/height are added, for a reason not further investigated. Not fixed further because the
+actual visual result already matches what was asked for ("the whole image... sits nicely behind
+everything") — `fill`'s modest aspect compression (container 0.561 vs. the image's native 0.667) reads as
+clean in the zoomed screenshot, with no distortion visible on the actual illustrated content (wood grain,
+garlic, herb detail all crisp). If a future pass wants true no-crop-no-stretch `"contain"` behavior
+specifically, this `objectFit` mismatch is the concrete starting point, not a re-guess.
+
+**Verification:** `npx jest` 877/877. Live-verified over a real running dev server (`localhost:8085`) via
+direct DOM inspection and a real post-fix screenshot — the first pass on this feature actually held to
+this project's own "the trace, not the claim" standard rather than disclosing another "not yet confirmed"
+gap.
+
+## Board play-area background: sixth and final pass — the real cause of the missing header/footer coverage, and a methodology correction (2026-08-09)
+
+**The report.** "Still not correct. The image should be behind everything. Header and footer pieces are
+not on it" — with the same dev server still live, this was investigated directly rather than through
+another screenshot round-trip. Zoomed crops of the actual rendered top/bottom edges confirmed it: flat,
+uniform app-background color behind the Hud panel and behind the bottom toolbar, no tile pattern at all —
+a real gap, not a perception issue.
+
+**A methodology mistake, caught and corrected in the same investigation.** The previous entry's live
+verification measured `getComputedStyle(imgElement).objectFit`, reading `"fill"`. That reading was
+irrelevant the whole time: React Native Web renders an `Image` as a `background-image` on a wrapper
+`<div>` (the actual visual layer, controlled by CSS `background-size`), plus a separate, visually
+insignificant `<img>` tag carrying only accessibility semantics (class `css-accessibilityImage-*`) — the
+element measured for `objectFit` was that accessibility helper, not the div actually painting the scene.
+Querying every element for a `background-image` containing the asset's filename found the real layer:
+`background-size: contain`, not `"fill"`. That single wrong reading is why the previous entry concluded
+the visible result already matched intent — it hadn't been checked against the right element.
+
+**The real bug, now correctly diagnosed.** `contain` was doing exactly what `resizeMode="contain"` asks:
+showing the entire image with no cropping. But the box (~480×855, aspect 0.561) is proportionally
+narrower relative to its height than the source image (1024×1536, aspect 0.667) — so `contain` scaled to
+fit by width, leaving real ~67px letterbox gaps of the app's flat background color at both the top and
+bottom of the box, precisely where the Hud and the bottom toolbar sit. Not a sizing bug this time (the
+box itself was already correctly sized, per the previous entry's fix) — a real, correct consequence of
+asking for "show everything, crop nothing" on a box whose aspect ratio doesn't match the image's own.
+
+**The fix.** `resizeMode` changed from `"contain"` to `"cover"` — confirmed live as `background-size:
+cover` on the real rendering div, box unchanged (still the full `-12` to `843`/855-tall span from the
+prior fix). Verified with zoomed crops of both edges post-fix: the tile pattern now reaches the true top
+edge behind the Hud, and the counter/cabinet-drawer content now reaches the true bottom edge behind the
+toolbar — no gaps anywhere. The tradeoff, not hidden: `cover` crops roughly the outer ~45px off each side
+of the image at this box's proportions (scale-by-height ≈0.556 vs. scale-by-width ≈0.469) — the spoon
+crock/plant on the left and the cutting board on the right lose a modest sliver each, confirmed acceptable
+in the post-fix screenshot (both still clearly recognizable, not fully cropped away).
+
+**Verification:** `npx jest` 877/877 (one `resizeMode` value changed, no logic touched). Live-verified —
+a real `background-size` reading on the correct element (not the accessibility-helper `<img>`) plus zoomed
+screenshots of both previously-broken edges, both now showing continuous image content with no flat-color
+gap. This is the sixth pass on this one feature; the previous five each fixed a real, distinct bug, and
+this one plus its methodology correction is what finally closes it against the actual "behind everything,
+no gaps" request.
+
+## Board frame border, added once the background art made the grid's edge disappear into it (2026-08-09)
+
+**The ask.** "I think we should wrap the tile board in a border now as well" — a direct follow-up once the
+board-background art was actually reading correctly: without a frame, the grid's own edge had no visual
+separation from a now much busier photographic backdrop directly behind it.
+
+**The fix.** `Board.tsx`'s `styles.board` (the same `View` that already clips tiles via `overflow: 'hidden'`
+for the refill-streaming spawn model) gained `borderWidth: 2.5` and `borderRadius: 16`; `borderColor` is set
+inline at the JSX call site (`skinConfig.palette.tray.border`, the same deep-brown color `Hud.tsx`'s own
+tray chrome already uses — `StyleSheet.create` can't read props, so the dynamic color can't live in the
+static sheet). Color choice ties the board visually to the Hud panel above it as matching card-like
+surfaces on the same backdrop, rather than an arbitrary new color. Width/radius (2.5/16) are heavier than
+the tray's own 1.5/18 — a deliberate proportional choice, not identical numbers, since the board is a much
+larger surface needing similar visual weight, not the same absolute stroke width. Deliberately does NOT add
+any extra reserved space around the board's existing footprint — CLAUDE.md's "a decorative frame around the
+grid eats tile size" constraint rules that out — the border draws within `boardWidth`/`rows * tileSize`
+exactly as already computed, which does mean RN's border-box model shaves roughly 2-3px off the tile grid's
+own rendered content area at the far edge (clipped by this same View's `overflow: 'hidden'`) — accepted as
+imperceptible against tiles roughly 20x that size.
+
+**Live-verified, with a real methodology snag worth recording.** The test browser window (2560px wide, this
+session's dev environment) scales down to roughly 0.61x in a standard screenshot, compressing a 2.5px CSS
+border to about 1.5 screenshot pixels — genuinely invisible in an ordinary capture or zoom crop, which
+initially looked like the border hadn't applied at all. Confirmed it actually had via direct DOM query
+(`getComputedStyle` on the element matching the tray-border color: `borderWidth: 2px` — browser-rounded from
+2.5 — `borderStyle: solid`, `borderRadius: 16px`, on an element sized/positioned exactly matching the board),
+then settled the visual question conclusively with a temporary `transform: scale(3)` applied via
+`javascript_tool` purely for the verification screenshot (reverted immediately after) — the zoomed capture
+clearly shows a real, rounded, dark-brown border stroke separating the grid from the tile-pattern background
+behind it. A real device (or a properly narrow browser window, which this session's `resize_window` call
+didn't successfully achieve — reported dimensions were unchanged after the call) wouldn't need this
+workaround; a 2.5px border at real device pixel density is not a subtle effect.
+
+**Verification:** `npx jest` 877/877 (style-only change). Live-verified — DOM measurement plus a real,
+methodology-adjusted screenshot, not assumed from the style change alone.
+
+## Board border restyled to a soft warm glow, matching a reference mockup (2026-08-09)
+
+**The ask.** Kevin supplied a reference mockup (a "codex"-generated illustration) — a cream card holding
+the tile grid, edged with a soft warm gold glow rather than a hard border line — and asked for the board's
+frame to look similar.
+
+**What the reference can't be copied 1:1, and why.** The mockup has real dedicated cream margin between
+the tiles and the card's outer edge (tens of px), which on this game's actual phone-sized board would
+directly violate CLAUDE.md's "a decorative frame around the grid eats tile size" constraint — real user
+research behind that constraint, not a style preference to trade against a mockup. The adaptation keeps
+the board at its existing exact footprint and reproduces the *glow* specifically, not the wide margin.
+
+**The fix.** Reused an existing technique rather than inventing one: `RecipeCardReveal.tsx`'s own
+card-unlock halo is a flat, semi-transparent shape rendered slightly larger than the card behind it — not
+an actual blurred shadow, which RN's `shadow*`/`elevation` properties render too inconsistently across
+iOS/Android/web to rely on. `Board.tsx` now has a `BOARD_GLOW_COLOR` constant (`'rgba(227, 164, 59,
+0.35)'`, the *exact* value `RecipeCardReveal.tsx`'s `GLOW_COLOR` already uses, so the app has one glow
+color, not two independently-tuned ones) and a `boardGlow` style — a rounded rect sized `boardWidth +
+BOARD_GLOW_INSET*2` / `rows*tileSize + BOARD_GLOW_INSET*2` (`BOARD_GLOW_INSET = 6`), positioned to peek
+out symmetrically past the board's real edge on all sides. Also changed `board`'s own `borderColor` from
+the deep-brown `palette.tray.border` to the warmer, lighter `palette.tray.chipBorder` (`#D8B37B`) — matches
+the mockup's warmer palette better, though live inspection found this specific line mostly imperceptible in
+practice, since tiles render edge-to-edge with no gap and the corner tile's own card border sits directly
+on top of it.
+
+**A real structural change was needed to make this positionable at all.** The glow can't live inside
+`board` itself — `board`'s own `overflow: 'hidden'` (load-bearing for the tile-refill spawn clip) would cut
+off exactly the part meant to peek out past its edge. `board` is now nested one level deeper, inside a new
+plain wrapper `View` sized to `board`'s own exact dimensions (no overflow, no visual styling of its own) —
+this wrapper is what `boardArea`'s flex-centering now centers, taking over the role `board` used to play
+directly, so `boardGlow`'s negative insets can position correctly relative to the board's real (already
+centered) footprint rather than boardArea's own top-left corner. A genuine risk with this restructuring,
+checked rather than assumed: since `Board.tsx` imports `react-native` (which fails to parse under this
+repo's plain ts-jest config), `npx jest` passing does NOT prove this JSX is even syntactically valid —
+verified instead against the live Metro bundler (the real running dev server re-rendered cleanly with no
+error overlay after the change, a stronger signal than the test suite for this specific file).
+
+**Live-verified, with the same scale-workaround this session's border-visibility check needed.** The glow
+sits only `BOARD_GLOW_INSET` (6px) past the board's edge, which shrinks to under a screenshot pixel at this
+session's ~0.61x screenshot scale-down — invisible in an ordinary capture. Confirmed correct positioning
+first via `getBoundingClientRect` math (the glow's rect precisely matches the wrapper's own rect expanded
+by exactly 6px on every side), then confirmed the actual visual result with a temporary `transform:
+scale(8)` applied via `javascript_tool` (reverted immediately after) — the zoomed capture clearly shows a
+warm gold glow band curving around the board's rounded corner, reading as a soft halo, a real match to the
+reference mockup's character adapted to this game's real constraint.
+
+**Verification:** `npx jest` 877/877. Live-verified against the real running dev server (no bundler error,
+confirming JSX validity that the test suite alone couldn't) plus a real, scale-adjusted screenshot of the
+actual glow effect.
+
+## Board background: a real 12px left offset, from a padding-compensation assumption that was never correct (2026-08-10)
+
+**The report.** "It looks like the play board is pushed to the right a little but I'm not sure if that's
+just the background being clipped" — an accurately hedged report; investigated with real DOM measurements
+rather than trusting the visual impression either way.
+
+**The actual finding, inverted from the report's framing.** The board itself measured perfectly centered
+(`getBoundingClientRect`: 26.5px gap to the app column's edge on both left and right). The background image
+was the one off-center: its rendered box measured `left: 1028, right: 1508` against the true app column's
+`left: 1040, right: 1520` — shifted exactly 12px left, silently, with the excess on the left clipped away
+by `container`'s own `overflow: 'hidden'` and a matching 12px shortfall left uncovered on the right. The
+board looking "pushed right" was real, but relative to the background's own off-center content, not to the
+app column itself.
+
+**Root cause: a wrong assumption from three passes ago, never revisited.** The board-background-rescoping
+entry (the second pass on this whole feature) reasoned that `styles.container`'s `paddingHorizontal`/
+`paddingTop` (`BOARD_HORIZONTAL_PADDING`/12) meant an absolutely-positioned child would sit inset by that
+padding unless counteracted — so `top`/`left`/`right` were set to `-12`/`-BOARD_HORIZONTAL_PADDING`/
+`-BOARD_HORIZONTAL_PADDING`. That assumption was never actually verified at the time, and it doesn't hold
+on this platform: confirmed via `getBoundingClientRect` on `container` itself (`paddingLeft: "12px"`,
+`boxSizing: "border-box"`, rendered box `left: 1040, right: 1520` — exactly matching its own parent, the
+480px-capped app column) that React Native Web positions an absolutely-positioned child's inset properties
+relative to the parent's BORDER box, not its padding box. No compensation was ever needed. The `-12`
+offset was a real, silent bug the whole time — not visible as an obvious gap (the `overflow: 'hidden'`
+clip on the left hid the symptom), just a consistent 12px leftward shift of the image's own effective
+center relative to the board's real, correctly-centered center.
+
+**The fix.** Removed the `top`/`left`/`right` overrides entirely — the `Image`'s style is now plain
+`[StyleSheet.absoluteFillObject, { width: '100%', height: '100%' }]`, no inset compensation. The
+`width`/`height: '100%'` pair (a separate, later, correctly-diagnosed fix for RN Web's natural-size
+fallback) stays untouched.
+
+**Verified live, precisely, not just visually.** Re-measured all three elements on the hot-reloaded page:
+`container`, the background image, and the board now all report identical left/right/top/bottom edges (or,
+for the board, a centerline exactly matching the background's own centerline) — `left`/`right`/`top`/
+`bottom` matches within floating-point rounding, board's center vs. background's center delta `< 1px`. A
+follow-up screenshot shows the same result the numbers predict, though the shift itself was always subtle
+enough (12px of 480, 2.5%) that the numeric confirmation is the load-bearing evidence here, not the
+screenshot.
+
+**Verification:** `npx jest` 877/877 (inset-only style change, no logic touched). Live-verified — the
+precise DOM measurements above are the real confirmation this time, not a screenshot alone.
+
+## Board border/glow now traces the real shape on void-cell boards, not a rectangle (2026-08-10)
+
+**The bug.** "The border should match board shape not stay square" — a real, correctly-diagnosed report.
+`styles.board`'s border and `boardGlow` were both a single rounded rect sized to the board's bounding box
+(`boardWidth` x `rows * tileSize`) — correct for a plain rectangle, but wrong for any shaped level (void-
+cell cutouts, per CLAUDE.md's board-shape entry: `cut_corners`/`plus`/`ring`/`diamond`/`hourglass`/
+`pockets`), where it drew a straight rectangle across cells that were never actually playable.
+
+**The fix — a real, general outline-tracing technique, not a per-template special case.** Two new `useMemo`
+values in `Board.tsx`: `hasVoidCells` (a plain scan of `renderBoard` for any `type === 'void'` cell) and
+`boardOutlineEdges` — for every non-void cell, which of its 4 neighbors (up/down/left/right, treating
+out-of-grid as void too) is void, i.e. which sides of that cell are part of the shape's true perimeter.
+This check is purely local per cell, so it needs no separate hole-tracing/path-walking logic and handles
+interior holes (a `pockets`-style isolated hole, `ring`'s inner edge) exactly the same way it handles the
+outer boundary — a cell bordering an interior hole is architecturally no different from one bordering the
+grid's outer edge.
+
+`hasVoidCells` gates which render path `Board.tsx` takes:
+- **A plain rectangle** (the common case) keeps the existing simple rounded-rect `styles.board` border and
+  single `boardGlow` View, unchanged — every one of its perimeter cells would produce the exact same
+  rectangle anyway, just with square corners instead of the nicer rounded ones this path already had.
+- **A shaped board** renders `styles.board` with `borderWidth`/`borderRadius` forced to 0 (no rect border)
+  and instead maps `boardOutlineEdges` into per-cell segment `View`s: a thin strip (`BOARD_BORDER_WIDTH`,
+  a new named constant shared with the rectangle path) on each boundary side for the border, and a wider
+  strip (`BOARD_GLOW_INSET`) extending outward on each boundary side for the glow, plus a small square
+  patch at each true convex corner (where two adjacent sides are both boundary) since two perpendicular
+  outward-extending strips don't naturally overlap at the diagonal corner point the way two inward-facing
+  border strips do.
+
+**A real, incidental fix that fell out of this, not separately requested:** the plain-rectangle border was
+already disclosed as "mostly imperceptible in practice" (`DEFERRED_COMPLEXITY.md`) — `styles.board`'s own
+border paints behind its children in normal box order, so edge tiles' own art (rendered edge-to-edge, no
+gap) covers it. The new border segments can't reuse that same container-level border, so they're separate
+`View`s rendered LAST among `board`'s children (deliberately, in JSX order) — on top of every tile. A
+shaped board's border is therefore actually visible for the first time, where the rectangle path's never
+reliably was.
+
+**Verified live, with real counts, not just a screenshot.** Navigated to a real diamond-shaped generated
+level (level 68). `getComputedStyle`-based DOM queries found 30 real border segments and 42 real glow
+segments (30 = a mix of `61×3`/`3×61` rects matching this level's real `tileSize`≈61 and
+`BOARD_BORDER_WIDTH`≈3 rounded; 42 = `61×6`/`6×61` edge strips plus `6×6` corner patches matching
+`BOARD_GLOW_INSET`=6) — confirming the shape is genuinely traced with real geometry, not zero segments
+(meaning the code path never ran) or an implausible flood of them (meaning something double-counted). A
+zoomed screenshot of the diamond's stepped/staircase top corner shows the glow visibly following that
+staircase rather than sitting in a rectangle around the whole bounding box. `pointerEvents="none"` on every
+new segment (both border and glow) keeps them from intercepting taps/drags — confirmed by a live swap
+attempt on the shaped level completing normally.
+
+**Verification:** `npx jest` 877/877 (new render logic, `renderBoard`-derived, no engine/state changes).
+Live-verified against a real shaped level over the running dev server — segment counts and geometry
+checked precisely via DOM query, not assumed from the code alone.
