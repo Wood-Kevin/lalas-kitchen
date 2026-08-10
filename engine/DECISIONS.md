@@ -7845,3 +7845,57 @@ Level Map): `getComputedStyle` on the actual backing `div` confirmed `background
 `stretch`/`cover`) and a element height of 21580px matching the real `contentHeight` for this save's level
 count, not just the viewport; screenshots at the top of the map and after scrolling ~1500px down both show
 the pattern continuing with no visible seam or gap, and the browser console showed zero errors.
+
+## Level Map landmark art: regenerated with real transparency, replacing opaque parchment-square sprites (2026-08-10)
+
+Kevin's own follow-up report right after the tiled backdrop above shipped: "are we able to remove the
+white blocks around the ingredients on the level maps?" Investigated before touching anything, per the
+standing Playtest Feedback Protocol. The six landmark sprites (`levelmap_garden_gate`,
+`levelmap_lemon_basket`, `levelmap_herb_garden`, `levelmap_garlic_crate`, `levelmap_simmering_pot`,
+`levelmap_recipe_box`) were all plain `RGB` WebP — no alpha channel at all, confirmed by direct
+`PIL.Image.open(...).mode` inspection — with an opaque cream/tan parchment-textured background baked into
+the raster itself. That's a genuinely different convention from every ordinary in-game piece sprite
+(`tomato.webp`/`lemon.webp`/`color_bomb.webp`/`area_bomb.webp` etc.), which are all real `RGBA` cutouts —
+these six were built more like the Recipe Book's own opaque card-illustration convention (intentional
+there, since those sit inside an actual card shape) but placed instead as free-floating landmarks with no
+card chrome around them, so the baked background always read as a visible square. It was tolerable against
+the map's old flat gradient (similar warm tone) but became obviously wrong the moment the seamless tile
+above went in behind it.
+
+**Fix: real background removal, not a code-side mask.** A code-only fix (rounding the corners, adding a
+soft vignette matching the card-illustration convention) was considered and rejected — it would make the
+squares read as *intentional* card chrome instead of removing them, which isn't what "remove the white
+blocks" asked for; the six landmarks are meant to be loose scattered objects along the path, not framed
+art. Used `rembg` (Python, `isnet-general-use` ONNX model) for an initial pass: 4 of 6
+(`lemon_basket`/`garlic_crate`/`simmering_pot`/`recipe_box`) cut cleanly on the first try — confirmed via
+direct alpha-channel histogram inspection (mostly 0/255 with a thin anti-aliased edge band, not large
+regions of partial transparency). The other 2 (`garden_gate`/`herb_garden`) came back with a real quality
+problem: their right-hand content (pale stonework/climbing foliage; pale thyme) sat close in value to the
+old parchment background, and the model's confidence there was low enough to leave a visibly ghosted,
+partially-transparent region rather than a clean cut — caught by eye, then confirmed by the same alpha
+histogram showing an unusually high partial-transparency percentage for those two specifically. Rather
+than accept a visibly broken 2-of-6, wrote a self-contained prompt (handed to Kevin to run against Codex,
+not executed in this session) describing all six subjects, the target style, the transparent-background
+requirement, and — explicitly — the exact low-contrast-edge failure mode found here, so a regeneration
+pass wouldn't blindly reproduce it.
+
+**Kevin regenerated all six externally and dropped them back in place** (same filenames, same
+`spriteRegistry.ts` keys — no code change needed). Verified, not assumed: all six are now real `RGBA`
+WebP with alpha extrema `(0, 255)` and a normal, thin partial-transparency band (0.6%-3.7%) except
+`herb_garden` (15.5%, but confirmed by direct visual inspection to be legitimate soft-edged foliage/grass
+detail, not the old ghosting artifact — the two previously-broken images, `garden_gate` and `herb_garden`,
+were re-inspected first and specifically confirmed clean). Live-verified over CDP against the real running
+Level Map (a real save at level 89-93): the lemon basket, garlic crate, and simmering-pot landmarks all
+render directly on the tiled sage background with no visible square, zero console errors. A live zoom
+capture timed out on this environment's CDP screenshot pipeline (a tool-side flake, confirmed by an
+immediate successful retry, not a rendering problem) but the un-zoomed captures already show clean edges
+at the rendered size.
+
+**Verification:** `npx jest` 878/878, unaffected (asset-only change). `npx tsc --noEmit` reports two
+pre-existing `tsconfig.json`/`expo/tsconfig.base` compatibility errors (`customConditions`,
+`ignoreDeprecations`) — confirmed via `git stash` that these predate this session's work entirely and are
+unrelated to it; this project has no `tsc` script in `package.json` and doesn't run raw `tsc --noEmit` as
+part of its normal build (Metro/Expo's own transform is what actually ships), so this is disclosed here
+rather than treated as a blocker. Full pre-ship smoke pass: Home, Level Map (scrolled through multiple
+landmark positions), and Recipe Book all confirmed rendering correctly with zero console errors; the game
+board itself was not re-verified live this session since no code in that path changed.
