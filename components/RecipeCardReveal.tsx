@@ -13,11 +13,11 @@ export interface RecipeCardRevealProps {
 }
 
 // Reuses the exact image/text-label fallback contract every other sprite
-// consumer in this app already uses (Tile.tsx, WonOverlay.tsx) — no real
-// recipe-card art exists yet (see skins/lalas-kitchen/config.json's
-// recipeCards sprite fields), so every card renders through this same
-// path today. Dropping in real art later is purely a
-// skins/lalas-kitchen/spriteRegistry.ts addition, zero code changes here.
+// consumer in this app already uses (Tile.tsx, WonOverlay.tsx). All 52
+// recipe cards now have real, registered watercolor-style art (see
+// skins/lalas-kitchen/spriteRegistry.ts's recipe_*.webp entries) — the
+// text-label branch stays as the same defensive fallback every other
+// sprite consumer keeps, not a live path for any current card.
 function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labelColor: string }) {
   if (sprite.kind === 'image') {
     return <Image source={sprite.source} style={styles.illustrationImage} resizeMode="contain" />;

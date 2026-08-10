@@ -1042,24 +1042,19 @@ export interface ExitingTileProps {
   // existed.
   rewardIntensity?: number;
   onExited: () => void;
-  // Branch-wide on unity-migration-exploration (Board.tsx's
-  // experimentalJuice — see SPEC.md's "Track A's particle burst
-  // deliberately overrides the calm constraint" decision, and its
-  // follow-up extending that override branch-wide rather than
-  // scenario-only, Kevin's own call). Plays an additional radial particle
-  // burst alongside whichever pop treatment above already plays — it
-  // does not replace or gate any of them, so this is purely additive.
-  // Undefined/false when omitted, which every OTHER branch's call sites
-  // still do — the calm-not-frantic override is real but confined to this
-  // one disposable branch, not a change to the engine or a permanent
-  // reversal of the constraint itself.
+  // Gated on soundEnabled (App.tsx's experimentalJuice — see SPEC.md's
+  // "Track A's particle burst deliberately overrides the calm constraint"
+  // decision, Kevin's own call). Plays an additional radial particle burst
+  // alongside whichever pop treatment above already plays — it does not
+  // replace or gate any of them, so this is purely additive. Undefined/false
+  // when omitted or when Sound is off (the default) — the calm-not-frantic
+  // override only takes effect once a player explicitly opts into Sound.
   experimentalBurst?: boolean;
-  // Dev-only, ONLY ever set from the game-feel-comparison harness (see
-  // cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS and exitingTile.ts's
-  // ExitingEntry.experimentalHitStopMs). Adds a brief freeze on TOP of
-  // this tile's ordinary settle wait before its clear/sweep/pop timeline
-  // begins — additive, never replacing any existing delay. 0/undefined on
-  // every real gameplay path.
+  // Gated on soundEnabled (see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS
+  // and exitingTile.ts's ExitingEntry.experimentalHitStopMs). Adds a brief
+  // freeze on TOP of this tile's ordinary settle wait before its
+  // clear/sweep/pop timeline begins — additive, never replacing any
+  // existing delay. 0/undefined whenever Sound is off (the default).
   experimentalHitStopMs?: number;
 }
 
@@ -1425,8 +1420,8 @@ export function ExitingTile({
   }, []);
 
   useEffect(() => {
-    // Dev-only (see experimentalBurst's doc comment) — fires independently
-    // of whichever branch the main effect below takes, so it layers on top
+    // Gated on soundEnabled (see experimentalBurst's doc comment) — fires
+    // independently of whichever branch the main effect below takes, so it layers on top
     // of every clear kind (ordinary, sweep, blocker, radial) the same way.
     // LINEAR, deliberately — each particle's own useAnimatedStyle now reads
     // this as true elapsed-time t and derives its drag/gravity motion
@@ -1722,7 +1717,7 @@ export function ExitingTile({
     zIndex: Math.round(exitRow.value * 1000) + 500,
   }));
 
-  // Dev-only (see experimentalBurst) — the debris shards' positioning
+  // Gated on soundEnabled (see experimentalBurst) — the debris shards' positioning
   // wrapper, same shape as burstStyle above: tracks the tile's own animated
   // position/stacking so the shards originate from wherever it actually
   // is (relevant on a swapped-and-cleared tile, which travels first).

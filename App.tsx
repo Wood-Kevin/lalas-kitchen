@@ -1279,17 +1279,21 @@ function AppRoot() {
             // Dev-only — see handleOpenGameFeelScenario. undefined (a no-op)
             // on every real level-start path.
             initialGameStateOverride={gameFeelScenarioOverride ?? undefined}
-            // Branch-wide, not scenario-gated: Kevin's call — this branch
-            // (unity-migration-exploration) is a disposable place to feel
-            // the RN game-feel push (particle burst, hit-stop, juiced
-            // audio — see SPEC.md and Tile.tsx's ExitingTile.
-            // experimentalBurst) directly against real levels instead of
-            // through the isolated comparison scenario; if it doesn't work
-            // out, the branch is simply never merged rather than this flag
-            // being unwound level by level. Still real, disclosed override
-            // of CLAUDE.md's calm-not-frantic constraint (see SPEC.md's
-            // decision blocks) — just no longer scenario-only.
-            experimentalJuice
+            // Tied to soundEnabled, not a bare live default: an earlier
+            // version of this branch made experimentalJuice (particle
+            // burst, hit-stop, juiced audio — see SPEC.md and Tile.tsx's
+            // ExitingTile.experimentalBurst) unconditionally true for every
+            // real player, with no way to turn it off — a real merge-time
+            // regression against CLAUDE.md's calm-not-frantic constraint,
+            // caught by a pre-merge audit. Kevin's fix: gate it on the same
+            // toggle a player already uses to opt into a more present
+            // experience — soundEnabled defaults false, so a player gets
+            // the calm, motion-only default until they explicitly turn
+            // Sound on, at which point the fuller juiced treatment (which
+            // already required soundEnabled for its own audio half) comes
+            // as one coherent bundle rather than two independently-gated
+            // halves.
+            experimentalJuice={soundEnabled}
           />
         )}
         </View>

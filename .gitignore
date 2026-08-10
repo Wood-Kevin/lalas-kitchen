@@ -18,3 +18,9 @@ build/
 
 # OS
 .DS_Store
+
+# Raw third-party sound-asset pack (ci.itch.io/400-sounds-pack), staged here
+# for picking real WAVs into skins/lalas-kitchen/sounds/ — the ~64MB raw
+# pack itself doesn't belong in the repo, only the handful of files actually
+# wired into soundRegistry.ts. See that file's comment for which ones.
+/sounds/

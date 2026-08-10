@@ -388,11 +388,10 @@ export const DEBRIS_SPEED = 5.5;
 export const DEBRIS_DRAG = 3.2;
 export const DEBRIS_GRAVITY = 9;
 
-// Dev-only, opt-in via the RN-vs-Unity game-feel comparison harness (see
-// Board.tsx's BoardProps.experimentalJuice, Tile.tsx's ExitingTile.
-// experimentalHitStopMs, and SPEC.md's Track A scope) — a brief freeze on
-// whichever pass actually fires a special effect (a striped sweep, a bomb
-// detonation — see Board.tsx's `specialEffectFired`), before that pass's
+// Gated on soundEnabled (see App.tsx's BoardProps.experimentalJuice, Tile.tsx's
+// ExitingTile.experimentalHitStopMs, and SPEC.md's Track A scope) — a brief
+// freeze on whichever pass actually fires a special effect (a striped sweep, a
+// bomb detonation — see Board.tsx's `specialEffectFired`), before that pass's
 // pops/sweeps begin. This is the "hit-stop" technique action games use to
 // sell impact (a beat of stillness right on the hit reads as heavier than
 // the hit itself), and it deliberately overrides CLAUDE.md's calm-not-
@@ -400,7 +399,8 @@ export const DEBRIS_GRAVITY = 9;
 // decision block covers the burst specifically; this extends the identical
 // reasoning to hit-stop, since a freeze-frame is the same "louder end of
 // the spectrum" territory) — additive on top of the existing settle/pass
-// timing, never on for a real player. Kept short: long enough to read as a
+// timing, off by default (soundEnabled defaults false) and only live once a
+// player explicitly opts into Sound. Kept short: long enough to read as a
 // deliberate beat, short enough not to feel like a stutter.
 export const EXPERIMENTAL_HIT_STOP_MS = 90;
 

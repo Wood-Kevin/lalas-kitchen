@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from './AppText';
 import {
@@ -52,7 +52,7 @@ import {
 } from './specialEffectAnimation';
 import { getSpriteForPiece } from './spriteMap';
 import { ExitingEntry, buildExitingEntry, exitingTileSprite } from './exitingTile';
-import { resolveSpriteAsset, SpriteAssetMap } from './spriteAsset';
+import { resolveSpriteAsset, resolveToolbarIconSprite, ResolvedSprite, SpriteAssetMap } from './spriteAsset';
 import {
   fallSpeedProfile,
   passDurationMs,
@@ -88,7 +88,6 @@ import { WonOverlay } from './WonOverlay';
 import { ExitingTile, Tile } from './Tile';
 import { ComboStreakBanner } from './ComboStreakBanner';
 import { LalaMomentBanner } from './LalaMomentBanner';
-import { KitchenSceneDecor } from './KitchenSceneDecor';
 import { resolveLalaMomentCopy } from './rewardMoment';
 import { triggerPassEffects } from './soundEffects';
 
@@ -243,6 +242,26 @@ export interface BoardProps {
 }
 
 const BOARD_HORIZONTAL_PADDING = 12;
+
+// How far the board's soft glow halo (styles.boardGlow) peeks out past the
+// board's own edge on each side. Deliberately small — CLAUDE.md's own
+// "a decorative frame around the grid eats tile size" constraint rules out
+// reserving extra layout space for this, so it's sized to read as a glow at
+// the board's existing footprint, not a wide cream margin like the
+// reference mockup's (which has real dedicated space a phone board doesn't).
+const BOARD_GLOW_INSET = 6;
+
+// A soft, low-alpha warm-gold wash — the exact color/alpha
+// RecipeCardReveal.tsx's own GLOW_COLOR already uses for its card-unlock
+// halo (see that file's comment on why this specific value: none of the
+// shared palette colors read as warm/bright enough at this alpha). Reused
+// here rather than re-derived, so the app has one "glow" color, not two.
+const BOARD_GLOW_COLOR = 'rgba(227, 164, 59, 0.35)';
+
+// Shared with the per-cell boundary segments below, so a plain rectangular
+// board's border and a shaped board's traced-outline border read as the
+// same weight.
+const BOARD_BORDER_WIDTH = 2.5;
 
 // A drag commits to a neighbour once the finger has travelled this fraction of
 // a tile toward it — well short of the neighbour's centre, so a swap doesn't
@@ -563,6 +582,44 @@ export function Board({
   const renderBoard = displayBoard ?? gameState.board;
   const rows = renderBoard.length;
   const cols = renderBoard[0]?.length ?? 0;
+
+  // Real bug, found live (2026-08-10): the board's border/glow used to be a
+  // single rounded rect wrapping the board's bounding box — correct for a
+  // plain rectangle, wrong for any shaped level (void-cell cutouts, see
+  // CLAUDE.md's board-shape entry), since it drew straight across cells
+  // that were never actually playable. This traces the board's REAL
+  // playable-cell outline instead: for every non-void cell, which of its 4
+  // sides border a void cell or the grid's own edge (i.e. which sides are
+  // part of the shape's true perimeter, including interior hole boundaries
+  // like `pockets`' isolated holes or `ring`'s inner edge — this check is
+  // purely local per cell, so it needs no separate hole-tracing logic).
+  // `hasVoidCells` gates which render path Board.tsx takes below: a plain
+  // rectangle keeps the simple, nicely-rounded-corner styles.board border
+  // (unchanged, already live-verified) since every one of its perimeter
+  // cells would otherwise produce the exact same rectangle anyway, just
+  // with square corners instead of the nicer rounded ones.
+  const hasVoidCells = useMemo(
+    () => renderBoard.some((row) => row.some((piece) => piece.type === 'void')),
+    [renderBoard]
+  );
+  const boardOutlineEdges = useMemo(() => {
+    if (!hasVoidCells) return [];
+    const isVoidAt = (r, c) => r < 0 || r >= rows || c < 0 || c >= cols || renderBoard[r][c].type === 'void';
+    const edges = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (renderBoard[r][c].type === 'void') continue;
+        const top = isVoidAt(r - 1, c);
+        const bottom = isVoidAt(r + 1, c);
+        const left = isVoidAt(r, c - 1);
+        const right = isVoidAt(r, c + 1);
+        if (top || bottom || left || right) {
+          edges.push({ r, c, top, bottom, left, right });
+        }
+      }
+    }
+    return edges;
+  }, [hasVoidCells, renderBoard, rows, cols]);
 
   const tileSize = useMemo(() => {
     if (!boardArea) return 0;
@@ -1037,8 +1094,8 @@ export function Board({
       // (which only ever covers a SWAP-triggered effect on pass 0) — the
       // fixed game-feel-comparison scenario's own striped trigger is an
       // in-cascade one, firing on a later pass, so effectDescriptor alone
-      // would never see it. Dev-only consumers: the experimental hit-stop
-      // below and soundEffects.ts's special_trigger cue.
+      // would never see it. Consumed by the sound-gated hit-stop below and
+      // soundEffects.ts's special_trigger cue.
       const specialEffectFired = passAnimation.sweepDelays.size > 0 || passAnimation.radialDelays.size > 0;
 
       // Sound/haptic cue for this pass, fired in the same tick the visual
@@ -1052,16 +1109,16 @@ export function Board({
           ? finalState.status
           : undefined
         : undefined;
+      // Always the calm production match/cascade/win set, regardless of
+      // experimentalJuice — see soundEffects.ts's own doc comment on why the
+      // brighter `_juice`/special_trigger cues were removed from this call
+      // entirely rather than gated on soundEnabled the way the visual half
+      // (hit-stop, particle burst, below) still is.
       triggerPassEffects(i, isFinalPass, finalOutcome, {
         soundEnabled,
         hapticsEnabled,
         soundService,
         hapticsService,
-        // Dev-only — see BoardProps.experimentalJuice and
-        // soundEffects.ts's own doc comment. Both undefined/false on every
-        // real gameplay path.
-        experimentalJuice,
-        specialEffectFired,
       });
 
       // How long THIS pass waits before any of its tiles begin clearing. Only
@@ -1075,10 +1132,10 @@ export function Board({
       // piece that completed it had arrived. The swap is one gesture; the pass
       // that resolves it is one beat.
       const passTravelMs = i === 0 && swapCommitted ? swapDurationMs : 0;
-      // Dev-only (see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS) — a brief
-      // freeze folded into this pass's settle wait, whenever this pass fires
-      // a special effect and the harness's opt-in override is active. 0 on
-      // every real gameplay path.
+      // Gated on soundEnabled (see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS)
+      // — a brief freeze folded into this pass's settle wait, whenever this
+      // pass fires a special effect and the player has Sound on. 0 whenever
+      // Sound is off (the default).
       const experimentalHitStopMs = experimentalJuice && specialEffectFired ? EXPERIMENTAL_HIT_STOP_MS : 0;
       // What the SCHEDULE waits for. passTravelMs is the swap's position-move
       // budget, but the tile still has its squash-and-stretch landing beat to
@@ -1164,8 +1221,8 @@ export function Board({
               : undefined,
             radialKind,
             passReward,
-            // Dev-only — see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS. 0
-            // on every real gameplay path.
+            // Gated on soundEnabled — see cascadeTiming.ts's
+            // EXPERIMENTAL_HIT_STOP_MS. 0 whenever Sound is off (the default).
             experimentalHitStopMs,
             sweep?.axis,
             radialOrigin
@@ -1471,6 +1528,85 @@ export function Board({
       end={{ x: 0, y: 1 }}
       style={styles.container}
     >
+      {(() => {
+        const boardBackground = resolveSpriteAsset('board-background-sage.webp', spriteAssets);
+        // Full-screen, behind the Hud too — not scoped to boardArea. That
+        // first attempt filled only boardArea with resizeMode="cover", which
+        // broke badly on a wide viewport (a real screenshot, 2026-08-09):
+        // boardArea itself can end up much larger than the actual rendered
+        // board (tileSize is picked to fit rows/cols, so a height-bound board
+        // leaves wide unused margin), so "cover" scaled the image against
+        // that oversized, oddly-shaped container instead of the board itself
+        // — the image's own tile pattern ended up wildly larger than the
+        // real game tiles, with the actual grid looking stranded in a
+        // corner. Kevin's own correction: "I want the whole image to be the
+        // play background so it sits nicely behind everything" — so this now
+        // renders at the screen's own container size (stable and portrait on
+        // a real device, unlike boardArea's layout-dependent shape) with
+        // resizeMode="contain", guaranteeing the entire image is always
+        // visible with no cropping, regardless of viewport aspect ratio; any
+        // letterbox gap shows the gradient behind it, which shares the
+        // image's own warm palette rather than reading as an empty gap.
+        return boardBackground.kind === 'image' ? (
+          <Image
+            source={boardBackground.source}
+            // Plain absoluteFillObject, deliberately with NO inset overrides
+            // — a real, live-diagnosed bug (2026-08-09, "the play board
+            // looks pushed to the right") used to live here: earlier reasoning
+            // assumed RN positions an absolutely-positioned child inside its
+            // parent's PADDING box, so top/left/right were overridden to
+            // -12/-BOARD_HORIZONTAL_PADDING/-BOARD_HORIZONTAL_PADDING to
+            // "reach past styles.container's own padding to its true edge."
+            // That assumption was wrong: confirmed via getBoundingClientRect
+            // on the live page that React Native Web positions absolutely-
+            // positioned children relative to the parent's BORDER box
+            // already, matching container's own true bounds with zero
+            // padding compensation needed. The old `left: -12` therefore
+            // shifted the whole rendered box 12px further left than
+            // intended — not visible as a gap (container's own
+            // `overflow: 'hidden'` silently clipped the excess on the left),
+            // but it meant the image's own centerline no longer matched the
+            // board's real (correctly centered) centerline, reading as the
+            // board sitting slightly right of where the background implied
+            // it should. `top`/`left`/`right` are now the plain
+            // absoluteFillObject 0/0/0 — no compensation, since none is
+            // actually needed on this platform.
+            //
+            // The explicit width/height: '100%' below are still load-bearing
+            // — a separate, real bug (also found via direct DOM inspection,
+            // not guessed): on React Native Web specifically (not native), an
+            // Image positioned only via inset properties (no explicit
+            // width/height) renders at its raw NATURAL pixel size
+            // (1024x1536 here) instead of stretching to fill the positioned
+            // box — confirmed by the live computed style showing literal
+            // `width: 1024px; height: 1536px`. That's what "still too big"
+            // and "bottom half not visible" both were: the image at true
+            // 100% zoom, several times larger than the ~480px-capped web
+            // column, with everything past the clipped edges (including most
+            // of its own height) simply cut off by this container's
+            // `overflow: 'hidden'`. Explicit width/height forces it to
+            // actually size against the box the inset properties define,
+            // which is what lets `resizeMode` scale it correctly.
+            style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%' }]}
+            // "cover", not "contain": confirmed live (a real DIV's
+            // background-size, not the misleading hidden accessibility <img>
+            // element's own object-fit) that "contain" was genuinely
+            // letterboxing here, since the ~480x855 box (aspect 0.561) is
+            // proportionally narrower than the 1024x1536 source (aspect
+            // 0.667) — the image was scaling to fit by width, leaving real
+            // ~67px gaps of the app's flat background color at both top and
+            // bottom, which is exactly what showed through behind the Hud
+            // and the bottom toolbar. "cover" fills the entire box edge to
+            // edge with no gaps (Kevin: "the image should be behind
+            // everything"), at the cost of cropping roughly the outer ~45px
+            // off each side — the spoon crock/plant on the left and the
+            // cutting board on the right lose a modest sliver, not the whole
+            // element.
+            resizeMode="cover"
+            pointerEvents="none"
+          />
+        ) : null;
+      })()}
       {/* No top bar anymore — Exit moved down into the bottom icon-badge
           toolbar alongside Hint/Shuffle (see below), and the level-name
           line that used to sit at the top of Hud.tsx was dropped too
@@ -1496,22 +1632,139 @@ export function Board({
         }}
       >
         {tileSize > 0 && (
-          // Scoped to boardArea (not the whole screen — see this component's
-          // own consolidation-pass note below) and gated on the same
-          // tileSize > 0 condition the board grid itself uses, so it can
-          // never render before layout has been measured or paint over an
-          // overlay on a paused/won state (this View unmounts along with the
-          // grid whenever gameState.status leaves 'in_progress', per the
-          // conditional this whole block already lives inside).
-          <KitchenSceneDecor
-            accentColor={skinConfig.palette.accent}
-            panelColor={skinConfig.palette.panel}
-            spriteAssets={spriteAssets}
-          />
-        )}
-        {tileSize > 0 && (
-          <View style={[styles.board, { width: boardWidth, height: rows * tileSize }]}>
-            {renderBoard.flatMap((rowPieces, r) =>
+          // A plain wrapper, exactly board's own size, with no overflow
+          // clipping of its own — lets boardGlow (below) position relative
+          // to the board's real footprint (0,0 = board's own top-left) and
+          // actually peek out past it, something nesting the glow directly
+          // inside `board` couldn't do, since `board`'s own overflow:'hidden'
+          // (load-bearing for the tile-refill clip) would cut it off. This
+          // wrapper takes over the exact role `board` used to play as the
+          // single flex-centered child of boardArea; `board` itself is
+          // unchanged, just one layer deeper now.
+          <View style={{ width: boardWidth, height: rows * tileSize }}>
+            {!hasVoidCells && (
+              <View
+                // A soft warm halo behind the board, peeking out past its
+                // edges — requested to look like a reference mockup (a cream
+                // card with a glowing gold edge). Reuses RecipeCardReveal.tsx's
+                // own glow technique rather than inventing a new one: a flat,
+                // semi-transparent shape rendered slightly larger than the
+                // card it sits behind, not an actual blurred shadow (RN's
+                // shadow*/elevation properties render inconsistently enough
+                // across iOS/Android/web that this app already settled on the
+                // flat-peek approach once). Only for a plain rectangular
+                // board — a shaped board renders per-cell glow segments
+                // below instead, tracing its real outline.
+                style={[
+                  styles.boardGlow,
+                  {
+                    width: boardWidth + BOARD_GLOW_INSET * 2,
+                    height: rows * tileSize + BOARD_GLOW_INSET * 2,
+                    left: -BOARD_GLOW_INSET,
+                    top: -BOARD_GLOW_INSET,
+                  },
+                ]}
+              />
+            )}
+            {hasVoidCells &&
+              boardOutlineEdges.map(({ r, c, top, bottom, left, right }) => {
+                // The glow's equivalent of boardOutlineSegment below, but
+                // extending OUTWARD past each boundary edge (peeking out,
+                // same as the plain-rectangle glow above) rather than
+                // inward — so these render in the wrapper, not inside
+                // `board`, since `board`'s own overflow:'hidden' would clip
+                // anything extending past its bounds. A true corner (a cell
+                // with two adjacent boundary sides, e.g. top+left) needs an
+                // extra small square glow patch at the diagonal corner —
+                // the two perpendicular strips don't overlap there on their
+                // own (unlike boardOutlineSegment's inward strips, which
+                // naturally share that corner pixel).
+                const segments = [];
+                if (top)
+                  segments.push({
+                    key: `${r}-${c}-glow-top`,
+                    top: r * tileSize - BOARD_GLOW_INSET,
+                    left: c * tileSize,
+                    width: tileSize,
+                    height: BOARD_GLOW_INSET,
+                  });
+                if (bottom)
+                  segments.push({
+                    key: `${r}-${c}-glow-bottom`,
+                    top: (r + 1) * tileSize,
+                    left: c * tileSize,
+                    width: tileSize,
+                    height: BOARD_GLOW_INSET,
+                  });
+                if (left)
+                  segments.push({
+                    key: `${r}-${c}-glow-left`,
+                    top: r * tileSize,
+                    left: c * tileSize - BOARD_GLOW_INSET,
+                    width: BOARD_GLOW_INSET,
+                    height: tileSize,
+                  });
+                if (right)
+                  segments.push({
+                    key: `${r}-${c}-glow-right`,
+                    top: r * tileSize,
+                    left: (c + 1) * tileSize,
+                    width: BOARD_GLOW_INSET,
+                    height: tileSize,
+                  });
+                if (top && left)
+                  segments.push({
+                    key: `${r}-${c}-glow-tl`,
+                    top: r * tileSize - BOARD_GLOW_INSET,
+                    left: c * tileSize - BOARD_GLOW_INSET,
+                    width: BOARD_GLOW_INSET,
+                    height: BOARD_GLOW_INSET,
+                  });
+                if (top && right)
+                  segments.push({
+                    key: `${r}-${c}-glow-tr`,
+                    top: r * tileSize - BOARD_GLOW_INSET,
+                    left: (c + 1) * tileSize,
+                    width: BOARD_GLOW_INSET,
+                    height: BOARD_GLOW_INSET,
+                  });
+                if (bottom && left)
+                  segments.push({
+                    key: `${r}-${c}-glow-bl`,
+                    top: (r + 1) * tileSize,
+                    left: c * tileSize - BOARD_GLOW_INSET,
+                    width: BOARD_GLOW_INSET,
+                    height: BOARD_GLOW_INSET,
+                  });
+                if (bottom && right)
+                  segments.push({
+                    key: `${r}-${c}-glow-br`,
+                    top: (r + 1) * tileSize,
+                    left: (c + 1) * tileSize,
+                    width: BOARD_GLOW_INSET,
+                    height: BOARD_GLOW_INSET,
+                  });
+                return segments.map(({ key, ...rect }) => (
+                  <View key={key} style={[styles.boardGlow, { borderRadius: 0, ...rect }]} pointerEvents="none" />
+                ));
+              })}
+            <View
+              style={[
+                styles.board,
+                {
+                  width: boardWidth,
+                  height: rows * tileSize,
+                  borderColor: skinConfig.palette.tray.chipBorder,
+                  // A shaped board draws no rect border/radius here — the
+                  // per-cell boardOutlineSegment Views below (rendered on
+                  // top of the tiles, after this View's own children) trace
+                  // the real outline instead. overflow:'hidden' stays
+                  // either way, still load-bearing for the tile-refill clip.
+                  ...(hasVoidCells ? { borderWidth: 0, borderRadius: 0 } : null),
+                },
+              ]}
+            >
+              {renderBoard.flatMap((rowPieces, r) =>
               rowPieces.map((piece, c) => {
                 // A void is a hole in the board's shape — render nothing, so the
                 // board background shows through as the cutout. Every tile is
@@ -1652,7 +1905,7 @@ export function Board({
                 convertedFlash={entry.convertedFlash}
                 rewardIntensity={entry.rewardIntensity}
                 onExited={() => removeExiting(entry.key)}
-                // Dev-only — see BoardProps.experimentalJuice.
+                // Gated on soundEnabled — see BoardProps.experimentalJuice.
                 experimentalBurst={experimentalJuice}
                 experimentalHitStopMs={entry.experimentalHitStopMs}
               />
@@ -1675,6 +1928,65 @@ export function Board({
                 onDone={() => setLalaMoment(null)}
               />
             )}
+            {hasVoidCells &&
+              // The real outline trace for a shaped board — see the
+              // hasVoidCells/boardOutlineEdges comment above. Rendered LAST
+              // among board's children (i.e. on TOP of every tile), which
+              // is a real, deliberate difference from the plain-rectangle
+              // case above: styles.board's own border there paints BEHIND
+              // its children per normal box-painting order, so it's mostly
+              // hidden under edge-tile art (a disclosed, accepted gap —
+              // see DEFERRED_COMPLEXITY.md). These segments fix that
+              // incidentally for shaped boards by construction, since they
+              // have to be separate Views layered on top to trace an
+              // outline styles.board's own single border can't express.
+              boardOutlineEdges.map(({ r, c, top, bottom, left, right }) => {
+                const segments = [];
+                if (top)
+                  segments.push({
+                    key: `${r}-${c}-top`,
+                    top: r * tileSize,
+                    left: c * tileSize,
+                    width: tileSize,
+                    height: BOARD_BORDER_WIDTH,
+                  });
+                if (bottom)
+                  segments.push({
+                    key: `${r}-${c}-bottom`,
+                    top: (r + 1) * tileSize - BOARD_BORDER_WIDTH,
+                    left: c * tileSize,
+                    width: tileSize,
+                    height: BOARD_BORDER_WIDTH,
+                  });
+                if (left)
+                  segments.push({
+                    key: `${r}-${c}-left`,
+                    top: r * tileSize,
+                    left: c * tileSize,
+                    width: BOARD_BORDER_WIDTH,
+                    height: tileSize,
+                  });
+                if (right)
+                  segments.push({
+                    key: `${r}-${c}-right`,
+                    top: r * tileSize,
+                    left: (c + 1) * tileSize - BOARD_BORDER_WIDTH,
+                    width: BOARD_BORDER_WIDTH,
+                    height: tileSize,
+                  });
+                return segments.map(({ key, ...rect }) => (
+                  <View
+                    key={key}
+                    style={[
+                      styles.boardOutlineSegment,
+                      rect,
+                      { backgroundColor: skinConfig.palette.tray.chipBorder },
+                    ]}
+                    pointerEvents="none"
+                  />
+                ));
+              })}
+            </View>
           </View>
         )}
       </View>
@@ -1693,19 +2005,37 @@ export function Board({
         <View style={styles.bottomToolbar}>
           <Pressable
             onPress={onExit}
+            // Fixed by a pre-merge audit: gameState (and therefore save
+            // persistence) for a multi-pass cascade isn't committed until
+            // animateCascade's final pass — see commitFinalState's own
+            // comment. Exit used to carry no gate at all, so tapping it
+            // mid-cascade unmounted Board before that deferred commit ever
+            // ran, silently discarding an already-fully-computed move
+            // (moves/lives/objective progress, even a win). Deliberately
+            // narrower than Hint/Shuffle's `!canAcceptMove()` gate — this
+            // only needs to block the specific unsafe window
+            // (animatingRef.current), not the broader "can a fresh move
+            // start" conditions (an open tutorial, a snap-back) those two
+            // also check, which aren't a data-loss risk for leaving the
+            // level.
+            disabled={animatingRef.current}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel="Exit level"
             style={[
               styles.toolbarBadge,
-              { borderColor: skinConfig.palette.accent, backgroundColor: skinConfig.palette.panel },
+              {
+                borderColor: skinConfig.palette.accent,
+                backgroundColor: skinConfig.palette.panel,
+                opacity: animatingRef.current ? 0.5 : 1,
+              },
             ]}
           >
-            {/* A symbolic icon glyph, not prose content — scaling it with system
-                text size would just distort the circular button, so it opts out. */}
-            <Text style={[styles.toolbarExitGlyph, { color: skinConfig.palette.accent }]} allowFontScaling={false}>
-              ✕
-            </Text>
+            <ToolbarIconGlyph
+              sprite={resolveToolbarIconSprite('icon_exit.webp', '✕', spriteAssets)}
+              variant="exit"
+              color={skinConfig.palette.accent}
+            />
           </Pressable>
           {(canUseShuffle(shuffleUsesUsed) || hasDailyBonusToken) && (
             <Pressable
@@ -1723,9 +2053,7 @@ export function Board({
                 },
               ]}
             >
-              <Text style={styles.toolbarBadgeGlyph} allowFontScaling={false}>
-                🔀
-              </Text>
+              <ToolbarIconGlyph sprite={resolveToolbarIconSprite('icon_shuffle.webp', '🔀', spriteAssets)} variant="badge" />
               <View
                 style={[
                   styles.toolbarBadgeCount,
@@ -1754,9 +2082,7 @@ export function Board({
                 },
               ]}
             >
-              <Text style={styles.toolbarBadgeGlyph} allowFontScaling={false}>
-                💡
-              </Text>
+              <ToolbarIconGlyph sprite={resolveToolbarIconSprite('icon_hint.webp', '💡', spriteAssets)} variant="badge" />
               <View
                 style={[
                   styles.toolbarBadgeCount,
@@ -1885,11 +2211,52 @@ export function Board({
   );
 }
 
+// The bottom toolbar's three chrome buttons (exit/shuffle/hint) render
+// through this instead of a bare emoji Text node — same image-or-label
+// branch LivesBadge.tsx's Glyph already uses for the lives icon. Until a
+// real icon_*.webp is registered (see spriteRegistry.ts), resolveToolbarIconSprite
+// falls back to the exact literal glyph these buttons always rendered, so
+// this is a no-op change today: identical pixels, real art is a pure
+// drop-in once it exists.
+function ToolbarIconGlyph({
+  sprite,
+  variant,
+  color,
+}: {
+  sprite: ResolvedSprite;
+  variant: 'exit' | 'badge';
+  color?: string;
+}) {
+  if (sprite.kind === 'image') {
+    return <Image source={sprite.source} style={styles.toolbarBadgeImage} resizeMode="contain" />;
+  }
+  return (
+    <Text
+      style={[variant === 'exit' ? styles.toolbarExitGlyph : styles.toolbarBadgeGlyph, color ? { color } : null]}
+      allowFontScaling={false}
+    >
+      {sprite.label}
+    </Text>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: BOARD_HORIZONTAL_PADDING,
     paddingTop: 12,
+    // Real bug (2026-08-09): App.tsx caps the whole app's web content to a
+    // real phone width (480px, centered) — RN doesn't clip a parent's
+    // children by default, so the board-background Image's negative offsets
+    // (reaching past this container's own padding to its true edge) painted
+    // straight through that 480px boundary into the surrounding desktop
+    // browser chrome, rendering at nearly the full ~2000px window width
+    // instead of the actual ~480px app column. Its tile pattern looked ~2x
+    // too large as a direct result — scaled against a container four times
+    // wider than the app actually is. `overflow: 'hidden'` clips every
+    // absolutely-positioned child (this one included) to this container's
+    // real, capped bounds, matching what every other element already does.
+    overflow: 'hidden',
   },
   bottomToolbar: {
     flexDirection: 'row',
@@ -1916,6 +2283,10 @@ const styles = StyleSheet.create({
   },
   toolbarBadgeGlyph: {
     fontSize: 24,
+  },
+  toolbarBadgeImage: {
+    width: 30,
+    height: 30,
   },
   toolbarExitGlyph: {
     fontSize: 20,
@@ -1952,5 +2323,44 @@ const styles = StyleSheet.create({
     // fade-into-existence at a fixed mid-board offset. See boardDiff.ts's
     // planSpawnEntries and SPEC.md's spawn-streaming decision.
     overflow: 'hidden',
+    // A real frame around the grid, requested once the board-background art
+    // landed behind it (see engine/DECISIONS.md's matching entry) — without
+    // one, the grid's edge blurred straight into a much busier photographic
+    // background with no visual separation. Matches Hud.tsx's own tray
+    // border color (palette.tray.border, set inline at the call site since
+    // StyleSheet.create can't read props) for continuity between the two
+    // card-like surfaces now sharing that backdrop; width/radius picked
+    // heavier than the tray's own 1.5/18 (2.5/16) since this is a much
+    // larger surface needing proportionally similar visual weight, not
+    // identical numbers. Deliberately NOT extra reserved space around the
+    // board's existing footprint — CLAUDE.md's "a decorative frame around
+    // the grid eats tile size" constraint rules that out — the border draws
+    // within boardWidth/rows*tileSize exactly as already computed. RN's
+    // border-box sizing does shave a couple of px off the tile grid's own
+    // rendered content area at this width, clipped by this View's own
+    // `overflow: 'hidden'` at the far edge — accepted as imperceptible at
+    // 2.5px against tiles roughly 20x that size, not verified live.
+    //
+    // Only applies to a plain rectangular board (no void cells) — a real
+    // bug found live (2026-08-10): this simple rect border/glow wraps the
+    // board's bounding box, which is wrong for any shaped level (void-cell
+    // cutouts) since it draws straight across cells that aren't actually
+    // playable. A shaped board instead renders NO border/radius here
+    // (borderWidth 0, set inline at the call site) and uses the per-cell
+    // boundarySegments below instead, which trace the board's real
+    // playable-cell outline. See engine/DECISIONS.md's matching entry.
+    borderWidth: BOARD_BORDER_WIDTH,
+    borderRadius: 16,
+  },
+  boardOutlineSegment: {
+    position: 'absolute',
+  },
+  boardGlow: {
+    position: 'absolute',
+    backgroundColor: BOARD_GLOW_COLOR,
+    // A few px more than board's own 16, matching how the glow itself sits
+    // a few px further out — keeps the rounded-corner curve visually
+    // concentric with the board's own corner, not a mismatched radius.
+    borderRadius: 16 + BOARD_GLOW_INSET,
   },
 });

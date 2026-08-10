@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from './AppText';
 import { Fonts } from './fonts';
 import { RecipeCard, SkinConfig } from './skinConfig';
@@ -21,8 +22,7 @@ export interface RecipeBookProps {
 
 // Reuses the exact image/text-label fallback contract every other sprite
 // consumer in this app already uses — see RecipeCardReveal.tsx's matching
-// CardIllustration for why no real recipe-card art existing yet is a
-// non-event here.
+// CardIllustration.
 function CardIllustration({ sprite, labelColor }: { sprite: ResolvedSprite; labelColor: string }) {
   if (sprite.kind === 'image') {
     return <Image source={sprite.source} style={styles.illustrationImage} resizeMode="contain" />;
@@ -70,7 +70,10 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
   const openCard = openCardId ? config.recipeCards.find((card) => card.id === openCardId) : undefined;
 
   return (
-    <View style={[styles.container, { backgroundColor: background[0] }]}>
+    // A flat background[0] fill, unlike Home/LevelMap/Board's LinearGradient —
+    // a disclosed gap (DEFERRED_COMPLEXITY.md) from the Level-Map-gradient
+    // pass, closed here with the identical treatment those screens use.
+    <LinearGradient colors={background} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
       <GinghamTrim accentColor={accent} panelColor={panel} height={12} />
 
       <View style={styles.header}>
@@ -115,7 +118,7 @@ export function RecipeBook({ config, spriteAssets, unlockedCardIds, onBack }: Re
           onDismiss={() => setOpenCardId(null)}
         />
       )}
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -216,7 +219,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 16,
     alignItems: 'center',
-    justifyContent: 'center',
+    // flex-start, not center: every recipe illustration bakes in its own
+    // warm parchment-texture background (see spriteRegistry.ts), so
+    // centering the image+title block as one unit meant a 2-line title
+    // ("Sunday Tomato Stew") pushed its own image a few px out of row
+    // alignment with 1-line siblings ("Lemon Squeeze") beside it — a real,
+    // visible inconsistency a real screenshot caught (2026-08-09). Top-
+    // aligning pins every image to the same offset regardless of how its
+    // own title wraps; any slack from a shorter title just falls below it.
+    justifyContent: 'flex-start',
     padding: 8,
   },
   emptyCell: {
@@ -224,7 +235,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   cellIllustration: {
-    width: '68%',
+    // 68% -> 76% (2026-08-09, same real screenshot): every illustration's
+    // own warm gold/amber background sits noticeably more saturated than
+    // this card's near-white `panel` fill (#FBF3E1 vs. the art's own
+    // parchment tone, much closer to palette.background's #EFC087 stop) —
+    // at the old 68%, enough bare panel showed around each thumbnail to
+    // read as "a gold square pasted on a white card" rather than one
+    // cohesive card. Sized to still leave headroom below for a full
+    // 2-line title at the smallest real cell width (see the sizing note
+    // in this file's engine/DECISIONS.md entry) rather than guessed blind.
+    width: '76%',
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',

@@ -68,44 +68,39 @@ describe('triggerPassEffects', () => {
   });
 });
 
-describe('triggerPassEffects experimentalJuice (dev-only game-feel-comparison harness)', () => {
-  test('plays match_juice instead of match on the first pass', () => {
-    const { played, options } = fakeOptions({ experimentalJuice: true });
-    triggerPassEffects(0, false, undefined, options);
-    expect(played).toEqual(['match_juice']);
-  });
-
-  test('plays cascade_juice instead of cascade on a later pass', () => {
-    const { played, options } = fakeOptions({ experimentalJuice: true });
-    triggerPassEffects(1, false, undefined, options);
-    expect(played).toEqual(['cascade_juice']);
-  });
-
-  test('layers special_trigger on top of match_juice when this pass fires a special effect', () => {
-    const { played, options } = fakeOptions({ experimentalJuice: true, specialEffectFired: true });
-    triggerPassEffects(0, false, undefined, options);
-    expect(played).toEqual(['match_juice', 'special_trigger']);
-  });
-
-  test('an in-cascade special trigger on a later pass still layers special_trigger', () => {
-    // The fixed comparison scenario's own striped sweep fires on a cascade
-    // pass, not the swap pass — this must not assume i === 0.
-    const { played, options } = fakeOptions({ experimentalJuice: true, specialEffectFired: true });
-    triggerPassEffects(1, false, undefined, options);
-    expect(played).toEqual(['cascade_juice', 'special_trigger']);
-  });
-
-  test('specialEffectFired alone, without experimentalJuice, never plays special_trigger', () => {
-    // Real gameplay's own special-piece triggers must stay silent beyond the
-    // calm production match/cascade/win set.
-    const { played, options } = fakeOptions({ specialEffectFired: true });
-    triggerPassEffects(0, false, undefined, options);
-    expect(played).toEqual(['match']);
-  });
-
-  test('every existing real-gameplay call (experimentalJuice omitted) is unaffected', () => {
+describe('triggerPassEffects never selects the _juice/special_trigger register', () => {
+  // Regression guard for a real bug: SoundEffectsOptions used to carry an
+  // experimentalJuice flag that swapped match/cascade for brighter
+  // `_juice` variants. Wiring that flag to soundEnabled (so real gameplay
+  // could reach it at all) meant every player who enabled Sound could ONLY
+  // ever hear the juice register, never the calm one — confirmed on a real
+  // on-device listen as reading like "a slot machine," exactly the
+  // character the calm set was redesigned three times to get away from.
+  // The fix removed experimentalJuice/specialEffectFired from
+  // SoundEffectsOptions entirely, so there's no longer a flag capable of
+  // reintroducing this — these tests exist so a future reintroduction of a
+  // similar flag has to consciously break an explicit assertion, not just
+  // slip past unnoticed the way this one did.
+  test('an options object with no such fields still only ever plays match/cascade/win', () => {
     const { played, options } = fakeOptions();
-    triggerPassEffects(0, true, 'won', options);
-    expect(played).toEqual(['match', 'win']);
+    triggerPassEffects(0, false, undefined, options);
+    triggerPassEffects(1, false, undefined, options);
+    triggerPassEffects(2, true, 'won', options);
+    expect(played).toEqual(['match', 'cascade', 'cascade', 'win']);
+    expect(played.some((id) => id.includes('juice') || id === 'special_trigger')).toBe(false);
+  });
+
+  test('SoundEffectsOptions has no experimentalJuice or specialEffectFired field at all', () => {
+    // A type-level guard, not just a runtime one: if either field is ever
+    // added back to the interface, this line stops compiling.
+    const options: SoundEffectsOptions = {
+      soundEnabled: true,
+      hapticsEnabled: true,
+      soundService: { play: () => {} },
+      hapticsService: { fire: () => {} },
+      // @ts-expect-error — experimentalJuice must not exist on this type.
+      experimentalJuice: true,
+    };
+    expect(options.soundEnabled).toBe(true);
   });
 });

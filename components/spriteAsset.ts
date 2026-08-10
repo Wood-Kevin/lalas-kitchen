@@ -29,6 +29,24 @@ export function resolveSpriteAsset(
   return { kind: 'label', label: spriteLabel(spritePath) };
 }
 
+// For chrome elements with no piece behind them at all (the bottom
+// toolbar's exit/shuffle/hint buttons) but where real per-skin art MAY
+// exist — unlike the fixed glyph constants below, this can't be a static
+// constant, since it has to check the registry at render time. Falls back
+// to the exact literal glyph each caller already renders today (not
+// spriteLabel's generic 2-letter derivation, which would produce a
+// meaningless "IC" for a filename like "icon_exit.webp") so wiring this in
+// is a no-op until a real icon_*.webp lands in spriteRegistry.ts.
+export function resolveToolbarIconSprite(
+  spritePath: string,
+  fallbackGlyph: string,
+  assets: SpriteAssetMap
+): ResolvedSprite {
+  const source = assets[spritePath];
+  if (source) return { kind: 'image', source };
+  return { kind: 'label', label: fallbackGlyph };
+}
+
 // A 'score' objective has no matchType, so it can't resolve a sprite through
 // getSpriteForMatchType/resolveSpriteAsset at all. This is a deliberate fixed
 // glyph, not spriteLabel's generic "no art yet" fallback ('?') — that

@@ -1,16 +1,29 @@
-// The three cues actually triggered today — see components/soundEffects.ts's
-// triggerPassEffects for the exact call sites. Kept as a closed union (not a
-// bare string) so an unregistered/misspelled id is a compile error, not a
-// silent no-op discovered at runtime.
+// Only 'match'/'cascade'/'win' are actually triggered by real gameplay —
+// see components/soundEffects.ts's triggerPassEffects, whose call site never
+// reads any other id. Kept as a closed union (not a bare string) so an
+// unregistered/misspelled id is a compile error, not a silent no-op
+// discovered at runtime.
 //
-// The three `_juice`/`special_trigger` ids below are dev-only, opt-in via
-// the RN-vs-Unity game-feel-comparison harness (SPEC.md, Board.tsx's
-// BoardProps.experimentalJuice) — brighter/punchier stand-ins for match/
-// cascade plus a genuinely new "a special effect just fired" cue, all
-// deliberately overriding this game's calm-tuned production match/cascade/
-// win set (see scripts/generate-sound-assets.js's own redesign history) for
-// the comparison only. See components/soundEffects.ts's triggerPassEffects
-// for exactly when each plays; never triggered on a real level.
+// 'match'/'cascade'/'win' are now sourced from a real, licensed sound pack
+// (Chequered Ink's "400 Sounds Pack", see soundRegistry.ts's own comment for
+// which files and the license) rather than the original procedurally-
+// synthesized tones — that swap is disclosed as unconfirmed-by-ear for
+// win_chime specifically in DEFERRED_COMPLEXITY.md, since a "level complete"
+// cue in a generic pack is exactly the kind of fanfare that previously read
+// as "slot machine" here.
+//
+// The three `_juice`/`special_trigger` ids below are NOT reachable from real
+// gameplay at all — a real on-device listen (2026-08-09) confirmed they read
+// as exactly the "slot machine" character the calm match/cascade/win set was
+// redesigned three times to get away from (see scripts/generate-sound-
+// assets.js's own redesign history), so `triggerPassEffects` was corrected
+// to stop selecting them for any real player, at any soundEnabled state —
+// this had briefly regressed to gating them on soundEnabled instead of
+// removing them from the live path entirely, which is what actually caused
+// the on-device report. Left registered (real, synthesized WAV assets,
+// still valid) rather than deleted, in case the dev-only game-feel-
+// comparison harness (`experiments/game-feel-comparison/`, SPEC.md's Track A
+// scope) is ever revisited — but nothing in production code plays them.
 export type SoundEffectId =
   | 'match'
   | 'cascade'

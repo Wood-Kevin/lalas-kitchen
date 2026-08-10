@@ -100,12 +100,12 @@ export interface ExitingEntry {
   // intensity) are mixed together with no single "current pass" left to
   // ask.
   rewardIntensity: number;
-  // Dev-only, opt-in via the game-feel-comparison harness (see
-  // cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS) — an extra pause folded
-  // into this entry's settle time, captured per-entry for the same reason
-  // rewardIntensity is: entries from different passes end up mixed in
-  // Board's flat `exiting` array with no single "current pass" left to ask
-  // by render time. 0 for every real gameplay entry.
+  // Gated on soundEnabled (see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS)
+  // — an extra pause folded into this entry's settle time, captured
+  // per-entry for the same reason rewardIntensity is: entries from
+  // different passes end up mixed in Board's flat `exiting` array with no
+  // single "current pass" left to ask by render time. 0 unless the player
+  // has Sound on.
   experimentalHitStopMs: number;
 }
 
@@ -137,8 +137,8 @@ export function buildExitingEntry(
   // needs a reward intensity, even a plain match with no special effect at
   // all — see cascadeTiming.ts's passRewardIntensity.
   rewardIntensity: number = 0,
-  // Dev-only — see ExitingEntry.experimentalHitStopMs. 0 for every real
-  // gameplay call site.
+  // Gated on soundEnabled — see ExitingEntry.experimentalHitStopMs. 0
+  // unless the player has Sound on.
   experimentalHitStopMs: number = 0,
   // Present only alongside sweepDelayMs — see ExitingEntry.sweepAxis.
   sweepAxis?: StripeDirection,

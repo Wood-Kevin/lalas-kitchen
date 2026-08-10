@@ -25,6 +25,11 @@ import { SpriteAssetMap } from '../../components/spriteAsset';
 // but they go through the exact same static require() registry since
 // Metro's literal-string requirement applies to any bundled asset, not
 // just piece art.
+// The bottom toolbar's exit/shuffle/hint buttons (components/Board.tsx, via
+// resolveToolbarIconSprite) look these three up by these literal filenames
+// and fall back to their old emoji glyph only if a lookup misses — now that
+// real art exists, this registry entry is the entire fix. Nothing else in
+// Board.tsx needed to change.
 export const spriteRegistry: SpriteAssetMap = {
   'tomato.webp': require('./sprites/tomato.webp'),
   'lemon.webp': require('./sprites/lemon.webp'),
@@ -32,6 +37,9 @@ export const spriteRegistry: SpriteAssetMap = {
   'garlic.webp': require('./sprites/garlic.webp'),
   'chili.webp': require('./sprites/chili.webp'),
   'spoon.webp': require('./sprites/spoon.webp'),
+  'icon_exit.webp': require('./sprites/icon_exit.webp'),
+  'icon_shuffle.webp': require('./sprites/icon_shuffle.webp'),
+  'icon_hint.webp': require('./sprites/icon_hint.webp'),
   // Striped special-piece art. A striped piece resolves to `striped_<its
   // base sprite>` (see components/spriteMap.ts's getSpriteForPiece). All six
   // ingredient types now have real striped art, one line per asset, exactly
@@ -82,6 +90,15 @@ export const spriteRegistry: SpriteAssetMap = {
   'sealed_jar.webp': require('./sprites/sealed_jar.webp'),
   'home-hero-500h-crop.webp': require('./sprites/home-hero-500h-crop.webp'),
   'splash-full-1024h.webp': require('./sprites/splash-full-1024h.webp'),
+  // Board.tsx's boardArea backdrop (a sage-tile kitchen counter scene,
+  // 1024x1536, Kevin's own find) — rendered as the bottommost layer inside
+  // boardArea, behind KitchenSceneDecor's corner cloth/herb and behind the
+  // tile grid itself. Per CLAUDE.md's "board renders close to edge to edge"
+  // constraint, the grid covers nearly all of this on an ordinary
+  // rectangular level — it's mainly visible through void cells on shaped
+  // boards and any margin on the board's non-constraining axis, not as a
+  // full backdrop. See engine/DECISIONS.md's board-background entry.
+  'board-background-sage.webp': require('./sprites/board-background-sage.webp'),
   // Level map decor — resized to a 600px longest edge (the largest on-screen
   // use, the start-gate landmark, renders at 150x184dp, i.e. 450x552px at
   // @3x) and converted to WebP, matching every other sprite in this skin.
