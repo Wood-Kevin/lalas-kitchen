@@ -49,6 +49,31 @@ describe('buildExitingEntry threads the full piece type through', () => {
   });
 });
 
+describe('buildExitingEntry sweepAxis (the beam\'s real travel direction, for the directional stretch)', () => {
+  test('threads the axis through when the caller supplies one', () => {
+    const entry = buildExitingEntry(
+      stripedTomato,
+      from,
+      7,
+      40,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      0,
+      0,
+      'row'
+    );
+    expect(entry.sweepAxis).toBe('row');
+  });
+
+  test('every existing call site — no axis supplied — stays undefined, byte-identical to before', () => {
+    const entry = buildExitingEntry(stripedTomato, from, 7, 40);
+    expect(entry.sweepAxis).toBeUndefined();
+  });
+});
+
 describe('exitingTileSprite resolves through getSpriteForPiece using the full type', () => {
   test('a detonating color bomb resolves to its fixed sprite, not the "?" placeholder', () => {
     const entry = buildExitingEntry(colorBomb, from, 7, undefined);

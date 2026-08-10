@@ -1,7 +1,7 @@
 import { Board } from '../engine/matrix';
 import { Position } from '../engine/gameState';
 import { ClearedPiece } from './boardDiff';
-import { sweepDelaysForClears } from './sweepAnimation';
+import { sweepDelaysForClears, SweepDelay } from './sweepAnimation';
 
 // Which swap-triggered special effect fired on this move, and the geometry a
 // presentation-layer animation needs to give it its own identity — derived
@@ -151,17 +151,21 @@ export function crossOriginDelays(
   cleared: ClearedPiece[],
   origin: Position,
   perTileStaggerMs: number
-): Map<string, number> {
-  const delays = new Map<string, number>();
+): Map<string, SweepDelay> {
+  const delays = new Map<string, SweepDelay>();
   for (const { piece, from } of cleared) {
     if (piece.type === 'blocker') continue;
-    let dist: number | undefined;
+    // The cross's row half stretches horizontally, its column half
+    // vertically — the same directional-stretch identity a real striped
+    // sweep's own axis gives it (see sweepAnimation.ts's SweepDelay), just
+    // computed from this combo's own direction-agnostic centre rather than
+    // either swapped piece's original direction (see this function's own
+    // header comment on why).
     if (from.row === origin.row) {
-      dist = Math.abs(from.col - origin.col);
+      delays.set(piece.id, { delayMs: Math.abs(from.col - origin.col) * perTileStaggerMs, axis: 'row' });
     } else if (from.col === origin.col) {
-      dist = Math.abs(from.row - origin.row);
+      delays.set(piece.id, { delayMs: Math.abs(from.row - origin.row) * perTileStaggerMs, axis: 'col' });
     }
-    if (dist !== undefined) delays.set(piece.id, dist * perTileStaggerMs);
   }
   return delays;
 }
@@ -169,12 +173,13 @@ export function crossOriginDelays(
 // Takes the smaller delay per piece across two maps — the same "nearest origin
 // wins" rule sweepAnimation.ts already applies for two crossing beams, reused
 // here to merge the cross combo's own geometry with any chained special's real
-// sweep without either one silently overriding the other.
-function mergeMinDelays(a: Map<string, number>, b: Map<string, number>): Map<string, number> {
+// sweep without either one silently overriding the other. Keeps the winning
+// entry's OWN axis (never mixes one entry's delay with the other's axis).
+function mergeMinDelays(a: Map<string, SweepDelay>, b: Map<string, SweepDelay>): Map<string, SweepDelay> {
   const merged = new Map(a);
-  for (const [id, delay] of b) {
+  for (const [id, entry] of b) {
     const existing = merged.get(id);
-    merged.set(id, existing === undefined ? delay : Math.min(existing, delay));
+    merged.set(id, existing === undefined || entry.delayMs < existing.delayMs ? entry : existing);
   }
   return merged;
 }
@@ -218,8 +223,11 @@ export interface PassAnimationOptions {
 
 export interface PassAnimation {
   // Merged with the generic sweep so a chained special's own real sweep is
-  // never lost — see mergeMinDelays.
-  sweepDelays: Map<string, number>;
+  // never lost — see mergeMinDelays. Each entry now carries the beam's real
+  // AXIS alongside its delay (see sweepAnimation.ts's SweepDelay) so
+  // Tile.tsx's ExitingTile can stretch a swept tile along the direction the
+  // beam actually travelled, not a generic uniform pop.
+  sweepDelays: Map<string, SweepDelay>;
   radialDelays: Map<string, number>;
   convertedFlashIds: Set<string>;
   // How much longer than normal this pass's clears need to finish playing,
@@ -265,7 +273,12 @@ function applyChainStaging(
     if (wave < 1) continue;
     const offset = wave * chainLinkStaggerMs;
     if (animation.sweepDelays.has(id) || !animation.radialDelays.has(id)) {
-      animation.sweepDelays.set(id, (animation.sweepDelays.get(id) ?? 0) + offset);
+      // Preserve whatever axis this entry already carries (or none, for a
+      // cell with no prior sweep entry — the offset alone still applies,
+      // same as before this field existed) — the stagger only ever shifts
+      // WHEN a link starts, never which way it travels.
+      const existing = animation.sweepDelays.get(id);
+      animation.sweepDelays.set(id, { delayMs: (existing?.delayMs ?? 0) + offset, axis: existing?.axis });
     } else {
       animation.radialDelays.set(id, (animation.radialDelays.get(id) ?? 0) + offset);
     }
@@ -351,7 +364,10 @@ export function buildPassAnimation(
 
   const sweepDelays = new Map(genericSweep);
   for (const id of supercomboIds) {
-    sweepDelays.set(id, options.supercomboConvertMs);
+    // No real travel direction for a synchronized "everything fires
+    // together" beat — axis stays undefined, which Tile.tsx's ExitingTile
+    // reads as "use the plain uniform pop, not a directional stretch."
+    sweepDelays.set(id, { delayMs: options.supercomboConvertMs, axis: undefined });
   }
 
   return staged({ sweepDelays, radialDelays: new Map(), convertedFlashIds });

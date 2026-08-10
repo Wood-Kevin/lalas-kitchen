@@ -1,4 +1,4 @@
-import { Piece } from '../engine/matrix';
+import { Piece, StripeDirection } from '../engine/matrix';
 import { Position } from '../engine/gameState';
 import { SkinConfig } from './skinConfig';
 import { getSpriteForPiece } from './spriteMap';
@@ -54,6 +54,15 @@ export interface ExitingEntry {
   // specialEffectAnimation.ts's buildPassAnimation) — the same "pop after this
   // delay" contract, just fed a fixed value instead of a distance-based one.
   sweepDelayMs?: number;
+  // Present only alongside sweepDelayMs — which axis the beam that caught
+  // this tile actually travelled along ('row' for a horizontal beam, 'col'
+  // for vertical), so Tile.tsx's ExitingTile can stretch a swept tile along
+  // its real direction instead of a generic uniform pop (see
+  // sweepAnimation.ts's SweepDelay and engine/DECISIONS.md's colors-removed
+  // rework entry — this is the shape identity that replaces the old sweep
+  // wash color). Undefined for the supercombo's synchronized beat, which
+  // has no real travel direction of its own.
+  sweepAxis?: StripeDirection;
   // Set only on a color bomb detonation's cleared tiles — how long this tile
   // waits before its radial ripple pop, staggered by real distance from the
   // swapped bomb so the wave visibly reaches across the whole board rather
@@ -122,7 +131,9 @@ export function buildExitingEntry(
   rewardIntensity: number = 0,
   // Dev-only — see ExitingEntry.experimentalHitStopMs. 0 for every real
   // gameplay call site.
-  experimentalHitStopMs: number = 0
+  experimentalHitStopMs: number = 0,
+  // Present only alongside sweepDelayMs — see ExitingEntry.sweepAxis.
+  sweepAxis?: StripeDirection
 ): ExitingEntry {
   return {
     key: `${piece.id}-${moveId}`,
@@ -137,6 +148,7 @@ export function buildExitingEntry(
     startOffsetPx: dragReleasePx,
     isBlockerClear: piece.type === 'blocker',
     sweepDelayMs,
+    sweepAxis,
     radialDelayMs,
     convertedFlash,
     radialKind,

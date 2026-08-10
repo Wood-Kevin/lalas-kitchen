@@ -1128,12 +1128,16 @@ export function Board({
       // Each ExitingTile removes itself on completion (see removeExiting).
       setExiting((current) => [
         ...current,
-        ...diff.cleared.map(({ piece, from, travelFrom }) =>
-          buildExitingEntry(
+        ...diff.cleared.map(({ piece, from, travelFrom }) => {
+          // Unpacked once per cell — sweepDelays now carries the beam's real
+          // axis alongside its delay (see sweepAnimation.ts's SweepDelay and
+          // engine/DECISIONS.md's colors-removed rework entry).
+          const sweep = passAnimation.sweepDelays.get(piece.id);
+          return buildExitingEntry(
             piece,
             from,
             moveId,
-            passAnimation.sweepDelays.get(piece.id),
+            sweep?.delayMs,
             passAnimation.radialDelays.get(piece.id),
             passAnimation.convertedFlashIds.has(piece.id),
             // Every tile in this pass waits out passTravelMs; only a swapped
@@ -1153,9 +1157,10 @@ export function Board({
             passReward,
             // Dev-only — see cascadeTiming.ts's EXPERIMENTAL_HIT_STOP_MS. 0
             // on every real gameplay path.
-            experimentalHitStopMs
-          )
-        ),
+            experimentalHitStopMs,
+            sweep?.axis
+          );
+        }),
       ]);
 
       previous = next;
@@ -1170,7 +1175,7 @@ export function Board({
       // small pass dead air and cut a deep fall off mid-motion.
       const maxClearDelayMs = Math.max(
         0,
-        ...passAnimation.sweepDelays.values(),
+        ...Array.from(passAnimation.sweepDelays.values(), (s) => s.delayMs),
         ...passAnimation.radialDelays.values()
       );
       const passInputs = {

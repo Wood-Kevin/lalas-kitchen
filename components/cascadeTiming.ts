@@ -263,6 +263,18 @@ export const SWEEP_TILE_STAGGER_MS = 55;
 // stage that stretches the clear. See ExitingTile's sweep branch.
 export const SWEEP_GLOW_POP_MS = 110;
 
+// The sweep's own directional stretch — the shape identity that replaces
+// the old sweepGlow color wash (see engine/DECISIONS.md's colors-removed
+// rework entry): a swept tile elongates ALONG the beam's real travel axis
+// and compresses across it, the same squash-and-stretch language
+// SQUASH_SCALE_X/Y already establish for a landing impact, applied here to
+// "a beam swept through this tile" instead. A row sweep's tiles stretch
+// horizontally/compress vertically; a column sweep's the reverse — see
+// Tile.tsx's ExitingTile sweep branch, which picks the axis per-tile from
+// sweepAnimation.ts's real SweepDelay.axis.
+export const SWEEP_STRETCH_ALONG_SCALE = 1.35;
+export const SWEEP_STRETCH_ACROSS_SCALE = 0.85;
+
 // The color bomb detonation's radial ripple spends its whole travel budget
 // here, regardless of board size (see specialEffectAnimation.ts's
 // radialDelaysForClears, which normalizes distance-from-bomb to this fixed

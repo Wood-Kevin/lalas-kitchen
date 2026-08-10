@@ -151,7 +151,7 @@ describe('radialDelaysForClears', () => {
 });
 
 describe('crossOriginDelays', () => {
-  test('staggers both the row and column through one origin, regardless of each piece\'s own direction', () => {
+  test('staggers both the row and column through one origin, regardless of each piece\'s own direction, and tags each half with its own real axis', () => {
     const origin = { row: 2, col: 2 };
     const pass = [
       cleared(striped('sA', 'tomato', 'col'), 2, 2), // origin itself, direction irrelevant here
@@ -159,9 +159,11 @@ describe('crossOriginDelays', () => {
       cleared(normal('r1', 'A'), 0, 2), // on the column half
     ];
     const delays = crossOriginDelays(pass, origin, 50);
-    expect(delays.get('sA')).toBe(0);
-    expect(delays.get('sB')).toBe(2 * 50); // row distance, not ignored the way a 'col'-only sweep origin would
-    expect(delays.get('r1')).toBe(2 * 50); // column distance
+    expect(delays.get('sA')).toEqual({ delayMs: 0, axis: 'row' });
+    // row distance, not ignored the way a 'col'-only sweep origin would —
+    // and tagged 'row' (the half it actually lies on), not its own 'col'.
+    expect(delays.get('sB')).toEqual({ delayMs: 2 * 50, axis: 'row' });
+    expect(delays.get('r1')).toEqual({ delayMs: 2 * 50, axis: 'col' }); // column distance/axis
   });
 
   test('a cell off both axes gets no delay', () => {
@@ -202,7 +204,8 @@ describe('buildPassAnimation', () => {
     const result = buildPassAnimation(pass, 1, { kind: 'color_bomb', origin: { row: 0, col: 0 } }, options);
     expect(result.radialDelays.size).toBe(0);
     expect(result.convertedFlashIds.size).toBe(0);
-    expect(result.sweepDelays.get('c')).toBe(50); // the ordinary sweep still applies
+    // the ordinary sweep still applies, with the real row axis attached
+    expect(result.sweepDelays.get('c')).toEqual({ delayMs: 50, axis: 'row' });
   });
 
   test('color bomb pass populates radialDelays and leaves sweepDelays generic', () => {
@@ -233,8 +236,9 @@ describe('buildPassAnimation', () => {
       cleared(normal('chained-mate', 'B'), 5, 7),
     ];
     const result = buildPassAnimation(pass, 0, { kind: 'striped_cross', origin: { row: 0, col: 0 } }, options);
-    expect(result.sweepDelays.get('cross-cell')).toBe(2 * 50);
-    expect(result.sweepDelays.get('chained-mate')).toBe(2 * 50); // its own real chained sweep, untouched
+    expect(result.sweepDelays.get('cross-cell')).toEqual({ delayMs: 2 * 50, axis: 'row' });
+    // its own real chained sweep (a 'row'-direction striped piece), untouched
+    expect(result.sweepDelays.get('chained-mate')).toEqual({ delayMs: 2 * 50, axis: 'row' });
   });
 
   test('supercombo pass pulls converted cells + bomb out of the generic sweep into one synchronized delay', () => {
@@ -252,11 +256,14 @@ describe('buildPassAnimation', () => {
       options
     );
     expect(result.convertedFlashIds).toEqual(new Set(['n1', 'n2']));
-    expect(result.sweepDelays.get('n1')).toBe(170);
-    expect(result.sweepDelays.get('n2')).toBe(170);
-    expect(result.sweepDelays.get('b1')).toBe(170);
-    // The unrelated chained striped piece keeps its own authentic sweep delay.
-    expect(result.sweepDelays.get('other-mate')).toBe(1 * 50);
+    // No real travel direction for the synchronized beat — axis undefined,
+    // which Tile.tsx's ExitingTile reads as "plain uniform pop."
+    expect(result.sweepDelays.get('n1')).toEqual({ delayMs: 170, axis: undefined });
+    expect(result.sweepDelays.get('n2')).toEqual({ delayMs: 170, axis: undefined });
+    expect(result.sweepDelays.get('b1')).toEqual({ delayMs: 170, axis: undefined });
+    // The unrelated chained striped piece keeps its own authentic sweep
+    // delay AND axis ('col', its own real direction).
+    expect(result.sweepDelays.get('other-mate')).toEqual({ delayMs: 1 * 50, axis: 'col' });
   });
 
   // Per-link chain staging (see applyChainStaging and engine/gameState.ts's
@@ -266,11 +273,11 @@ describe('buildPassAnimation', () => {
     test('a chainless pass (no wave map) is byte-identical to before and holds nothing', () => {
       const pass = [cleared(striped('s', 'A', 'row'), 1, 1), cleared(normal('c', 'A'), 1, 3)];
       const result = buildPassAnimation(pass, 1, undefined, options);
-      expect(result.sweepDelays.get('c')).toBe(2 * 50);
+      expect(result.sweepDelays.get('c')).toEqual({ delayMs: 2 * 50, axis: 'row' });
       expect(result.chainHoldMs).toBe(0);
     });
 
-    test('wave offsets add to the existing sweep delay, preserving the link\'s own travel identity', () => {
+    test('wave offsets add to the existing sweep delay, preserving the link\'s own travel identity (and axis)', () => {
       // A chained striped piece (wave 1) whose swept cell also carries its own
       // distance stagger: total delay = wave offset + within-link travel.
       const pass = [
@@ -279,8 +286,10 @@ describe('buildPassAnimation', () => {
       ];
       const waves = { caught: 1, swept: 2 };
       const result = buildPassAnimation(pass, 1, undefined, options, waves);
-      expect(result.sweepDelays.get('caught')).toBe(1 * 260); // the special pops when its wave arrives
-      expect(result.sweepDelays.get('swept')).toBe(2 * 260 + 3 * 50); // wave offset + its own beam travel
+      // the special pops when its wave arrives, still tagged with its own axis
+      expect(result.sweepDelays.get('caught')).toEqual({ delayMs: 1 * 260, axis: 'row' });
+      // wave offset + its own beam travel, axis preserved
+      expect(result.sweepDelays.get('swept')).toEqual({ delayMs: 2 * 260 + 3 * 50, axis: 'row' });
       expect(result.chainHoldMs).toBe(2 * 260);
     });
 
@@ -325,11 +334,12 @@ describe('buildPassAnimation', () => {
       expect(result.radialDelays.has('caught')).toBe(true);
       expect(result.radialDelays.has('swept')).toBe(true);
       // …but the offsets landed on the sweep channel ExitingTile plays:
-      // 'swept' keeps its own beam travel (2 tiles × 50) plus its wave offset.
-      expect(result.sweepDelays.get('swept')).toBe(2 * 50 + 2 * 260);
+      // 'swept' keeps its own beam travel (2 tiles × 50) plus its wave offset,
+      // still tagged with the caught piece's real axis ('col').
+      expect(result.sweepDelays.get('swept')).toEqual({ delayMs: 2 * 50 + 2 * 260, axis: 'col' });
       // 'caught' (the striped origin itself, distance 0 on its own beam) gets
-      // its wave offset on the sweep channel too.
-      expect(result.sweepDelays.get('caught')).toBe(0 + 1 * 260);
+      // its wave offset on the sweep channel too, axis preserved.
+      expect(result.sweepDelays.get('caught')).toEqual({ delayMs: 0 + 1 * 260, axis: 'col' });
       expect(result.chainHoldMs).toBe(2 * 260);
     });
 

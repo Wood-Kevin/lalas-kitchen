@@ -24,6 +24,8 @@ import {
   BLOCKER_SHATTER_TRAVEL_FRACTION,
   BLOCKER_SHATTER_ROTATE_DEG,
   SUPERCOMBO_CONVERT_PULSE_SCALE,
+  SWEEP_STRETCH_ALONG_SCALE,
+  SWEEP_STRETCH_ACROSS_SCALE,
 } from './cascadeTiming';
 
 const MEDIUM = fallSpeedProfile('medium');
@@ -295,6 +297,11 @@ describe('per-mechanism clear motion stays distinct and in the calm register', (
   test('the supercombo convert pulse is a modest pre-beat bump, not the payoff itself', () => {
     expect(SUPERCOMBO_CONVERT_PULSE_SCALE).toBeGreaterThan(1);
     expect(SUPERCOMBO_CONVERT_PULSE_SCALE).toBeLessThan(MATCH_POP_SCALE + 0.1);
+  });
+
+  test('the sweep stretch elongates along the beam and compresses across it, a real squash-and-stretch', () => {
+    expect(SWEEP_STRETCH_ALONG_SCALE).toBeGreaterThan(1);
+    expect(SWEEP_STRETCH_ACROSS_SCALE).toBeLessThan(1);
   });
 });
 

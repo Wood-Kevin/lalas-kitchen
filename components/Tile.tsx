@@ -34,6 +34,8 @@ import {
   MATCH_POP_ROTATE_DEG,
   BLOCKER_SHATTER_TRAVEL_FRACTION,
   BLOCKER_SHATTER_ROTATE_DEG,
+  SWEEP_STRETCH_ALONG_SCALE,
+  SWEEP_STRETCH_ACROSS_SCALE,
 } from './cascadeTiming';
 import { resolveDragTarget, projectDragToRail, DragAxis } from './dragDirection';
 import { StripeDirection } from '../engine/matrix';
@@ -989,6 +991,13 @@ export interface ExitingTileProps {
   // the whole line clearing at once. Undefined for an ordinary match cell,
   // which clears immediately as before.
   sweepDelayMs?: number;
+  // Present only alongside sweepDelayMs — which axis the beam that caught
+  // this tile actually travelled along, so its pop can stretch along that
+  // real direction instead of a generic uniform scale (see
+  // cascadeTiming.ts's SWEEP_STRETCH_ALONG_SCALE/ACROSS_SCALE). Undefined
+  // for the supercombo's synchronized beat, which has no real travel
+  // direction of its own — that case falls back to the plain uniform pop.
+  sweepAxis?: StripeDirection;
   // True when this exiting piece is a detonating area bomb (engine type
   // 'area_bomb' — it lands in diff.cleared, carrying its type, whenever it
   // fires its 3×3 blast). Drives the powder poof that puffs outward from the
@@ -1230,6 +1239,7 @@ export function ExitingTile({
   startOffsetPx,
   isBlockerClear,
   sweepDelayMs,
+  sweepAxis,
   isPowderBurst,
   radialDelayMs,
   convertedFlash,
@@ -1301,6 +1311,17 @@ export function ExitingTile({
   // (0) for every other clear kind so their pop stays a clean, direct
   // scale-only motion.
   const rotation = useSharedValue(0);
+  // The sweep's own directional stretch (see SWEEP_STRETCH_ALONG_SCALE's
+  // doc comment) — only ever animated in the sweepDelayMs branch below, and
+  // only when sweepAxis is defined (a real beam, not the supercombo's
+  // synchronized beat). At rest (1, a no-op scaleX/scaleY) for every other
+  // clear kind, layered as ADDITIONAL transform entries alongside the
+  // existing uniform `scale` — the same "separate shared value, composed
+  // multiplicatively" pattern convertPulse already establishes, so the two
+  // motion channels (uniform pop vs. directional stretch) never fight over
+  // the same shared value.
+  const stretchScaleX = useSharedValue(1);
+  const stretchScaleY = useSharedValue(1);
   // The blocker shatter's single driver (0..1, see BlockerShatterFragments) —
   // only ever animated in the isBlockerClear branch below.
   const shatterProgress = useSharedValue(0);
@@ -1404,26 +1425,48 @@ export function ExitingTile({
     }
     if (sweepDelayMs !== undefined) {
       // A striped sweep tile: sit still until the beam reaches it (sweepDelayMs),
-      // then swells (the "pop"), then shrinks away like any cleared tile.
-      // Staggering these delays down the line is what makes the pop read as
-      // travelling — motion/timing carries the identity, not a color wash
-      // (see engine/DECISIONS.md's colors-removed rework entry). The pop +
-      // shrink together still total durationMs, so a swept tile takes
-      // exactly the normal clear time *after* the beam arrives — the
-      // stagger adds the travel, not extra intensity (see CLAUDE.md's
-      // calm-not-frantic constraint and SWEEP_TILE_STAGGER_MS's rationale).
-      // TODO(sweep-stretch): this uniform scale pop is a placeholder — a
-      // directional stretch along the beam's real axis replaces it next.
+      // then pops, then shrinks away like any cleared tile. Staggering these
+      // delays down the line is what makes the pop read as travelling —
+      // motion/timing carries the identity, not a color wash (see
+      // engine/DECISIONS.md's colors-removed rework entry). The pop + shrink
+      // together still total durationMs, so a swept tile takes exactly the
+      // normal clear time *after* the beam arrives — the stagger adds the
+      // travel, not extra intensity (see CLAUDE.md's calm-not-frantic
+      // constraint and SWEEP_TILE_STAGGER_MS's rationale).
       const shrinkMs = Math.max(0, durationMs - SWEEP_GLOW_POP_MS);
-      scale.value = withDelay(
-        settle + sweepDelayMs,
-        withSequence(
-          withTiming(1.15, { duration: SWEEP_GLOW_POP_MS }),
-          withTiming(0, { duration: shrinkMs })
-        )
-      );
-      // Hold fully opaque through the swell so the pop is visible on a solid
-      // tile, then fade during the shrink.
+      if (sweepAxis !== undefined) {
+        // A real beam: stretch ALONG its actual travel axis and compress
+        // ACROSS it (see SWEEP_STRETCH_ALONG_SCALE's doc comment) — the
+        // shape identity that replaces the old sweepGlow wash. `scale`
+        // itself stays untouched (at rest) for this branch; stretchScaleX/Y
+        // carry the whole pop-and-shrink instead.
+        const alongMs = { duration: SWEEP_GLOW_POP_MS };
+        const shrinkTiming = { duration: shrinkMs };
+        const xTarget = sweepAxis === 'row' ? SWEEP_STRETCH_ALONG_SCALE : SWEEP_STRETCH_ACROSS_SCALE;
+        const yTarget = sweepAxis === 'row' ? SWEEP_STRETCH_ACROSS_SCALE : SWEEP_STRETCH_ALONG_SCALE;
+        stretchScaleX.value = withDelay(
+          settle + sweepDelayMs,
+          withSequence(withTiming(xTarget, alongMs), withTiming(0, shrinkTiming))
+        );
+        stretchScaleY.value = withDelay(
+          settle + sweepDelayMs,
+          withSequence(withTiming(yTarget, alongMs), withTiming(0, shrinkTiming))
+        );
+      } else {
+        // The supercombo's synchronized beat has no real travel direction
+        // of its own (every converted piece pops together, not along a
+        // line) — falls back to the plain uniform pop every other
+        // non-directional mechanism uses.
+        scale.value = withDelay(
+          settle + sweepDelayMs,
+          withSequence(
+            withTiming(1.15, { duration: SWEEP_GLOW_POP_MS }),
+            withTiming(0, { duration: shrinkMs })
+          )
+        );
+      }
+      // Hold fully opaque through the pop so it's visible on a solid tile,
+      // then fade during the shrink.
       opacity.value = withDelay(
         settle + sweepDelayMs + SWEEP_GLOW_POP_MS,
         withTiming(0, { duration: shrinkMs })
@@ -1538,10 +1581,15 @@ export function ExitingTile({
     // every clear except a supercombo's converted pieces; applying two
     // `scale` transform entries multiplies them together, so this reads as
     // "the pop's own scale, further bumped by the convert pulse" without
-    // the two ever needing to touch the same shared value.
+    // the two ever needing to touch the same shared value. stretchScaleX/Y
+    // (see their own doc comment) stay at 1 — a no-op scaleX/scaleY — for
+    // every clear except a real-axis sweep, which is the one case where
+    // `scale` itself is deliberately left untouched instead.
     transform: [
       { scale: scale.value },
       { scale: convertPulse.value },
+      { scaleX: stretchScaleX.value },
+      { scaleY: stretchScaleY.value },
       { rotate: `${rotation.value}deg` },
     ],
     // Exiting tiles join the same live-row stacking scheme the live tiles
