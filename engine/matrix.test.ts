@@ -14,7 +14,7 @@ import {
   Piece,
   Position,
 } from './matrix';
-import { ringVoids } from './boardShapes';
+import { diamondVoids } from './boardShapes';
 
 function piece(matchType: string, id: string): Piece {
   return { id, type: 'normal', matchType };
@@ -910,20 +910,31 @@ describe('shuffle — hardened rescue fallback', () => {
     expect(shuffledTypes).toEqual(originalTypes);
   });
 
-  test('adversarial worst case: a heavily voided (ring) board with dense blockers and a high piece-type count is always rescued into a genuinely legal board', () => {
+  test('adversarial worst case: a heavily voided (diamond) board with dense blockers and a high piece-type count is always rescued into a genuinely legal board', () => {
     const rows = 8;
-    const cols = 5;
-    // The real generated-level `ring` template at its real board size (see
-    // engine/boardShapes.ts and CLAUDE.md's board-shape entry) — the most
-    // restrictive shape this game actually ships, 22 of 40 cells playable.
-    const voidKeys = new Set(ringVoids(rows, cols).map((p) => `${p.row},${p.col}`));
+    const cols = 7;
+    // The real generated-level `diamond` template at the real generated
+    // board size (see engine/boardShapes.ts and CLAUDE.md's board-shape
+    // entries) — now the most restrictive shape this game actually ships,
+    // 32 of 56 cells playable (~57%). This test used to build its
+    // adversarial fixture from `ring`, which WAS the worst case at the
+    // historical 8x5 board size (22/40, ~55%) — but `ring`'s own band was
+    // widened after a real "almost one match option, reshuffles a lot"
+    // playtest report (see boardShapes.test.ts's ringVoids describe block),
+    // and separately, `diamond`/`hourglass`'s severity was never
+    // re-verified after the board widened from 8x5 to 8x7 (see
+    // DEFERRED_COMPLEXITY.md's board-shape-ratio-drift entry) — they turned
+    // out to be just as tight at the current size. Swapped to `diamond` so
+    // this test still stresses the actual worst case shipping today, not a
+    // shape that's no longer it.
+    const voidKeys = new Set(diamondVoids(rows, cols).map((p) => `${p.row},${p.col}`));
     const perimeter: Position[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (!voidKeys.has(`${r},${c}`)) perimeter.push({ row: r, col: c });
       }
     }
-    expect(perimeter).toHaveLength(22); // confirms this really is the 55%-playable ring
+    expect(perimeter).toHaveLength(32); // confirms this really is the ~57%-playable diamond
 
     // Every 4th perimeter cell (row-major) is a blocker — dense, but leaves
     // enough ordinary cells that a legal arrangement remains possible.

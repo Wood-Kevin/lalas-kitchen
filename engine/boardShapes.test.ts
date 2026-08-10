@@ -85,14 +85,30 @@ describe('plusVoids', () => {
 });
 
 describe('ringVoids', () => {
-  test('voids exactly the interior, leaving a 1-cell playable frame on the real generated board size (8x5)', () => {
-    const voids = ringVoids(8, 5);
-    expect(voids).toHaveLength(18);
+  test('voids a smaller interior, leaving a 2-cell-thick playable band on the real generated board size (8x7)', () => {
+    const voids = ringVoids(8, 7);
+    // rows 2-5, cols 2-4 — see RING_BAND_THICKNESS's own doc comment.
+    expect(voids).toHaveLength(12);
     const voidKeys = toKeySet(voids);
     for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 5; col++) {
-        const isBorder = row === 0 || row === 7 || col === 0 || col === 4;
-        expect(voidKeys.has(`${row},${col}`)).toBe(!isBorder);
+      for (let col = 0; col < 7; col++) {
+        const isVoid = row >= 2 && row <= 5 && col >= 2 && col <= 4;
+        expect(voidKeys.has(`${row},${col}`)).toBe(isVoid);
+      }
+    }
+  });
+
+  test('every void cell sits at least RING_BAND_THICKNESS (2) cells in from every board edge — the actual fix for "almost one match option"', () => {
+    for (const [rows, cols] of [
+      [8, 7],
+      [8, 5],
+      [10, 10],
+    ]) {
+      for (const p of ringVoids(rows, cols)) {
+        expect(p.row).toBeGreaterThanOrEqual(2);
+        expect(p.row).toBeLessThanOrEqual(rows - 1 - 2);
+        expect(p.col).toBeGreaterThanOrEqual(2);
+        expect(p.col).toBeLessThanOrEqual(cols - 1 - 2);
       }
     }
   });
@@ -209,20 +225,40 @@ describe('playableCellRatio', () => {
     expect(playableCellRatio(8, 5, [])).toBe(1);
   });
 
-  test('real percentages on the real generated board size (8x5, 40 cells) — the exact numbers behind the ring-unfairness report', () => {
-    expect(playableCellRatio(8, 5, ringVoids(8, 5))).toBeCloseTo(22 / 40); // 55%
-    expect(playableCellRatio(8, 5, cutCornersVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
-    expect(playableCellRatio(8, 5, plusVoids(8, 5))).toBeCloseTo(32 / 40); // 80%
+  test('real percentages on the real generated board size (8x7, 56 cells)', () => {
+    // ring's own number is post-widening (see ringVoids' own doc comment) —
+    // 44/56 ≈ 79%, no longer the severe outlier the original 1-wide band
+    // produced (22/40 ≈ 55% at the historical 8x5 size, still true of the
+    // OLD implementation, not this one). cut_corners/plus computed directly
+    // (12 and 8 voids respectively) rather than assumed from the old 8x5
+    // numbers — see this describe block's last test for why that distinction
+    // matters here specifically.
+    expect(playableCellRatio(8, 7, ringVoids(8, 7))).toBeCloseTo(44 / 56);
+    expect(playableCellRatio(8, 7, cutCornersVoids(8, 7))).toBeCloseTo(44 / 56);
+    expect(playableCellRatio(8, 7, plusVoids(8, 7))).toBeCloseTo(48 / 56);
   });
 
-  test('real percentages for the 3 newer templates on the real generated board size (8x5, 40 cells)', () => {
-    expect(playableCellRatio(8, 5, diamondVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
-    expect(playableCellRatio(8, 5, hourglassVoids(8, 5))).toBeCloseTo(28 / 40); // 70%
-    expect(playableCellRatio(8, 5, pocketsVoids(8, 5))).toBeCloseTo(34 / 40); // 85%
+  test('real percentages for the 3 newer templates on the real generated board size (8x7, 56 cells)', () => {
+    // diamond/hourglass at 32/56 ≈ 57%, NOT the ~70% CLAUDE.md's own text
+    // claims — that number was computed at the historical 8x5 board size
+    // and never re-verified after the grid-width widening to 8x7 (see
+    // engine/DECISIONS.md's grid-width entry). At 7 columns,
+    // diamondTaperSteps grows to 3 (min(floor(8/2), floor((7-1)/2))), a much
+    // more aggressive cut relative to the narrower board it was tuned
+    // against. This is now flagged as a real, separate finding — not fixed
+    // in this pass, since only ringVoids was in scope for the actual fix.
+    expect(playableCellRatio(8, 7, diamondVoids(8, 7))).toBeCloseTo(32 / 56);
+    expect(playableCellRatio(8, 7, hourglassVoids(8, 7))).toBeCloseTo(32 / 56);
+    expect(playableCellRatio(8, 7, pocketsVoids(8, 7))).toBeCloseTo(47 / 56);
   });
 
-  test('ring is the most restrictive of all 6 templates at this board size', () => {
-    const ratios = BOARD_SHAPE_ROTATION.map((id) => playableCellRatio(8, 5, BOARD_SHAPE_TEMPLATES[id](8, 5)));
-    expect(Math.min(...ratios)).toBe(playableCellRatio(8, 5, ringVoids(8, 5)));
+  test('diamond/hourglass, not ring, are now the most restrictive templates at the real board size — a separate, disclosed finding', () => {
+    const ratios = BOARD_SHAPE_ROTATION.map((id) => playableCellRatio(8, 7, BOARD_SHAPE_TEMPLATES[id](8, 7)));
+    const ringRatio = playableCellRatio(8, 7, ringVoids(8, 7));
+    // Documents the current state honestly rather than asserting a "fixed"
+    // claim this pass doesn't back up: ring is no longer the outlier, but
+    // diamond/hourglass now are, at roughly the same severity ring used to
+    // be. See DEFERRED_COMPLEXITY.md's board-shape-ratio-drift entry.
+    expect(Math.min(...ratios)).toBeLessThan(ringRatio);
   });
 });

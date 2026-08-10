@@ -69,10 +69,28 @@ export function plusVoids(rows: number, cols: number): Position[] {
 
 // Voids every interior cell, leaving a 1-cell-thick playable frame/ring
 // around the board's own edge.
+// A real playtest report ("the most annoying shape to play... almost one
+// match option and reshuffles a lot") traced back to the original band being
+// exactly 1 cell thick (every interior cell voided, leaving only the outer
+// border playable): a 1-wide path severely limits how a 3-in-a-row can even
+// form — most cells on it have only two playable neighbors — so legal moves
+// are scarce and `applyMove`'s stuck-board rescue fires constantly. Fixed by
+// widening the band to RING_BAND_THICKNESS (2) cells on every side before the
+// interior is voided, giving the playable ring actual width to match across
+// in both directions rather than a single file. At the real generated board
+// size (8 rows x 7 cols — see this file's own header comment on why board
+// size is otherwise fixed), this also raises ring's playable ratio from
+// ~46% to ~79%, in line with the other 5 templates' 70-85% band instead of
+// being the one severe outlier `playableCellRatio`'s difficulty-scaling
+// exists to compensate for. Still a real void hole in the middle, just a
+// proportional one rather than one that ate the whole board's width down to
+// a single cell.
+const RING_BAND_THICKNESS = 2;
+
 export function ringVoids(rows: number, cols: number): Position[] {
   const voids: Position[] = [];
-  for (let row = 1; row < rows - 1; row++) {
-    for (let col = 1; col < cols - 1; col++) {
+  for (let row = RING_BAND_THICKNESS; row < rows - RING_BAND_THICKNESS; row++) {
+    for (let col = RING_BAND_THICKNESS; col < cols - RING_BAND_THICKNESS; col++) {
       voids.push({ row, col });
     }
   }
