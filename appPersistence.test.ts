@@ -2120,6 +2120,42 @@ describe('generatedDropdownPositions', () => {
   test('is deterministic — the same level always places the same pieces', () => {
     expect(generatedDropdownPositions(15, 8, 5)).toEqual(generatedDropdownPositions(15, 8, 5));
   });
+
+  // Regression guard for a real playtest report ("escort pieces always start
+  // in the same columns") — root-caused to the old `offset = levelNumber %
+  // candidates.length` scheme, which had two real bugs: a modulus-vs-cadence
+  // bias (ESCORT_CADENCE=8 vs. cols=7 meant one offset residue was
+  // structurally 2x as likely within any shuffled-bag window) and a fixed
+  // `offset + i*stride` arithmetic progression, so the columns' RELATIVE
+  // spacing never varied even when the absolute starting offset did. Both
+  // are asserted directly here so either regressing silently fails a test
+  // instead of only surfacing on a real playtest.
+  test('real escort levels produce genuinely varied column sets, not a fixed relative pattern', () => {
+    const rows = 8;
+    const cols = 7;
+    const columnSets: string[] = [];
+    for (let level = 1; level <= 200 && columnSets.length < 20; level++) {
+      if (!isEscortObjectiveLevel(level)) continue;
+      const cols_ = generatedDropdownPositions(level, rows, cols)
+        .map((p) => p.col)
+        .sort((a, b) => a - b);
+      columnSets.push(cols_.join(','));
+    }
+    expect(columnSets.length).toBeGreaterThanOrEqual(15);
+    // The old bug's signature: every set was some rotation of a single fixed
+    // spacing (e.g. every 2-piece set exactly 3 columns apart). A genuine
+    // shuffle should produce more distinct sets than any one fixed-spacing
+    // scheme could — asserting real variety, not just "not identical".
+    const distinctSets = new Set(columnSets);
+    expect(distinctSets.size).toBeGreaterThan(columnSets.length * 0.6);
+    // No single column-set should dominate the sample — the old bias made
+    // one or two sets recur far more often than the rest within a window
+    // this size.
+    const counts = new Map<string, number>();
+    for (const set of columnSets) counts.set(set, (counts.get(set) ?? 0) + 1);
+    const maxCount = Math.max(...counts.values());
+    expect(maxCount).toBeLessThanOrEqual(Math.ceil(columnSets.length * 0.25));
+  });
 });
 
 describe('buildGeneratedLevelConfig — escort levels', () => {

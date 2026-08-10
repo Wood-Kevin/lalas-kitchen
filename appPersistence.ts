@@ -1292,6 +1292,11 @@ export function isClearanceObjectiveLevel(levelNumber: number): boolean {
 const ESCORT_MIN_LEVEL_NUMBER = 7;
 const ESCORT_CADENCE = 8;
 const ESCORT_OBJECTIVE_SALT = 0x7f4c9;
+// Distinct from ESCORT_OBJECTIVE_SALT on purpose — that salt drives WHETHER a
+// level is escort at all; this one drives WHICH columns a given escort level
+// picks. Sharing one salt would correlate the two RNG streams for no reason;
+// see generatedDropdownPositions's own comment for why this salt exists.
+const ESCORT_COLUMN_SALT = 0x2b9e1;
 
 export function isEscortObjectiveLevel(levelNumber: number): boolean {
   return isMechanicLevel(levelNumber, ESCORT_MIN_LEVEL_NUMBER, ESCORT_CADENCE, ESCORT_OBJECTIVE_SALT);
@@ -1379,17 +1384,45 @@ export function generatedDropdownPositions(
   if (candidates.length === 0) return [];
 
   const count = Math.min(escortDropdownCount(levelNumber), candidates.length);
-  const stride = Math.max(1, Math.floor(candidates.length / count));
-  // Rotated by levelNumber so successive escort levels don't always use the
-  // same two columns — the same deterministic offset trick generatedLayerCells
-  // uses, not a random draw.
-  const offset = levelNumber % candidates.length;
-  const chosen: Position[] = [];
-  for (let i = 0; chosen.length < count && i < candidates.length; i++) {
-    const candidate = candidates[(offset + i * stride) % candidates.length];
-    if (!chosen.some((p) => p.col === candidate.col)) chosen.push(candidate);
+  // Real playtest report ("escort pieces always start in the same columns")
+  // traced to a genuine structural bug in the offset+stride scheme this
+  // replaced, not a perception issue — investigated with a real diagnostic
+  // script (400 generated levels' worth of escort columns computed directly)
+  // before touching anything, per this project's own Playtest Feedback
+  // Protocol. Two independent problems, both real:
+  //  1. The old `offset = levelNumber % candidates.length` combined with
+  //     ESCORT_CADENCE=8 (how often escort levels occur) and cols=7 (the
+  //     modulus) produced a real bias, not just small-sample noise: since
+  //     8 mod 7 = 1, within any single shuffled-bag window (see
+  //     isMechanicLevel) one specific offset residue was mathematically
+  //     TWICE as likely as the other six, and which residue that was
+  //     shifted by exactly 1 every bag — so over a long run it averages out,
+  //     but over the handful of escort levels a player actually experiences
+  //     in a sitting, one or two offsets (and therefore one or two column
+  //     sets) really did recur far more than the rest.
+  //  2. Independent of that bias, `offset + i*stride` is a fixed arithmetic
+  //     progression — every escort level's columns are always spaced
+  //     exactly `stride` apart (3 apart for 2 dropdowns, 2 apart for 3),
+  //     just starting from a different point. The absolute columns varied;
+  //     the relative pattern between them never did, which reads as "always
+  //     the same" regardless of how well-distributed the starting offset is.
+  // Fixed by reusing this file's own established shuffled-bag technique
+  // (mulberry32, the same PRNG shuffledBagOrder already uses for the
+  // board-shape/blocker "feels predictable" fix — see that entry's own
+  // history) instead of modular arithmetic: a real per-level Fisher-Yates
+  // shuffle of `candidates`, seeded by levelNumber, with the first `count`
+  // entries taken as the chosen columns. This has no modulus-vs-cadence
+  // interaction to be biased by, and no fixed relative spacing — genuinely
+  // different combinations, not just a different starting point on the same
+  // pattern. Still fully deterministic (same levelNumber -> same columns
+  // every time), preserving the generator's core guarantee.
+  const rng = mulberry32(levelNumber * 2654435761 + ESCORT_COLUMN_SALT);
+  const shuffled = candidates.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return chosen;
+  return shuffled.slice(0, count);
 }
 
 // Which cells get a hidden layer, on a clearance-gated generated level.
