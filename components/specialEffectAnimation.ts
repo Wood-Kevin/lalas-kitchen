@@ -341,10 +341,12 @@ export function buildPassAnimation(
     // no new shape, just a far shorter travel budget appropriate to a
     // local 3x3 blast (see PassAnimationOptions.areaBombWaveMs). This is
     // what gives the solo area bomb blast the motion identity it never
-    // had before (see SPEC.md's "solo area bomb blast" decision) — its
-    // color comes from Board.tsx's per-entry effectColor resolution,
-    // which distinguishes it from a color_bomb wave despite sharing this
-    // same radialDelayMs channel.
+    // had before (see SPEC.md's "solo area bomb blast" decision) — it's
+    // distinguished from a color_bomb wave despite sharing this same
+    // radialDelayMs channel via `radialKind` (Board.tsx / exitingTile.ts),
+    // which today only picks the pulse-distance/particle-count magnitude
+    // (see engine/DECISIONS.md's colors-removed rework entry) rather than
+    // a color the way it originally did.
     return staged({
       sweepDelays: genericSweep,
       radialDelays: radialDelaysForClears(cleared, effect.origin, options.areaBombWaveMs),

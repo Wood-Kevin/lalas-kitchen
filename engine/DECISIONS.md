@@ -6984,3 +6984,110 @@ or `Tile.tsx` reads a literal hex value, confirmed via `exitingTile.test.ts`'s o
 which is untouched). **Not yet verified live**: no screenshot of the new colors against a real detonation
 was captured this session (the same blocker/bomb-reachability gap the motion-differentiation work
 disclosed) — this is a real, disclosed gap, not a claim of a confirmed visual win.
+
+## Clear effects: colors removed entirely — motion/shape/timing carries identity instead (2026-08-09)
+
+**The trigger.** Kevin, directly, rejecting the entire premise the two entries above were built on, not
+just their tuning: *"I want the colors gone. I've never seen that in a match 3... We don't want a color
+line! Just an animation."* This landed in the same session as the effect-color-resaturation work above —
+the palette had just been re-saturated, then genre-authenticated (both entries above), when the actual
+feedback turned out to be that a fixed wash color per clear MECHANISM was never the right model at all.
+Real match-3 games (Candy Crush, Royal Match, Toon Blast) never tint a clearing tile by a mechanism color
+code; they carry effect identity through the piece's own real sprite art, motion (scale/rotate/stretch/
+shatter), and timing (stagger, sequence) — never an added color layer. **The whole `palette.effectColors`
+system — including the just-shipped fire-orange re-hue and its careful CVD verification — is dead by
+premise here, not superseded by a better color choice.** The CVD-simulation investigation itself wasn't
+wasted: it's the reason this rework could confidently drop color as an identity channel rather than
+leaning on it harder, having already established that hue-only differentiation was fragile.
+
+**Investigated before touching anything**, per the standing Playtest Feedback Protocol: read the full
+clear-FX pipeline (`Tile.tsx`'s `ExitingTile`, `exitingTile.ts`, `specialEffectAnimation.ts`,
+`sweepAnimation.ts`) to confirm exactly what depended on color, and whether any per-piece color concept
+existed that a "color it like the ingredient instead of the mechanism" alternative could lean on. It
+didn't (`SkinPieceType` was `{id, sprite}` only) — moot anyway, since Kevin's own follow-up ("we don't
+want a color line") ruled out ANY added color, not just the per-mechanism one, when a colorless/white
+flash option was explicitly offered and declined in favor of a plain scale-up with nothing added.
+
+**Three confirmed decisions** (each presented with a genuine alternative and its tradeoff, per the
+Playtest Feedback Protocol's "confirm before deciding on a genuine fork" step — none guessed silently):
+1. Sweep/blast get **real directional motion** — a swept tile stretches along the beam's actual row/
+   column axis; a radially-cleared tile pulses outward from the real blast origin — over the cheaper
+   alternative of leaving the existing timing-only stagger to carry the whole identity.
+2. Particle debris becomes **tiny crops of the piece's own sprite**, extending
+   `BlockerShatterFragment`'s existing crop-and-fly technique to a finer grid — over plain neutral/light
+   sparks (simpler, but still a color choice of its own, even desaturated) or dropping particles
+   entirely.
+3. The ordinary match's "recognize" beat becomes a **plain scale-up, no flash of any kind** — Kevin chose
+   this over a colorless/white flash option that was explicitly offered, confirming the ask was "no
+   added layer," not "no *color*."
+Three further, smaller forks were resolved the same way rather than folded silently into the three above:
+the radial shockwave ring is **removed entirely** (the new pulse carries that identity — recommended over
+keeping it colorless, on the reasoning that an achromatic ring with nothing new to say would read as
+leftover chrome); the supercombo convert-flash and the blocker's pre-shatter highlight pulse are
+**replaced with motion-only pulses**, not dropped outright, since the blocker pulse specifically exists
+to solve a real prior bug (a blocker clearing several cascade steps from the player's tap with nothing
+drawing the eye there — see `BLOCKER_CLEAR_HIGHLIGHT_MS`'s own comment) and dropping it risked silently
+reintroducing that; and the area bomb's powder-puff cloud is **left untouched**, confirmed as established
+world/material color (shared with `SteamWisp` elsewhere in the app) rather than a mechanism color-code,
+and explicitly out of scope.
+
+**What shipped, across four small commits** (`da23e8c`, `6a26146`, `30a01df`, `6c43b0c` on
+`unity-migration-exploration`):
+- **Deleted:** `skinConfig.palette.effectColors` (schema + `config.json` data — discarding the
+  just-shipped fire-orange diff), `exitingTile.ts`'s `resolveEffectColor`, `Tile.tsx`'s `washColor`/
+  `highlightOpacity`/`flashOpacity` and every wash `Animated.View` + style (`blockerHighlight`/
+  `sweepGlow`/`radialGlow`/`convertFlash`/`matchPop`/`radialRing`), `MATCH_POP_OPACITY`, and
+  `ExperimentalBurstParticle`/`EXPERIMENTAL_BURST_*` (superseded in-place, not just deleted — see below).
+- **Sweep stretch:** `sweepAnimation.ts`'s `sweepDelaysForClears` now returns `SweepDelay {delayMs,
+  axis}` instead of a plain number (the "nearest origin wins" scan factored into a shared
+  `nearestSweepOrigin` so the delay-winner and axis-winner can never disagree on a crossing-beam board);
+  `specialEffectAnimation.ts`'s `crossOriginDelays`/`mergeMinDelays`/`applyChainStaging`/the supercombo
+  branch all updated for the wider type (the supercombo's synchronized beat gets `axis: undefined` — no
+  real travel direction, falls back to the plain uniform pop); threaded through `ExitingEntry.sweepAxis`
+  → `Tile.tsx`'s new `stretchScaleX`/`stretchScaleY` shared values, composed as additional `scaleX`/
+  `scaleY` transform entries alongside the existing uniform `scale` (`SWEEP_STRETCH_ALONG_SCALE` 1.35 /
+  `ACROSS_SCALE` 0.85 — the same squash-and-stretch language `SQUASH_SCALE_X/Y` already establish for a
+  landing impact, applied here to "a beam swept through this tile").
+- **Radial pulse:** `ExitingEntry.radialOrigin` (the blast's real post-swap position, derived in
+  `Board.tsx` the same way `radialKind` already is) → `Tile.tsx`'s new `pulseOffsetX`/`pulseOffsetY`,
+  driven by a plain unit-vector computation (the origin cell itself gets no pulse — zero-length vector),
+  composed as `translateX`/`translateY` entries placed FIRST in the transform array (mirroring Tile's own
+  live-tile convention) so the pulse's px distance isn't itself additionally stretched by a later scale
+  entry (`RADIAL_PULSE_DISTANCE_FRACTION` 0.16, shared by color-bomb and area-bomb for now — splitting
+  them, mirroring `COLOR_BOMB_WAVE_MS` vs. `AREA_BOMB_WAVE_MS`'s own split, is cheap to add later).
+  Pulses out during the pop, then HOLDS at that offset while the tile shrinks away — reads as "pushed by
+  the blast, then gone," not a snap-back to center.
+- **Sprite-crop debris:** extracted `SpriteCropWindow` out of `BlockerShatterFragment`'s inline JSX (a
+  pure refactor — same crop math, generalized from hardcoded half-tile quadrants to fractional
+  origin/size), new `components/spriteDebris.ts` (`buildDebrisParticlePool`, a shuffled/deduped sample of
+  a `gridSize × gridSize` set of crop origins so a burst never repeats a crop; `debrisParticleCount`,
+  extracted from an inline reward-scaling expression), new `SpriteCropDebrisParticle` reusing the old
+  burst's exact drag+gravity trajectory math (`DEBRIS_SPEED`/`DRAG`/`GRAVITY`, unchanged values, renamed
+  from `EXPERIMENTAL_BURST_*`) at a finer `DEBRIS_GRID_SIZE` (4×4, vs. the blocker's coarser 2×2 — deep
+  enough that base+max-extra particle counts (8+8=16) exactly cover the grid with no repeated crop at
+  full intensity).
+- **Motion-only pulses:** the blocker's existing 1.18 pre-shatter scale bump already WAS a motion-only
+  cue (only the colored wash layered on top of it needed removing); the supercombo convert got a new
+  `convertPulse` shared value (a scale double-pulse replacing the old opacity double-blink,
+  `SUPERCOMBO_CONVERT_PULSE_SCALE` 1.12), composed as an extra multiplicative `scale` transform entry
+  specifically so it can't race the later synchronized sweep-pop over the same shared value.
+
+**Verification:** 880/880 tests pass across all four commits (rewritten `sweepAnimation.test.ts`/
+`specialEffectAnimation.test.ts` for the `SweepDelay` shape including a pinned-down crossing-beam
+tie-break case; new `spriteDebris.test.ts`; new bound-check tests for every new tuning constant, matching
+this file's existing convention). Live, per commit: the plain scale-up pop and a real blocker/supercombo
+path (commit 1); a hand-crafted genuine 4-run on Level 5 "Spoon Stir" spawning a real column striped
+piece, matched to fire a real column sweep that chained into a large cascade with zero console errors
+(commit 2 — the stretch itself too fast for this environment's screenshot latency to catch mid-flight,
+the same disclosed tooling gap every "feel" change this session carries); a real ordinary match confirming
+the new unconditional radial hooks don't break the common path, but no real color-bomb/area-bomb
+detonation reached organically this pass (commit 3, disclosed rather than claimed); a real match firing
+the new debris burst with zero errors, with the blocker shatter's own motion verified as a provable pure
+refactor rather than separately re-triggered live (commit 4).
+
+**Still deferred** (see `DEFERRED_COMPLEXITY.md`): color-bomb vs. area-bomb sharing one
+`RADIAL_PULSE_DISTANCE_FRACTION` rather than their own split constants; whether `experimentalBurst`/
+`experimentalJuice` naming should change now that sprite-crop debris is the real clear look on this
+branch rather than an experimental override (left unchanged — the branch itself is still explicitly
+disposable); live-triggering a real color-bomb/area-bomb detonation and a real supercombo to confirm the
+pulse and convert-pulse paths visually, not just by code review and test.
