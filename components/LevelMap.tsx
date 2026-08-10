@@ -219,6 +219,26 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           showsVerticalScrollIndicator={false}
         >
           {mapWidth > 0 &&
+            (() => {
+              const backgroundTile = resolveSpriteAsset('levelmap-background-tile.webp', spriteAssets);
+              return backgroundTile.kind === 'image' ? (
+                <Image
+                  source={backgroundTile.source}
+                  // Sized to the full scroll content, not just the viewport,
+                  // so the tile keeps repeating as the player scrolls rather
+                  // than running out partway down a long (or still-growing)
+                  // level list. resizeMode="repeat" tiles at the asset's own
+                  // native pixel size (RN's built-in equivalent of CSS
+                  // background-repeat) instead of stretching it, which is
+                  // what actually makes a seamless tile read as seamless.
+                  style={{ position: 'absolute', top: 0, left: 0, width: mapWidth, height: contentHeight }}
+                  resizeMode="repeat"
+                  pointerEvents="none"
+                />
+              ) : null;
+            })()}
+
+          {mapWidth > 0 &&
             landmarks.map((landmark) => {
               const sprite = resolveSpriteAsset(landmark.spritePath, spriteAssets);
               const left = mapWidth * landmark.xFraction - landmark.width / 2;

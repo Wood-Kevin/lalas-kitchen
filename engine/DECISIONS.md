@@ -7771,3 +7771,77 @@ attempt on the shaped level completing normally.
 **Verification:** `npx jest` 877/877 (new render logic, `renderBoard`-derived, no engine/state changes).
 Live-verified against a real shaped level over the running dev server — segment counts and geometry
 checked precisely via DOM query, not assumed from the code alone.
+
+## Escort (dropdown) column selection: fixed a real modulus bias and a fixed-spacing pattern (2026-08-10)
+
+**The report.** "Escort pieces always start in the same columns." Investigated with a real diagnostic
+script (computed `generatedDropdownPositions` for every escort level from level 1-400, using the real
+`isEscortObjectiveLevel` gate) before touching anything, per the standing Playtest Feedback Protocol —
+not assumed to be a perception issue or fixed by guessing.
+
+**Two real, independent bugs, both confirmed from the actual computed sequence, not reasoned in the
+abstract.** `generatedDropdownPositions`'s old column choice was `offset = levelNumber % candidates.length`
+(7, the real board's column count) plus a fixed `offset + i * stride` arithmetic progression:
+1. **A genuine modulus-vs-cadence bias.** `ESCORT_CADENCE` (how often escort levels occur, via the
+   shuffled-bag `isMechanicLevel`) is 8; the modulus is 7 (columns). Since 8 mod 7 = 1, within any single
+   bag window one specific offset residue was structurally TWICE as likely as the other six — not sampling
+   noise, a real property of combining a cadence-8 bag with a mod-7 offset. Which residue was doubled
+   shifted by exactly one every bag, so it averages out over hundreds of levels, but within the handful of
+   escort levels a player actually meets in a sitting, one or two column-sets really did recur far more
+   than the rest.
+2. **A fixed relative-spacing pattern, independent of the bias.** `offset + i*stride` means the columns
+   are always exactly `stride` apart (3 apart for 2 dropdowns, 2 apart for 3) — the absolute starting
+   column varied, but the *shape* of the layout (evenly spaced by a fixed skip) never did, which reads as
+   "always the same" regardless of how well the starting offset is distributed.
+
+**The fix.** Replaced the modular-arithmetic selection with a real Fisher-Yates shuffle of `candidates`,
+seeded by `levelNumber` via `mulberry32` (a new `ESCORT_COLUMN_SALT`, kept distinct from
+`ESCORT_OBJECTIVE_SALT` so the two RNG streams — "is this level escort" and "which columns" — aren't
+correlated) — the exact same PRNG and shuffle shape `shuffledBagOrder` already uses for the board-shape/
+blocker-id "feels predictable" fix (see that entry's own history; this is the same class of bug, fixed the
+same established way rather than a new ad hoc technique). Fully deterministic (same `levelNumber` -> same
+columns, every time), preserving the generator's core guarantee — only the *distribution and pattern* of
+column choices changed, not the determinism contract.
+
+**Verified two ways, not just "tests pass."** Re-ran the same diagnostic script against the fix: the
+resulting column-sets are visibly varied (irregular combinations like `[1,2,4]`, `[5,0,6]`, no fixed
+spacing) rather than rotations of one pattern. Also confirmed the new regression test
+(`appPersistence.test.ts`'s "real escort levels produce genuinely varied column sets") actually catches
+the *old* bug, not just passes trivially against the fix — ran the old buggy selection logic standalone
+against the same assertions and confirmed it fails them (9 distinct sets out of 20, below the required 12;
+old code's `maxCount` also exceeded its threshold).
+
+**Verification:** `npx jest` 878/878 (877 plus one new regression test). Not felt-verified live — the same
+standing gap disclosed elsewhere in this file for anything requiring many levels of real play to notice;
+the fix is confirmed correct by direct computation of the real generator output, not by playing through
+dozens of escort levels.
+
+## Level Map screen: a real tiled backdrop, replacing the flat gradient behind the scrollable map (2026-08-10)
+
+Kevin supplied a purpose-made seamless tile (`levelmap-background-tile.webp`, 512x512, a sage/cream
+floral pattern with no visible seam at any edge) and asked for it as the Level Map screen's background,
+noting it was "designed for seamless scrolling." Registered in `spriteRegistry.ts` alongside the other
+level-map decor assets and resolved through the existing `resolveSpriteAsset` path `LevelMap.tsx` already
+uses for its landmark sprites — no new asset-loading mechanism needed.
+
+**Placement: inside the ScrollView content, not behind it.** The screen's outer `LinearGradient` (the
+flat two-stop wash `Board.tsx`/`Home.tsx` also use) stays as the base layer — it still shows through the
+header above the map and behind the tile's own transparent-none edges — but the tile itself renders as
+the first child inside the scrollable content, sized to the full `contentHeight` (not just the visible
+viewport, which would leave the tile running out partway down a long or still-growing level list) so it
+scrolls together with the path and level nodes rather than sitting fixed behind them. Given the asset was
+explicitly built to repeat seamlessly, keeping it welded to the content it scrolls with is what actually
+exercises that property; a fixed viewport-sized backdrop would never move and the "seamless scrolling"
+design intent would go unused.
+
+**Tiling mechanism: `Image`'s built-in `resizeMode="repeat"`**, not a hand-rolled repeated-View grid like
+`GinghamTrim.tsx` uses for its checkerboard trim. `GinghamTrim` repeats a tiny solid-color cell it can
+cheaply redraw as plain `View`s; this is a real raster image, and RN's `repeat` mode (RN Web's own
+equivalent of CSS `background-repeat`) tiles it at native size instead of stretching — the correct
+built-in tool for this job, not a reason to reinvent tiling by hand.
+
+**Verified live over CDP** against the real running app (a real save at level 89, navigated to the real
+Level Map): `getComputedStyle` on the actual backing `div` confirmed `background-repeat: repeat` (not
+`stretch`/`cover`) and a element height of 21580px matching the real `contentHeight` for this save's level
+count, not just the viewport; screenshots at the top of the map and after scrolling ~1500px down both show
+the pattern continuing with no visible seam or gap, and the browser console showed zero errors.

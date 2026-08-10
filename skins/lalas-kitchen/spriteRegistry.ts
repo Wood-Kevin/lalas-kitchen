@@ -110,6 +110,15 @@ export const spriteRegistry: SpriteAssetMap = {
   'levelmap_garlic_crate.webp': require('./sprites/levelmap_garlic_crate.webp'),
   'levelmap_simmering_pot.webp': require('./sprites/levelmap_simmering_pot.webp'),
   'levelmap_recipe_box.webp': require('./sprites/levelmap_recipe_box.webp'),
+  // LevelMap.tsx's own scrollable-content backdrop (512x512, a seamless
+  // sage/cream tile, Kevin's own find, explicitly built to repeat with no
+  // visible seam) — rendered at Image resizeMode="repeat" behind the path/
+  // landmarks/nodes inside the ScrollView content, sized to the full
+  // (dynamically growing) contentHeight so it tiles down the whole map
+  // rather than just the viewport, matching the tile's own "designed for
+  // seamless scrolling" purpose. See engine/DECISIONS.md's
+  // levelmap-background-tile entry.
+  'levelmap-background-tile.webp': require('./sprites/levelmap-background-tile.webp'),
   // Recipe card illustrations — one per config.json recipeCards entry, keyed
   // by that entry's `sprite` field (see appPersistence.ts's
   // findRecipeCardForLevel). Real art landing here is the only change needed
