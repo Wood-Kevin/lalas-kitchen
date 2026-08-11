@@ -16,6 +16,10 @@ build/
 .env.*
 !.env.example
 
+# Google Play service account key (eas submit's Android credential) -- a real
+# secret, never committed. See eas.json's submit.production.android.
+google-play-service-account.json
+
 # OS
 .DS_Store
 
