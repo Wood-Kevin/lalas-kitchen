@@ -16,17 +16,35 @@ export interface LevelMapPathProps {
   shadowWidth: number;
 }
 
-// The real, smooth-curve rendering path — Metro can bundle react-native-svg
-// for a native target cleanly, so this is a straightforward per-segment
-// <Path> pair (a wide, low-opacity shadow stroke and a narrower color
-// stroke on top), one true cubic-bezier curve per node-to-node segment.
-// See LevelMapPath.web.tsx's sibling file for why web needs a different
-// implementation, and engine/DECISIONS.md's level-map-curve entry for the
-// full reasoning behind this platform split existing at all.
+// A real crash, caught live on a real Android device for the first time
+// (2026-08-11) — this file's original version wrapped every segment in ONE
+// <Svg width={mapWidth} height={contentHeight}>. contentHeight grows
+// unboundedly with a save's total level count (NODE_SPACING_Y=230px/level,
+// no windowing — see levelMapLayout.ts), so a save with meaningful play
+// history produces a single SVG canvas tens of thousands of CSS px tall —
+// and react-native-svg rasterizes that as one real bitmap, at real device
+// pixel density (2-3x on a modern phone), which blew past Android's
+// available texture/bitmap memory and force-closed the app with no JS
+// error (a native-level crash bypasses ErrorBoundary entirely, which is
+// exactly what the field report showed: force-close, no error screen).
+// This was disclosed as "never confirmed on a real device" when the true-
+// curve rendering was first built — that gap is exactly where this lived.
+//
+// Fix: one small <Svg> PER SEGMENT instead of one giant one. Each segment's
+// own d-string keeps its real, unmodified absolute content-space
+// coordinates (curveSegmentToPathD is untouched) — only the *canvas* a
+// segment rasterizes into shrinks, via `viewBox` panning into just that
+// segment's own local Y-slice of the shared coordinate space while the
+// <Svg> itself is absolutely positioned at that same slice's top. A cubic
+// bezier is guaranteed to lie within the convex hull of its 4 control
+// points, so bounding each segment's local canvas by the min/max Y across
+// {start, control1, control2, end} (plus a shadowWidth margin so the wide
+// shadow stroke's rounded cap never clips at a segment boundary) is a real
+// mathematical guarantee, not a visual approximation — the curve never
+// looks different, only how many small bitmaps it's split across.
 export function LevelMapPath({
   segments,
   mapWidth,
-  contentHeight,
   currentIndex,
   walkedColor,
   litColor,
@@ -36,19 +54,25 @@ export function LevelMapPath({
   shadowWidth,
 }: LevelMapPathProps) {
   return (
-    <Svg
-      pointerEvents="none"
-      style={styles.svg}
-      width={mapWidth}
-      height={contentHeight}
-      viewBox={`0 0 ${mapWidth} ${contentHeight}`}
-    >
+    <>
       {segments.map((segment, i) => {
         const walked = currentIndex >= 0 && i < currentIndex;
         const lit = currentIndex >= 0 && (i === currentIndex - 1 || i === currentIndex);
         const d = curveSegmentToPathD(segment);
+        const ys = [segment.start.y, segment.control1.y, segment.control2.y, segment.end.y];
+        const margin = shadowWidth;
+        const top = Math.min(...ys) - margin;
+        const bottom = Math.max(...ys) + margin;
+        const height = bottom - top;
         return (
-          <React.Fragment key={`segment-${i}`}>
+          <Svg
+            key={`segment-${i}`}
+            pointerEvents="none"
+            style={[styles.svg, { top, height }]}
+            width={mapWidth}
+            height={height}
+            viewBox={`0 ${top} ${mapWidth} ${height}`}
+          >
             <Path
               d={d}
               fill="none"
@@ -65,10 +89,10 @@ export function LevelMapPath({
               strokeLinecap="round"
               strokeOpacity={walked ? 0.92 : lit ? 0.9 : 0.62}
             />
-          </React.Fragment>
+          </Svg>
         );
       })}
-    </Svg>
+    </>
   );
 }
 
@@ -76,6 +100,5 @@ const styles = StyleSheet.create({
   svg: {
     position: 'absolute',
     left: 0,
-    top: 0,
   },
 });
