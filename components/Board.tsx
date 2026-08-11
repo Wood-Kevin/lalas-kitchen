@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from './AppText';
 import {
@@ -1572,10 +1572,11 @@ export function Board({
             // absoluteFillObject 0/0/0 — no compensation, since none is
             // actually needed on this platform.
             //
-            // The explicit width/height: '100%' below are still load-bearing
-            // — a separate, real bug (also found via direct DOM inspection,
-            // not guessed): on React Native Web specifically (not native), an
-            // Image positioned only via inset properties (no explicit
+            // The explicit width/height: '100%' below (web only, see the
+            // Platform check) are still load-bearing there — a separate,
+            // real bug (also found via direct DOM inspection, not guessed):
+            // on React Native Web specifically (not native), an Image
+            // positioned only via inset properties (no explicit
             // width/height) renders at its raw NATURAL pixel size
             // (1024x1536 here) instead of stretching to fill the positioned
             // box — confirmed by the live computed style showing literal
@@ -1587,7 +1588,30 @@ export function Board({
             // `overflow: 'hidden'`. Explicit width/height forces it to
             // actually size against the box the inset properties define,
             // which is what lets `resizeMode` scale it correctly.
-            style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%' }]}
+            //
+            // Real production crash's sibling bug (2026-08-11, same field
+            // report as the Level Map crash — "the board is pushed to the
+            // left" on a real device): adding that explicit width/height ON
+            // TOP OF absoluteFillObject's own top/left/right/bottom: 0 is an
+            // over-constrained, redundant size specification, and confirmed
+            // via a real adb/uiautomator dump on a Galaxy S24 Ultra
+            // (SM-S928U, Android 16, a device with a display-density
+            // override) that Android resolves the conflict incorrectly: the
+            // ImageView measured [0,97][1017,2182] against its parent's real
+            // [0,97][1080,2214] — short by exactly 63px width / 32px height,
+            // ALWAYS on the right/bottom, never the left/top. That's what
+            // read as "pushed left": the missing background art left a
+            // solid-color stripe of the screen's own gradient showing on the
+            // right, not the actual tile grid being mispositioned (a real
+            // adb-measured check of the tile grid itself showed a negligible
+            // 2px left/right margin difference, well within rounding). Web
+            // needs the explicit width/height; native's redundant with
+            // absoluteFillObject's own insets and is exactly what broke here
+            // — so this is now platform-conditional instead of shared.
+            style={[
+              StyleSheet.absoluteFillObject,
+              Platform.OS === 'web' ? { width: '100%', height: '100%' } : null,
+            ]}
             // "cover", not "contain": confirmed live (a real DIV's
             // background-size, not the misleading hidden accessibility <img>
             // element's own object-fit) that "contain" was genuinely
