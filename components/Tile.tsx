@@ -811,7 +811,21 @@ function SpreadWarningOverlay({
 // engine/gameState.ts's LevelConfig.layerCells) never reads as fully opaque —
 // the piece underneath should stay legible as a real, matchable piece the
 // whole time.
-const LAYER_OPACITY_STEP = 0.22;
+//
+// Raised from 0.22 (real playtest report, 2026-08-11: cleared "Dusty Counter"
+// down to 6/8 and couldn't spot the last dust on the board — not a logic
+// bug, engine/gameState.ts's layerCells and the objective counter agreed;
+// the wash at 1 layer remaining was just too faint to notice). Computed
+// against the actual panel color (skins/lalas-kitchen/config.json's
+// palette.panel, #FBF3E1, the same contrast concern the layerWash color
+// comment below already flagged once): the old step blended a 1-layer cell
+// to within ~20 RGB units of the bare panel; 0.34 roughly doubles that to
+// ~40 units, and 2 layers (capped below at 0.72, not the old 0.66, so the
+// step's 2x relationship isn't clipped away) blends to ~80 units, clearly
+// darker than the 1-layer case. Not yet confirmed by an actual on-device
+// look — computed contrast, not eyeballed, same disclosed-gap shape the
+// sound redesign work used.
+const LAYER_OPACITY_STEP = 0.34;
 
 function LayerOverlay({ layersRemaining }: { layersRemaining: number }) {
   return (
@@ -820,7 +834,7 @@ function LayerOverlay({ layersRemaining }: { layersRemaining: number }) {
       testID="layer-overlay"
       style={[
         styles.layerWash,
-        { opacity: Math.min(0.66, layersRemaining * LAYER_OPACITY_STEP) },
+        { opacity: Math.min(0.72, layersRemaining * LAYER_OPACITY_STEP) },
       ]}
     />
   );
@@ -1898,7 +1912,11 @@ const styles = StyleSheet.create({
   // #FFFBEF here being nearly identical to that panel color, so alpha-
   // blending it in at any of this overlay's opacities changed the rendered
   // pixels by only 1-3 RGB units, invisible in practice despite the overlay
-  // mounting and computing its opacity correctly the whole time.
+  // mounting and computing its opacity correctly the whole time. That first
+  // fix (to #A69984) wasn't enough on its own — a second real report
+  // (2026-08-11) still found the wash hard to see — so this is now a deeper,
+  // more saturated taupe, paired with the higher LAYER_OPACITY_STEP above
+  // (same warm neutral "dust" family, not a shift toward a hazard color).
   layerWash: {
     position: 'absolute',
     top: 0,
@@ -1906,7 +1924,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 8,
-    backgroundColor: '#A69984',
+    backgroundColor: '#8A7860',
   },
   // The stuck-player hint's layers — a full-tile container plus a single
   // breathing glow wash, deliberately just these two (no dim, no crack) so it
