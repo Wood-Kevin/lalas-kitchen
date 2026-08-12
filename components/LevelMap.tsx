@@ -13,6 +13,7 @@ import { StarRating } from './wonActions';
 import {
   computeLevelMapCurveSegments,
   computeLevelMapNodePositions,
+  computeLevelMapVisibleRange,
   computeScrollOffsetToCenter,
   levelMapContentHeight,
 } from './levelMapLayout';
@@ -42,6 +43,18 @@ const PATH_SHADOW_WIDTH = 26;
 const PATH_SHADOW_COLOR = '#A58B67';
 const CAPTION_BLOCK_HEIGHT = 32;
 const MAP_BOTTOM_PADDING = 180;
+
+// How far beyond the raw viewport (in both directions) a node/segment/
+// landmark stays mounted — see computeLevelMapVisibleRange's own doc
+// comment for why this windowing exists at all. Generous relative to a
+// typical phone viewport so SCROLL_EVENT_THROTTLE_MS's lag between updates
+// never causes visible pop-in; still a small, bounded window regardless of
+// how deep a save's level count grows.
+const VISIBLE_RANGE_BUFFER = 900;
+// A scroll-position listener doesn't need every frame — this only feeds the
+// windowing range above, which already has a wide buffer built in to
+// absorb the lag between updates.
+const SCROLL_EVENT_THROTTLE_MS = 50;
 
 const START_GATE_SPRITE = 'levelmap_garden_gate.webp';
 const RECIPE_BOX_SPRITE = 'levelmap_recipe_box.webp';
@@ -154,6 +167,12 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
   const scrollRef = useRef<ScrollView>(null);
   const [mapWidth, setMapWidth] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  // Tracks the actual scroll offset so rendering can window around it — see
+  // computeLevelMapVisibleRange. Seeded to the same y the auto-scroll-to-
+  // current-level effect below jumps to, not left at 0, so the window is
+  // already correct on the very first frame instead of briefly showing the
+  // top of the map before the real position is known.
+  const [scrollY, setScrollY] = useState(0);
 
   const positions = useMemo(() => computeLevelMapNodePositions(levels.length), [levels.length]);
   const contentHeight = useMemo(() => levelMapContentHeight(levels.length) + MAP_BOTTOM_PADDING, [levels.length]);
@@ -170,10 +189,36 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
     [levels, points, mapWidth, currentIndex, config]
   );
 
+  // Which node indices are actually worth mounting right now — computed
+  // from real, cheap position math over the FULL levels/points/segments
+  // arrays above; only the render below uses this to slice down to a small
+  // window, regardless of how many levels the save has completed. See
+  // computeLevelMapVisibleRange's own doc comment for the real-device lag
+  // this fixes.
+  const visibleRange = useMemo(
+    () => computeLevelMapVisibleRange(scrollY, viewportHeight, levels.length, VISIBLE_RANGE_BUFFER),
+    [scrollY, viewportHeight, levels.length]
+  );
+  // A segment connects node i to node i+1, so the segment just before the
+  // first visible node is still on-screen (its far end lands on a visible
+  // node) — widen by one on the low side to cover it.
+  const segmentRange = {
+    startIndex: Math.max(0, visibleRange.startIndex - 1),
+    endIndex: Math.min(segments.length, visibleRange.endIndex),
+  };
+  const visibleTop = scrollY - VISIBLE_RANGE_BUFFER;
+  const visibleBottom = scrollY + viewportHeight + VISIBLE_RANGE_BUFFER;
+  const visibleLandmarks = useMemo(
+    () => landmarks.filter((landmark) => landmark.y + landmark.height / 2 >= visibleTop && landmark.y - landmark.height / 2 <= visibleBottom),
+    [landmarks, visibleTop, visibleBottom]
+  );
+
   useEffect(() => {
     if (mapWidth === 0 || viewportHeight === 0 || currentIndex < 0) return;
     const targetY = points[currentIndex]?.y ?? 0;
-    scrollRef.current?.scrollTo({ y: computeScrollOffsetToCenter(targetY, viewportHeight), animated: false });
+    const offset = computeScrollOffsetToCenter(targetY, viewportHeight);
+    scrollRef.current?.scrollTo({ y: offset, animated: false });
+    setScrollY(offset);
   }, [mapWidth, viewportHeight, currentIndex, points]);
 
   return (
@@ -217,6 +262,8 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           style={styles.scroll}
           contentContainerStyle={{ height: contentHeight }}
           showsVerticalScrollIndicator={false}
+          onScroll={(event) => setScrollY(event.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={SCROLL_EVENT_THROTTLE_MS}
         >
           {mapWidth > 0 &&
             (() => {
@@ -239,7 +286,7 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
             })()}
 
           {mapWidth > 0 &&
-            landmarks.map((landmark) => {
+            visibleLandmarks.map((landmark) => {
               const sprite = resolveSpriteAsset(landmark.spritePath, spriteAssets);
               const left = mapWidth * landmark.xFraction - landmark.width / 2;
               return (
@@ -271,7 +318,9 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
 
           {mapWidth > 0 && (
             <LevelMapPath
-              segments={segments}
+              segments={segments
+                .slice(segmentRange.startIndex, segmentRange.endIndex)
+                .map((segment, i) => ({ segment, index: segmentRange.startIndex + i }))}
               mapWidth={mapWidth}
               contentHeight={contentHeight}
               currentIndex={currentIndex}
@@ -285,17 +334,20 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           )}
 
           {mapWidth > 0 &&
-            levels.map((level, i) => (
-              <LevelNode
-                key={level.levelIndex}
-                level={level}
-                config={config}
-                x={points[i].x}
-                y={points[i].y}
-                isRecipeMilestone={config.recipeCards.some((card) => card.milestoneLevel === level.levelIndex)}
-                onPlayLevel={onPlayLevel}
-              />
-            ))}
+            levels.slice(visibleRange.startIndex, visibleRange.endIndex).map((level, offset) => {
+              const i = visibleRange.startIndex + offset;
+              return (
+                <LevelNode
+                  key={level.levelIndex}
+                  level={level}
+                  config={config}
+                  x={points[i].x}
+                  y={points[i].y}
+                  isRecipeMilestone={config.recipeCards.some((card) => card.milestoneLevel === level.levelIndex)}
+                  onPlayLevel={onPlayLevel}
+                />
+              );
+            })}
         </ScrollView>
       </View>
     </LinearGradient>

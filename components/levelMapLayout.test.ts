@@ -1,6 +1,7 @@
 import {
   computeLevelMapCurveSegments,
   computeLevelMapNodePositions,
+  computeLevelMapVisibleRange,
   computeScrollOffsetToCenter,
   curveSegmentToPathD,
   levelMapContentHeight,
@@ -161,5 +162,49 @@ describe('computeScrollOffsetToCenter', () => {
 
   test('clamps to 0 rather than a negative offset for a node near the very top', () => {
     expect(computeScrollOffsetToCenter(50, 800)).toBe(0);
+  });
+});
+
+describe('computeLevelMapVisibleRange', () => {
+  // The whole point of this function: a deep save must not fall back to
+  // rendering every node, which is exactly the reported real-device lag
+  // this was built to fix.
+  test('a deep save at the top of the scroll only needs a small window, not the whole count', () => {
+    const range = computeLevelMapVisibleRange(0, 800, 100, 0);
+    expect(range).toEqual({ startIndex: 0, endIndex: 4 });
+  });
+
+  test('a larger buffer widens the range on both sides', () => {
+    const range = computeLevelMapVisibleRange(0, 800, 100, 230);
+    expect(range).toEqual({ startIndex: 0, endIndex: 5 });
+  });
+
+  // Scrolled deep into a long save: the range tracks the scroll position,
+  // not the top of the content, and stays small — never anywhere close to
+  // the full 100-node count.
+  test('scrolling deep into a long save windows around the scroll position, not the full count', () => {
+    const range = computeLevelMapVisibleRange(5000, 800, 100, 0);
+    expect(range).toEqual({ startIndex: 21, endIndex: 26 });
+    expect(range.endIndex - range.startIndex).toBeLessThan(100);
+  });
+
+  test('startIndex never goes negative and endIndex never exceeds count, even with a huge buffer', () => {
+    const range = computeLevelMapVisibleRange(0, 800, 10, 100000);
+    expect(range.startIndex).toBe(0);
+    expect(range.endIndex).toBe(10);
+  });
+
+  test('a not-yet-measured viewport (height 0) falls back to the full range rather than rendering nothing', () => {
+    expect(computeLevelMapVisibleRange(0, 0, 20, 200)).toEqual({ startIndex: 0, endIndex: 20 });
+  });
+
+  test('zero levels yields an empty range', () => {
+    expect(computeLevelMapVisibleRange(0, 800, 0, 200)).toEqual({ startIndex: 0, endIndex: 0 });
+  });
+
+  test('is deterministic — the same inputs always produce the same range', () => {
+    expect(computeLevelMapVisibleRange(1200, 700, 60, 300)).toEqual(
+      computeLevelMapVisibleRange(1200, 700, 60, 300)
+    );
   });
 });

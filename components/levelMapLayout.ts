@@ -144,3 +144,39 @@ export function sampleCurveSegment(segment: LevelMapCurveSegment, steps: number)
 export function computeScrollOffsetToCenter(nodeY: number, viewportHeight: number): number {
   return Math.max(0, nodeY - viewportHeight / 2);
 }
+
+export interface LevelMapVisibleRange {
+  // Inclusive.
+  startIndex: number;
+  // Exclusive, like Array.slice's own second argument — so callers can pass
+  // this pair straight into `.slice(startIndex, endIndex)`.
+  endIndex: number;
+}
+
+// Which node indices actually need to be mounted for the current scroll
+// position — the fix for a real reported lag: this map keeps every
+// completed level forever (see levelMapContentHeight's own doc comment,
+// NODE_SPACING_Y below), and LevelMap.tsx used to mount a LevelNode, a path
+// segment, AND a journey landmark for every single one regardless of scroll
+// position — a deep save (90+ levels) meant thousands of simultaneously-live
+// native views (react-native-svg's own per-segment <Svg> split, plus the web
+// fallback's ~20 Views per segment, plus each node's own medallion/badge/
+// star-row cluster), none of it windowed. Positions are evenly spaced
+// (NODE_SPACING_Y), so the visible range is a direct O(1) computation, not a
+// scan. `buffer` extends the range beyond the raw viewport in both
+// directions so nodes are already mounted before they scroll into view —
+// generous enough that a throttled onScroll listener's lag between updates
+// never causes visible pop-in.
+export function computeLevelMapVisibleRange(
+  scrollY: number,
+  viewportHeight: number,
+  count: number,
+  buffer: number
+): LevelMapVisibleRange {
+  if (count <= 0 || viewportHeight <= 0) return { startIndex: 0, endIndex: count };
+  const topY = scrollY - buffer;
+  const bottomY = scrollY + viewportHeight + buffer;
+  const startIndex = Math.max(0, Math.floor((topY - TOP_PADDING) / NODE_SPACING_Y));
+  const endIndex = Math.min(count, Math.ceil((bottomY - TOP_PADDING) / NODE_SPACING_Y) + 1);
+  return { startIndex, endIndex };
+}

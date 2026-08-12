@@ -3,8 +3,19 @@ import { StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { curveSegmentToPathD, LevelMapCurveSegment } from './levelMapLayout';
 
+export interface LevelMapPathSegmentEntry {
+  segment: LevelMapCurveSegment;
+  // The segment's own absolute index into the FULL segments array — not its
+  // position in `segments` below, which may be a windowed slice (see
+  // LevelMap.tsx's segmentRange). walked/lit color decisions compare this
+  // against currentIndex, which is itself an absolute index, so using the
+  // slice position here would miscolor every segment once windowing trims
+  // anything before it.
+  index: number;
+}
+
 export interface LevelMapPathProps {
-  segments: LevelMapCurveSegment[];
+  segments: LevelMapPathSegmentEntry[];
   mapWidth: number;
   contentHeight: number;
   currentIndex: number;
@@ -55,7 +66,7 @@ export function LevelMapPath({
 }: LevelMapPathProps) {
   return (
     <>
-      {segments.map((segment, i) => {
+      {segments.map(({ segment, index: i }) => {
         const walked = currentIndex >= 0 && i < currentIndex;
         const lit = currentIndex >= 0 && (i === currentIndex - 1 || i === currentIndex);
         const d = curveSegmentToPathD(segment);

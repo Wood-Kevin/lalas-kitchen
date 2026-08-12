@@ -2,8 +2,16 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { LevelMapCurveSegment, sampleCurveSegment } from './levelMapLayout';
 
+export interface LevelMapPathSegmentEntry {
+  segment: LevelMapCurveSegment;
+  // See LevelMapPath.native.tsx's identical field for why this is needed —
+  // the same windowed-slice-vs-absolute-index reasoning applies to both
+  // platform variants equally.
+  index: number;
+}
+
 export interface LevelMapPathProps {
-  segments: LevelMapCurveSegment[];
+  segments: LevelMapPathSegmentEntry[];
   mapWidth: number;
   contentHeight: number;
   currentIndex: number;
@@ -46,7 +54,7 @@ export function LevelMapPath({
 }: LevelMapPathProps) {
   return (
     <>
-      {segments.map((segment, i) => {
+      {segments.map(({ segment, index: i }) => {
         const walked = currentIndex >= 0 && i < currentIndex;
         const lit = currentIndex >= 0 && (i === currentIndex - 1 || i === currentIndex);
         const points = sampleCurveSegment(segment, SAMPLES_PER_SEGMENT);
