@@ -55,6 +55,11 @@ const VISIBLE_RANGE_BUFFER = 900;
 // windowing range above, which already has a wide buffer built in to
 // absorb the lag between updates.
 const SCROLL_EVENT_THROTTLE_MS = 50;
+// The background tile's own real pixel dimensions (skins/lalas-kitchen/
+// sprites/levelmap-background-tile.webp is a 512x512 WebP) — see the
+// background-tile render below for why this is hand-tiled instead of using
+// Image's resizeMode="repeat".
+const TILE_SIZE = 512;
 
 const START_GATE_SPRITE = 'levelmap_garden_gate.webp';
 const RECIPE_BOX_SPRITE = 'levelmap_recipe_box.webp';
@@ -268,21 +273,63 @@ export function LevelMap({ config, spriteAssets, levels, completedCount, lives, 
           {mapWidth > 0 &&
             (() => {
               const backgroundTile = resolveSpriteAsset('levelmap-background-tile.webp', spriteAssets);
-              return backgroundTile.kind === 'image' ? (
-                <Image
-                  source={backgroundTile.source}
-                  // Sized to the full scroll content, not just the viewport,
-                  // so the tile keeps repeating as the player scrolls rather
-                  // than running out partway down a long (or still-growing)
-                  // level list. resizeMode="repeat" tiles at the asset's own
-                  // native pixel size (RN's built-in equivalent of CSS
-                  // background-repeat) instead of stretching it, which is
-                  // what actually makes a seamless tile read as seamless.
-                  style={{ position: 'absolute', top: 0, left: 0, width: mapWidth, height: contentHeight }}
-                  resizeMode="repeat"
-                  pointerEvents="none"
-                />
-              ) : null;
+              if (backgroundTile.kind !== 'image') return null;
+              // A real device report (2026-08-11): this rendered correctly on
+              // web but was entirely invisible on a real phone. `resizeMode=
+              // "repeat"` was the ONLY use of that value anywhere in this
+              // codebase — every other Image uses cover/contain — and RN
+              // Web's Image maps "repeat" straight onto CSS
+              // background-repeat, a mature browser primitive with no native
+              // equivalent guarantee; React Native's own native Image
+              // implementation has long-documented inconsistent/unreliable
+              // "repeat" support, particularly on Android. Not confirmed by
+              // attaching to a real device this session (none available),
+              // but this matches the project's own established pattern of
+              // RN Web silently papering over a native-only gap (the
+              // board-background sizing bug, the react-native-svg web-bundle
+              // break) closely enough that it's the clear leading
+              // explanation, not a guess picked at random.
+              //
+              // Fix: hand-roll the tiling instead of trusting "repeat" at
+              // all — the same "reproduce a built-in with plain Views/Images
+              // when the primitive doesn't behave the same cross-platform"
+              // convention GinghamTrim.tsx and LevelMapPath.web.tsx already
+              // established. Tiles are TILE_SIZE (the asset's own real
+              // 512x512 native pixels) laid out on a grid ANCHORED AT THE
+              // CONTENT ORIGIN (row/col derived from absolute y/x, not from
+              // scrollY), so the pattern never visibly seams or shifts as
+              // the window below changes which tiles are actually mounted.
+              // Windowed to the same visible y-range as everything else on
+              // this screen (see VISIBLE_RANGE_BUFFER) rather than the full
+              // contentHeight — a 94-level-deep map at a 512px tile size
+              // would otherwise be well over a hundred unconditionally-
+              // mounted tile images, the exact class of problem this
+              // session's other Level Map fix already solved for nodes/
+              // segments/landmarks.
+              const firstRow = Math.max(0, Math.floor(visibleTop / TILE_SIZE));
+              const lastRow = Math.max(firstRow, Math.ceil(visibleBottom / TILE_SIZE));
+              const cols = Math.ceil(mapWidth / TILE_SIZE);
+              const tiles = [];
+              for (let row = firstRow; row <= lastRow; row++) {
+                for (let col = 0; col < cols; col++) {
+                  tiles.push(
+                    <Image
+                      key={`bg-${row}-${col}`}
+                      source={backgroundTile.source}
+                      style={{
+                        position: 'absolute',
+                        top: row * TILE_SIZE,
+                        left: col * TILE_SIZE,
+                        width: TILE_SIZE,
+                        height: TILE_SIZE,
+                      }}
+                      resizeMode="stretch"
+                      pointerEvents="none"
+                    />
+                  );
+                }
+              }
+              return tiles;
             })()}
 
           {mapWidth > 0 &&
